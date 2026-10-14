@@ -9,6 +9,7 @@ import type {
   TextNode,
   UINode,
   UIPage,
+  VectorNode,
 } from './types';
 import { isContainer } from './types';
 
@@ -187,6 +188,7 @@ const kindName: Record<NodeKind, string> = {
   STAR: 'Star',
   SECTION: 'Section',
   SLICE: 'Slice',
+  VECTOR: 'Vector',
 };
 
 export function createNode(kind: NodeKind, overrides: Partial<{ id: string; name: string }> = {}): UINode {
@@ -209,6 +211,11 @@ export function createNode(kind: NodeKind, overrides: Partial<{ id: string; name
   }
   if (kind === 'OVAL' || kind === 'LINE' || kind === 'POLYGON' || kind === 'STAR' || kind === 'SLICE') {
     const node: ShapeNode = { id, name, type: kind, layout, style };
+    return node;
+  }
+  if (kind === 'VECTOR') {
+    // FR-21：默认空 path（M0 0）占位，钢笔工具写入真实 d；渲染/出码按空 path 跳过
+    const node: VectorNode = { id, name, type: 'VECTOR', layout, style, vector: { d: 'M 0 0' } };
     return node;
   }
   const node: ContainerNode = {

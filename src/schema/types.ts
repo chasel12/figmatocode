@@ -1,4 +1,4 @@
-export type NodeKind = 'PAGE' | 'FRAME' | 'SECTION' | 'SLICE' | 'TEXT' | 'IMAGE' | 'RECTANGLE' | 'BUTTON' | 'OVAL' | 'LINE' | 'POLYGON' | 'STAR';
+export type NodeKind = 'PAGE' | 'FRAME' | 'SECTION' | 'SLICE' | 'TEXT' | 'IMAGE' | 'RECTANGLE' | 'BUTTON' | 'OVAL' | 'LINE' | 'POLYGON' | 'STAR' | 'VECTOR';
 
 export type SizeMode = 'FIXED' | 'FILL' | 'HUG';
 export type LayoutMode = 'VERTICAL' | 'HORIZONTAL' | 'ABSOLUTE';
@@ -213,6 +213,124 @@ export interface ExportSetting {
   suffix?: string;
 }
 
+/* =============================================================
+ * D0 Schema 定稿（2026-10-14）—— M4 矢量/组件 + M5 原型 + FR-20 余项
+ * 规则：全部可选字段 + 旧 JSON 缺省即旧行为；单点写入，各轨道只消费不重定义。
+ * ============================================================= */
+
+/** FR-21/49 矢量路径：SVG path d 语法为唯一数据源（钢笔写入、布尔产出、出码直接复用）。
+ *  坐标为节点本地系（相对节点左上角），尺寸缺省取 layout width/height。 */
+export interface VectorData {
+  /** SVG path d（M/L/C/Q/Z…，本地坐标系） */
+  d: string;
+  /** viewBox 宽（缺省用 layout.width） */
+  width?: number;
+  /** viewBox 高（缺省用 layout.height） */
+  height?: number;
+  /** fill-rule（缺省 nonzero；布尔 Subtract/Exclude 常用 evenodd） */
+  fillRule?: 'nonzero' | 'evenodd';
+}
+
+/** FR-25 组件：主组件定义挂 root 级（不参与画布渲染），实例节点引用 componentId。
+ *  实例 = 深拷贝快照 + componentId 标记；Detach 即删除 componentId/overrides。 */
+export interface ComponentDef {
+  id: string;
+  name: string;
+  /** 主组件内容（单根子树；PAGE 包裹以保证独立可渲染） */
+  root: ContainerNode;
+  /** FR-29 变体组：组名 + 本组件在该组下的取值（如 State=hover） */
+  variantProps?: Record<string, string>;
+  /** 创建时间序（Assets 排序用） */
+  createdAt?: number;
+}
+
+/** FR-25 实例覆盖：属性路径 → 覆盖值（Detach 前可回填主组件变更） */
+export interface InstanceOverride {
+  path: string;
+  value: unknown;
+}
+
+/** FR-27 样式（Paint/Text Style）：命名样式，节点引用 tokenId；样式改 → 引用者同步。
+ *  引用表达：节点 style 内 styleTokenId 字段（下增）；Detach 即删该字段。 */
+export interface StyleToken {
+  id: string;
+  name: string;
+  kind: 'PAINT' | 'TEXT';
+  /** 应用到节点的 style 片段（浅合并进节点 style） */
+  style: Partial<StyleSchema>;
+  /** FR-28 tokens.css 变量名（--color-primary 形态；导出用） */
+  cssVar?: string;
+}
+
+/** FR-40 原型动作七类 P0（CHANGE_TO 随 FR-29 变体后并） */
+export type PrototypeActionKind =
+  | 'NAVIGATE' | 'BACK' | 'SCROLL' | 'OPEN_LINK' | 'CLOSE'
+  | 'OPEN_OVERLAY' | 'CLOSE_OVERLAY' | 'CHANGE_TO';
+
+/** FR-39 触发器十类（P0 实现 ON_CLICK/ON_HOVER/ON_PRESS/AFTER_TIMEOUT/KEYDOWN；其余后并） */
+export type PrototypeTriggerKind =
+  | 'ON_CLICK' | 'ON_HOVER' | 'ON_PRESS' | 'ON_DRAG' | 'AFTER_TIMEOUT'
+  | 'MOUSE_ENTER' | 'MOUSE_LEAVE' | 'KEYDOWN' | 'TOUCH' | 'ON_LOAD';
+
+/** FR-41 过渡：INSTANT 即无动画；easing 五档出码 cubic-bezier（CUSTOM 用 bezier 四值） */
+export interface PrototypeTransition {
+  kind: 'INSTANT' | 'DISSOLVE' | 'SMART_ANIMATE' | 'MOVE_IN' | 'MOVE_OUT' | 'PUSH' | 'SLIDE_IN' | 'SLIDE_OUT';
+  /** ms（INSTANT 忽略） */
+  duration?: number;
+  easing?: 'LINEAR' | 'EASE_IN' | 'EASE_OUT' | 'EASE_IN_OUT' | 'EASE_IN_BACK' | 'CUSTOM';
+  /** CUSTOM 时四值 cubic-bezier */
+  bezier?: [number, number, number, number];
+  /** MOVE/PUSH/SLIDE 方向 */
+  direction?: 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
+}
+
+export interface PrototypeInteraction {
+  id: string;
+  trigger: PrototypeTriggerKind;
+  /** AFTER_TIMEOUT 时 ms */
+  timeoutMs?: number;
+  /** KEYDOWN 时键名（如 'Escape'） */
+  key?: string;
+  action: PrototypeActionKind;
+  /** NAVIGATE/OPEN_OVERLAY/CHANGE_TO 目标（BACK/CLOSE/CLOSE_OVERLAY/OPEN_LINK 免） */
+  targetId?: string;
+  /** OPEN_LINK 时 URL */
+  url?: string;
+  /** SCROLL 行为 */
+  scrollBehavior?: 'TOP' | 'BOTTOM' | 'POINT';
+  transition?: PrototypeTransition;
+  /** OPEN_OVERLAY 定位九宫（相对视口） */
+  overlayPosition?:
+    | 'TOP_LEFT' | 'TOP_CENTER' | 'TOP_RIGHT'
+    | 'CENTER' | 'BOTTOM_LEFT' | 'BOTTOM_CENTER' | 'BOTTOM_RIGHT'
+    | 'MANUAL' | 'PRESET';
+  /** OPEN_OVERLAY 点外行为 */
+  overlayCloseOnOutside?: boolean;
+  /** CHANGE_TO 目标变体值（variantProps 快照） */
+  changeToVariant?: Record<string, string>;
+}
+
+/** FR-39 Flow：原型流程起点标记 + 演示分组（默认 Flow = 全部未标记页面） */
+export interface FlowDef {
+  id: string;
+  name: string;
+  /** 起点 Frame 的节点 id（蓝标） */
+  startNodeId?: string;
+  /** 参与本流程的页面 id 列表（空 = 全部） */
+  pageIds?: string[];
+}
+
+/** FR-20 余项：图片 7 项调整（出码合成 CSS filter；画布渲染近似，轨道内报备） */
+export interface ImageAdjustments {
+  exposure?: number;
+  contrast?: number;
+  saturation?: number;
+  temperature?: number;
+  tint?: number;
+  highlights?: number;
+  shadows?: number;
+}
+
 interface NodeBase {
   id: string;
   name?: string;
@@ -224,6 +342,20 @@ interface NodeBase {
   visible?: boolean;
   /** FR-24 导出预设列表（可多条）；旧项目 JSON 缺省即无导出设置 */
   exportSettings?: ExportSetting[];
+  /** FR-21/49 矢量数据（VECTOR 节点专用；钢笔写入、布尔产出、SVG 出码直接复用） */
+  vector?: VectorData;
+  /** FR-25 组件实例标记：指向 root 级 ComponentDef.id；缺省 = 普通节点 */
+  componentId?: string;
+  /** FR-25 实例覆盖（与 componentId 同用；Detach 一并删除） */
+  instanceOverrides?: InstanceOverride[];
+  /** FR-27 样式引用（挂 style 内语义写在 StyleSchema；此处冗余导航字段不设——单点表达在 styleTokenId） */
+  styleTokenId?: string;
+  /** FR-39 原型交互列表（通常挂 Frame；数组序=执行序） */
+  interactions?: PrototypeInteraction[];
+  /** FR-43 Flow 起点标记（Set flow starting point） */
+  flowStart?: boolean;
+  /** FR-20 余项：图片调整（IMAGE 节点专用） */
+  imageAdjustments?: ImageAdjustments;
 }
 
 export interface ContainerNode extends NodeBase {
@@ -251,7 +383,12 @@ export interface ShapeNode extends NodeBase {
   type: 'OVAL' | 'LINE' | 'POLYGON' | 'STAR' | 'SLICE';
 }
 
-export type UINode = ContainerNode | TextNode | ButtonNode | ImageNode | ShapeNode;
+/** FR-21/49 矢量叶子：钢笔/布尔产出；渲染与出码均走 vector.d（SVG path） */
+export interface VectorNode extends NodeBase {
+  type: 'VECTOR';
+}
+
+export type UINode = ContainerNode | TextNode | ButtonNode | ImageNode | ShapeNode | VectorNode;
 
 export interface Viewport {
   width: number;
@@ -263,6 +400,20 @@ export interface UIPage {
   name: string;
   viewport: Viewport;
   root: ContainerNode;
+}
+
+/** UIProject v1.1：多 Page + 组件 + 样式 + Flow 的工程级容器（M5 起；page 单页 JSON 继续兼容）。
+ *  序列化契约：File→保存 写 project v2（含 pages/components/tokens/flows）；File→打开 双向兼容 v1（单 page）与 v2。 */
+export interface UIProject {
+  version: 2;
+  name: string;
+  pages: UIPage[];
+  /** FR-25 主组件表（id → def；实例节点以 componentId 引用） */
+  components: Record<string, ComponentDef>;
+  /** FR-27 样式表（PAINT/TEXT） */
+  tokens: StyleToken[];
+  /** FR-39 原型流程 */
+  flows: FlowDef[];
 }
 
 export function isContainer(node: UINode): node is ContainerNode {
