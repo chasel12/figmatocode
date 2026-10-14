@@ -1,0 +1,793 @@
+# 开发日志
+
+> 用途：记录每次修改的目标与结果，防止上下文清理后丢失关键记忆。
+> 规则：每次修改完成后追加一条记录，不修改历史记录。
+
+---
+
+## 记录格式
+
+```markdown
+### [日期 时间] 记录标题
+
+**目标**：本次修改想解决什么问题 / 实现什么功能
+
+**修改内容**：
+- 涉及文件：`path/to/file`
+- 关键改动点：...
+
+**结果**：完成 / 部分完成 / 失败，实际效果如何
+
+**验证方式**：如何确认改对了（命令、测试、人工检查）
+
+**遗留问题**：未完成事项、下一步计划（没有则写"无"）
+```
+
+---
+
+## 日志
+
+### [2026-10-01] 初始化开发日志
+
+**目标**：建立日志机制，记录每次修改的目标与结果，避免上下文清理丢失重要记忆。
+
+**修改内容**：
+- 新增文件：`LOG.md`（本文件）
+- 确定日志格式：目标 / 修改内容 / 结果 / 验证方式 / 遗留问题
+
+**结果**：完成。日志机制已建立，后续每次修改都会在此追加记录。
+
+**验证方式**：人工检查文件内容与格式。
+
+**遗留问题**：
+- 产品需求文档：`deepseek_markdown_20261001_fd1659.md`（UI Compiler 完整产品与技术规划，v1.0）
+- 尚未开始 Phase 0 实现
+
+---
+
+### [2026-10-01] MVP 核心链路实现（脚手架 / Schema / 编译器 / 生成器 / 编辑器）
+
+**目标**：按需求文档实现 MVP 主链路：UI AST → Layout/Responsive Compiler → Taro/HTML 代码生成，以及可视化编辑器。
+
+**修改内容**：
+- 脚手架：`package.json`（dev/build/test/pages/shot/diff/e2e 脚本）、`tsconfig.json`、`vite.config.ts`、`index.html`
+- Schema：`src/schema/types.ts`、`src/schema/factory.ts`
+- 编译器：`src/compiler/css-model.ts`、`measure.ts`（Canvas 文本度量，weight≥600 按 bold 匹配浏览器规则）、`layout.ts`（几何引擎，产出绝对几何基准）、`compile.ts`（AST→CSS + 响应式规则）、`index.ts`
+- 生成器：`src/generator/taro.ts`、`html.ts`、`reference.ts`、`project.ts`
+- 编辑器：`src/editor/`（store 含 COMMIT/历史、Canvas、Palette、Layers、PropertyPanel、Toolbar、CodeModal、DiffModal、pixelDiff）、`src/App.tsx`、`src/styles.css`
+- 工具：`src/utils/zip.ts`（ZIP 导出）、`src/types/pixelmatch.d.ts`
+- 测试：`tests/compiler.test.ts`（18 个用例）
+
+**结果**：完成。`npx tsc --noEmit` 无错误，`npm run build` 成功（dist/app 489KB）。
+
+**验证方式**：`npx vitest run` 18/18 通过；`npx tsc --noEmit`；`npm run build`。
+
+**遗留问题**：测试页面与像素 diff 管线未开始。
+
+---
+
+### [2026-10-01] 16 个测试页 DSL 与 pages 构建管线（含文件编码事故修复）
+
+**目标**：按需求文档实现 16 类布局场景的测试页，并提供 `npm run pages` 生成预览产物。
+
+**修改内容**：
+- 新增 `src/demo/dsl.ts`（Spec DSL + vstack/hstack/card/body/navbar 等快捷方式，支持 layout/style 双参数）、`src/demo/pages.ts`（16 个页面 + `allDemoPages()`）
+- 新增 `scripts/build-pages.ts`（vite-node 运行）：编译每个页面 → `dist/pages/<id>/{index,reference}.html + page.json + index.scss`、`dist/taro/<id>/` Taro 工程、`report.json`
+- `package.json`：`pages` 脚本指向 `npx vite-node scripts/build-pages.ts`
+- **事故**：曾用 PowerShell `Get-Content -Raw`/`Set-Content` 对 `pages.ts` 做正则替换，编码被破坏（TS1490 binary / 多处字符串截断）。教训：**禁止用 PowerShell 读写含中文的源文件，一律用编辑/写入工具**。
+- 修复：对照原语义完整重写 `pages.ts`，并顺带修正 hstack 调用把 `background` 误传入 layout 参数等问题
+
+**结果**：完成。16 个页面全部生成成功。
+
+**验证方式**：`npx tsc --noEmit` 无错误；`npx vite-node scripts/build-pages.ts` 输出 16 个目录；抽查 `index.html` UTF-8 内容正确。
+
+**遗留问题**：截图与 Pixel Diff 管线未开始。
+
+---
+
+### [2026-10-01] Playwright 截图 + Pixel Diff 管线打通
+
+**目标**：实现 reference/render 双截图与 pixelmatch 对比，跑通 `npm run e2e`。
+
+**修改内容**：
+- 安装 `playwright`；`npx playwright install chromium`（国内用 `PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright` 才能下载成功）
+- 新增 `scripts/screenshot.mjs`（Playwright 375×812 视口，fullPage 截 `reference.png`/`render.png`）
+- 新增 `scripts/diff.mjs`（pngjs + pixelmatch，阈值 0.1，逐页相似度 ≥98% 判定，输出 `diff.png` 与 `diff-report.json`，不达标 exit 1）
+
+**结果**：完成，`npm run e2e` 端到端可用。
+
+**验证方式**：`npm run shot` → 16×2 张截图；`npm run diff` → 报告生成。
+
+**遗留问题**：初始相似度仅 4/16 达标，需修编译器/生成器 bug。
+
+---
+
+### [2026-10-01] Pixel Diff 调优：三个关键 bug 修复 → 16/16 通过 98%
+
+**目标**：定位并修复 reference 与 render 之间的系统性差异。
+
+**修改内容**：
+- **bug 1（reference 坐标累加）**：`src/generator/reference.ts` — 几何是文档绝对坐标，但 DOM 嵌套渲染导致 `position:absolute` 包含块逐层累加（页面被撑到 958×3030）。改为**扁平渲染**（所有节点作为根节点直接子元素，DFS 顺序），坐标减去根节点原点。
+- **bug 2（绝对定位 FILL 失效）**：`src/compiler/compile.ts` — ABSOLUTE 容器的子节点 `widthMode/heightMode: FILL` 被编译成 `flex: 1 1 auto`（绝对定位下 flex 不生效，宽度塌陷为 0，渐变背景整块消失）。改为 abs 子节点输出 `width/height: 100%`。
+- **bug 3（叶子节点丢 padding）**：`src/compiler/compile.ts` — padding 只在容器分支输出，BUTTON/TEXT 等叶子节点的 DSL padding 被丢弃（按钮比几何矮 10px，逐卡累积偏移；chip 标签背景塌陷）。padding 移出容器分支统一输出，BUTTON 强制输出以覆盖 UA 默认 padding。
+- 辅助：临时对比脚本（比对 reference CSS 几何与浏览器实际盒子）定位了 bug 3，已删除。
+
+**结果**：完成。相似度从 4/16 → **16/16 全部 ≥98%**（最低 98.55%，多数 >99.5%，绝对定位页 59.56% → 99.96%）。
+
+**验证方式**：`npx vitest run` 18/18；`npm run e2e`；`npx tsc --noEmit`；`npm run build`。
+
+**遗留问题**：diff 基准视口仅 375×812；文本度量与浏览器存在 <5% 宽度误差（不影响达标）。
+
+---
+
+### [2026-10-01] README 产品介绍
+
+**目标**：撰写产品介绍文档，说明定位、能力、用法与结果。
+
+**修改内容**：
+- 新增 `README.md`：产品定位与流水线图、核心能力、快速开始命令、e2e 产物说明、16 测试页清单、布局语义映射表、目录结构、限制与路线图。
+
+**结果**：完成。
+
+**验证方式**：人工审阅。
+
+**遗留问题**：无。
+
+---
+
+### [2026-10-01] 修复编辑器启动白屏（无限重渲染）
+
+**目标**：`npm run dev` 打开页面一片空白，需定位运行时错误。
+
+**修改内容**：
+- 根因：`src/editor/Canvas.tsx` 的 `useElementSize` — ref 回调每次渲染都是新函数引用，React 每次渲染都会卸载/重挂载 ref，且 `setSize({w,h})` 总是创建新对象（无法 bail out）→ 无限 setState 循环（"Maximum update depth exceeded"）
+- 修复：ref 回调用 `useCallback([])` 固定引用；`setSize` 改为函数式更新，尺寸未变化时返回原对象触发 bail out
+
+**结果**：完成。页面正常渲染，无控制台错误。
+
+**验证方式**：Playwright 加载页面 — `#root` innerHTML 6220 字符（原为 0）、无 pageerror；DOM 断言确认工具栏（新建/打开/保存/撤销/重做/生成代码/Pixel Diff）、组件/图层页签、属性面板、Konva canvas 均存在；`npx tsc --noEmit` 通过。
+
+**遗留问题**：无。
+
+---
+
+### [2026-10-02] 生产级 PRD 撰写（deliver-prd skill）
+
+**目标**：重读源规划文档并用 PM-Skills 的 `deliver-prd` skill 方法论，为 UI Compiler MVP（Phase 0–3）创建完整生产级 PRD。
+
+**修改内容**：
+- 新增 `docs/PRD.md`（v0.1 draft）：frontmatter + 模板全章节 —— Overview、Goals & Success Metrics（含真实基线：16/16 ≥98%、18/18 单测、多视口/Taro CLI 待办）、User Stories（US-1~9）、Scope、Functional Requirements（FR-1~27 分六组）、UX、Edge Cases、Technical Considerations、Agent Execution Contract（权威来源/禁止触碰/FR 验证映射/升级路径）、Dependencies & Risks、Timeline、Open Questions
+- 按 skill 规则**跳过 AI Behavior 章节**（MVP AI=0%，确定性链路，文内以注释说明）
+- 范围裁决：PRD 只覆盖 MVP（Phase 0–3），Phase 4–7 列入 Future Considerations
+
+**结果**：完成。`docs/PRD.md` 约 380 行，结构对齐 `deliver-prd/references/TEMPLATE.md`，数据全部来自源文档与实测基线（无虚构指标）。
+
+**验证方式**：对照 TEMPLATE.md 逐节核对；PRD 中基线数字与 `dist/pages/diff-report.json`、LOG 历史记录一致。
+
+**遗留问题**：
+- PRD 状态为 draft，待评审（目标 2026-10-09 定稿）
+- Open Questions 中 4 项待 PM/前端负责人/设计/QA 答复
+- `dist/taro` 工程未经官方 Taro CLI 构建验证（已列为里程碑 2026-10-27）
+
+---
+
+### [2026-10-02] PRD 按 deliver-prd skill 质量清单评审并修正（v0.1 → 0.2）
+
+**目标**：用 `deliver-prd` skill 的 Quality Checklist 与 TEMPLATE 对 `docs/PRD.md` 做合规评审，修正发现的问题。
+
+**修改内容**（均在 `docs/PRD.md`）：
+- **合规硬伤**：删除空的 `## AI Behavior and Evaluation` 标题（skill 明言"包含空节=不完整"，理由改放入 Non-Goals 后的 HTML 注释）
+- **清单项**：Problem 补 "Why now"；Risks 表加 Owner 列（清单要求 deps/risks 均有 owner）；FR-1/2/3 合并验证行拆为独立三行（"每个 FR-n 有验证与验证人"）
+- **事实纠错**（对照代码库核实）：FR-7 验证引用「测试页 05（绝对定位海报）」→ 实为 `13 绝对定位页`（05 是订单列表）；FR-8「测试页 10（按钮密集）」无依据 → 改单测+e2e 全绿；Scope 页清单第 13 项写「Navbar」→ 实为「绝对定位」，与源文档 §16 的差异在 FR-25 如实声明并转为 Open Question（QA）；US-2/UX 主流程/FR-14「拖入/拖拽」→ 与 Palette 实际（仅点击）对齐
+- **一致性**：frontmatter version 1.0 → 0.2（与 Revision History 0.1 起步对齐）；成功指标 Taro 日期 10-30 → 10-27（对齐里程碑）；FR-6「布局合理」改为可验证判据（无横向滚动/无写死视口宽/无元素重叠）；里程碑补「Diff 明细呈现（US-6/FR-22、23）」（该功能当前未实现，原 US-6 未被任何里程碑覆盖）并给各里程碑标注 US；已决问题 [x]「已覆盖 §16」改为与新 FR-25 一致的措辞
+- Revision History 增加 0.2 行
+
+**结果**：完成。修正 15 处；模板 35 节结构复核通过（AI 节按条件规则省略）。
+
+**验证方式**：对照 SKILL.md Quality Checklist 逐项过；关键事实回查 `src/demo/pages.ts`（16 页真实 ID）、`src/editor/Palette.tsx`（仅点击）、`src/editor/DiffModal.tsx`（有总体相似度，无区域误差明细 → FR-23 属未完需求，已进里程碑）、`package.json` 脚本。
+
+**遗留问题**：
+- FR-23（差异区域误差+分类明细）当前未实现，为 2026-10-20 里程碑的待开发项
+- Open Questions 4 项待答（其中 §16 第 13 项差异归属 QA）
+
+---
+
+### [2026-10-02] PRD 二轮评审：代码库事实核查（v0.2 → 0.3）
+
+**目标**：对 `docs/PRD.md` 做第二轮 skill 评审——上一轮查结构合规，这一轮逐条回查代码库验证事实性声明。
+
+**修改内容**（均在 `docs/PRD.md`）：
+- **门禁假设错误**：指标/FR-27/风险/里程碑多处写「合并门禁/提交门禁/每次提交」，但当前目录**非 git 仓库、无 CI** → 统一改为「本地门禁（本地执行）」，并新增依赖行「版本控制与 CI：未建立，Owner 项目负责人」
+- **Goal 2 无度量**：确定性目标没有对应指标行 → 新增「连续两次 e2e 的 diff-report 逐页相似度完全一致」（诚实基线：未做过重复运行比对）
+- **事实回查纠错**：FR-9「Button→View/Button」歧义 → 实现是 `<Button>`，写明口径；FR-7 页 ID「13 绝对定位页」→ diff-report 实际 id `13-绝对定位页`；基线最低页精确到 `03-商品列表`（0.9855）；文件名 edge case「sanitize」未实现（仅空名兜底）→ 如实改写；FR-13 验证走查漏「粘贴」→ 补上并标注当前未实现（store 无 PASTE action，仅 DUPLICATE）
+- **内部矛盾**：依赖表「16 测试页对照已完成（16/16 对照）」与 FR-25 已声明的第 13 项差异冲突 → 改口径
+- **验证可信度**：验证表加口径注——FR-1/3/5/12 等标注 Automated 但断言脚本尚不存在，补齐前不得计入已验证
+- frontmatter 0.2 → 0.3，Revision History 增 0.3 行
+
+**结果**：完成。本轮核查了：18 个单测、diff-report.json（16/16、min 0.9855、target 0.98/px 0.1）、store action 清单（无 PASTE）、Canvas 8 个 resize 手柄、compile.ts 的 SPACE_BETWEEN/margin/letterSpacing/textAlign/font-family、class 命名 `${type}-${n}`、serializePage 含 `version:1`、open() 校验+alert、SHOT_WIDTH/SHOT_HEIGHT、taro.ts Button 映射。
+
+**验证方式**：grep/read 逐条比对 PRD 声明与源码；`dist/pages/diff-report.json` 实读；grep 确认无残留「合并门禁/提交门禁」。
+
+**遗留问题**：
+- **规格 vs 实现差距清单**（PRD 为规格，以下为待交付，均已有验证行与里程碑归属）：粘贴（FR-13）、差异区域误差+分类明细（FR-23）、多视口抽查（FR-6 后半）、Taro CLI 构建、FR-1/3/5/12 断言脚本
+- 确定性指标（连续两次 e2e 比对）尚未实际跑过，为待执行验证项
+- PRD draft 待 2026-10-09 评审定稿
+---
+
+### [2026-10-02] 按 PRD 待交付清单开发：FR-13/FR-23/FR-6/FR-1·3·5·12/图片 src
+
+**目标**：评审结束后按 `docs/PRD.md`（v0.3）逐项补齐「规格 vs 实现差距清单」中的待交付项。
+
+**修改内容**：
+- **FR-13 粘贴**：`src/editor/store.ts` 新增 `clipboard` 状态与 `COPY`/`PASTE` action（新 id、选中、进历史、跨 NEW_PAGE 保留）；`Editor.tsx` 快捷键 Ctrl+C/Ctrl+V；`Canvas.tsx` 提示条补「Ctrl+C/V 复制粘贴」
+- **FR-23 差异明细（浏览器侧）**：新增 `src/editor/diffRegions.ts`——基于 pixelmatch diff 输出中精确 `#FF0000` 像素（实测与 diffPixels 完全一致，01-登录 848=848）做 4 连通域提取 → 归属 Layout Resolver 几何（叶子外扩 3px 容差、FRAME 无叶子命中归 Spacing）→ 聚合每节点并集输出 dx/dy/dw/dh 与六维分类（Position → Typography → Size → Color → Layout 启发式）；`pixelDiff.ts` 的 `DiffResult` 增 `analysis`；`DiffModal.tsx` 增「差异明细」节点误差表 + 未归属区域表（数值取整显示）
+- **FR-23 差异明细（CLI 侧）**：`scripts/build-pages.ts` 新增 `geometry.json` 产出（与 reference.html 同源几何，相对根原点归一化）；`scripts/diff.mjs` 增区域分析镜像（同规则、注释指向 TS 规范实现），报告含 `regions`/`nodeErrors`，控制台打印 top3 节点定位；**98% 阈值与 pixelmatch 参数未动**
+- **FR-6 多视口检查**：新增 `scripts/viewport-check.mjs`（390/414/768 × 16 页，判据 scrollWidth ≤ clientWidth + 溢出元素定位），`npm run viewport`，输出 `viewport-report.json`
+- **FR-1/3/5/12 断言补齐**：新增 `tests/requirements.test.ts`——FR-1 五类节点结构、FR-3 Style 全字段 JSON 往返 + CSS/SCSS 输出、FR-5 全 16 演示页几何/CSS 双解析一致、FR-12 ZIP（EOCD/本地头/store 直读还原含中文内容）；新增 `scripts/assert-pages.mjs`（dist/pages 5 文件 + page.json 结构 + dist/taro 8 文件，224 检查）挂入 `npm run pages`
+- **图片 src 编辑**：`store.ts` 新增 `UPDATE_SRC`（仅 IMAGE、transient 支持）；`PropertyPanel.tsx` 增「图片 src」输入段
+- **编码事故（自触自修）**：用 PowerShell `Get-Content`/`Set-Content` 批量替换 `diff.mjs` 中文注释导致乱码+换行丢失（`MASK_TOLERANCE` 被注释）→ 用写入工具整体重写修复；**后续含中文文件一律编辑/写入工具**
+
+**结果**：全部完成。验证汇总：vitest **43/43**（原 18 + FR-13 粘贴 5 + diffRegions 10 + requirements 8 + src 2）；`npx tsc --noEmit` 通过；`npm run e2e` 连跑两次 **16/16 ≥98%** 且 **48 张 PNG 字节级一致、diff-report.json 完全一致**（PRD Goal 2 确定性指标达成）；`npm run viewport` **48/48**；`assert-pages` **224/224**；`npm run build` 通过。
+
+**验证方式**：单测直接断言各 FR；确定性用 `Get-FileHash` 跨两轮 e2e 比对；CLI 区域明细核对 `dist/pages/diff-report.json`（regions/nodeErrors 字段、中文页 ID 完好）。
+
+**遗留问题**：
+- DiffModal 差异明细与粘贴交互的浏览器人工走查未做（Playwright 仅覆盖生成页，未走编辑器 UI）
+- `diff.mjs` 区域分析为 `diffRegions.ts` 的镜像实现，双份维护（注释已互指）
+- Taro CLI 官方构建验证仍待 2026-10-27 里程碑
+- PRD 验证表口径注（FR-1/3/5/12 断言未存在）已过时，待 PRD 下次修订时更新；三轮评审的 3 个链路问题仍待修订时处理
+---
+
+### [2026-10-02] 三遗留项 Demo 化：走查自动化 + FR-6 重叠判据补齐 + 演示报告
+
+**目标**：把「人工走查 / FR-6 无元素重叠判据 / PRD 文档维护」三个抽象遗留项变成可运行、可观看的 demo。
+
+**修改内容**：
+- **FR-6 判据补齐（正式代码变更）**：`scripts/viewport-check.mjs` 新增「无元素重叠」检测（同父级、双方非 `position:absolute` 的兄弟矩形交叠 >2px 记违规；absolute 视为 badge/浮层等设计性叠加不计）并新增 375 视口；支持 `VPAGES_DIR` 指向其它页面目录
+- **故障样例**：新增 `tests/fixtures/overlap-pages/故障样例-元素重叠/index.html`（负 margin 压盖），证明检测会真实报错
+- **走查自动化**：新增 `scripts/walkthrough.mjs`（`npm run walkthrough`）——vite preview + Playwright 真实操作编辑器 8 步：打开 demo 页 03 → Palette 加 4 节点 → 图片 src 输入 → Ctrl+C/V → Ctrl+Z → Diff 明细 → 生成代码，逐步截图到 `dist/walkthrough/`
+- **演示报告**：新增 `scripts/demo-report.mjs`（`npm run demo-report`）→ `dist/walkthrough/index.html`，三痛点图文报告（8 截图 + 3 份日志证据）
+
+**结果**：全部跑通。
+- 走查 **8/8 步通过**（图层 53→57→58→57 行闭环；Diff 明细表 60 区域/12 节点定位，98.90% PASS）
+- 真实 16 页 × 4 视口 **64/64 pass**（含新增 375 与重叠判据）；故障样例 **0/4 FAIL、exit 1**，打出 `overlap <div.block-a> x <div.block-b> 13720px²`
+- 报告固化 PRD 三处文档偏差证据：e2e 只比对 16 个 demo 页 ID（双入口）、PRD 口径注已被 requirements/assert-pages 推翻、Goal 1「H5」措辞与实际 HTML 预览不符（用户策略：HTML 导出为源、框架适配交给 agent，Taro CLI 验证可降级）
+
+**验证方式**：三份日志经 `cmd /c >` 原始 UTF-8 重定向录制（PS5.1 `*>` 按 GBK 解码 node 输出会造成中文乱码并吞换行——本次踩坑后修正录制方式）；`demo-report.mjs` 按 BOM 嗅探解码兼容两种编码；报告内容经 node 断言（16 页 ID 中文完好、无乱码）。
+
+**遗留问题**：
+- Taro CLI 降级、Goal 1 改写、验证表口径注等 PRD 修订项统一归入 PRD 0.4（定稿评审时处理）
+- 故障样例仅覆盖「flow 兄弟压盖」一种重叠形态；absolute 与 flow 混排的故意叠加按判据豁免
+---
+
+### [2026-10-02] PRD v1.0：重规划为生产级 Figma 对标产品（deliver-prd skill）
+
+**背景**：用户反馈「前端太僵硬、与 Figma 差太多」，并确认三项范围决策——对标深度=尽可能全复刻（含矢量/组件/协作）、转码口径=HTML+外链 CSS、验证链=保留并扩大。按 pm-skills 的 `deliver-prd` v3.0 模板整体重写 `docs/PRD.md` 至 v1.0。
+
+**关键变更（相对 v0.3）**：
+- **反转** v0.3 Non-Goal「不追求 Figma 级画布能力」——编辑器体验升格为产品本体
+- **转码**：目标仅 `index.html + index.css`（外链、语义化 class、assets 目录）；**Taro 移出**至 Out of Scope / Future
+- **验证链**：v0.3 全部门禁保持，新增 FR-35「编辑器任意页一键进像素环」（消除双入口缺口）
+- **FR 重排**：43 条 FR 分 A 画布手感 / B 创作工具 / C 组件系统 / D 界面复刻 / E 出码 / F 验证 / G 工程化 / H 协作 八区，P0/P1/P2 分批，逐条配 Verification Map（含验证方式与验证人）
+- **里程碑**：M1(10-16) 画布手感 → M2(10-30) 界面复刻 → M3(11-14) 创作出码 → M4(11-28) 组件 → M5(12-19) 矢量 → M6(2027-01-09) GA → M7(02-06) 协作(P2)；**GA=M6**，P2 全部过 Go/No-Go
+- **新增风险控制**：范围失控(H/H)用 P0→P1→P2 分批+Go/No-Go 缓解；60fps 不达标触发渲染架构 ADR；协作=本版唯一后端范围
+
+**状态**：draft，待 2026-10-09 定稿评审。Open Question 前置项：**Figma 对标走查清单（约 30 条）需在 M1 前建立**，否则 FR-38 无验收凭据。
+
+**教训沿用**：Do-Not-Touch（layout/measure 语义、diff 阈值、tests 只增、中文编码铁律）全部继承进 v1.0 契约。
+---
+
+### [2026-10-02] Figma 对标走查清单（FR-38 验收凭据）
+
+**目标**：落实 PRD v1.0 Open Question 前置项——建立 M1 前的对标走查清单，供 FR-38 引用。
+
+**交付**：`docs/figma-parity-checklist.md`——32 条 P0 走查项、12 条 ★ 核心（核心 100% PASS 且总 ≥95% 为通过线），8 分组（画布视图/选择/移动/编辑/属性面板/图层/出码/验证链），逐条含操作步骤、期望结果、Figma 参照；结果汇总与差异登记区留空待走查。PRD 三处引用已回填（Open Question 标草案已建、Dependencies 状态、Related Documents 链接）。
+
+**状态**：清单已建、**尚未执行**（需人眼对照 Figma 实测后填 PASS/FAIL）。
+---
+
+### [2026-10-03] M1 画布手感（PRD v1.0 FR-1~12，P0）开发完成
+
+**背景**：用户下达「按 PRD v1.0 来开发」。M1 = 里程碑第一阶段（目标 2026-10-16），核心是把编辑器从「能点」做到「手感对标 Figma」。
+
+**修改内容**：
+- **store.ts**：`HISTORY_LIMIT` 50→100（FR-11）；新增视图态 `tool` + `SET_TOOL`；新增 `SELECT_MANY` / `UPDATE_LAYOUT_MULTI` / `GROUP`（结构在 reducer、坐标补丁由 Canvas 预计算传入）/ `REORDER_Z` / `TOGGLE_LOCK` / `NUDGE`（仅绝对定位父级，流式无操作=Figma 语义）；**修复 pushHistory 基线丢失**——transient 微调后的下一次提交先将 `pendingBaseline` 入栈，否则微调步骤永远无法撤销
+- **types.ts**：`NodeBase.locked?`（FR-8/9，旧 JSON 缺省即未锁）
+- **Canvas.tsx 重写**：框选（4px 阈值、相交即选、Esc 取消）、智能吸附（仅 ABSOLUTE 父级，红色参考线+正交 gap 数值，Alt 临时关闭）、流式拖拽插入指示线+落点预览（FR-5）、空格/抓手平移、滚轮=平移 / Ctrl+滚轮=光标锚点缩放、Shift+1 适应 / Shift+0 100%、悬停高亮+图层名标签、双击文本编辑（textarea 浮层，IME 安全，Esc/失焦提交）、右键菜单（剪切/复制/副本/粘贴/成组/置顶/置底/锁定/删除）、底部状态栏（FR-27：页面名/选中数/快捷键提示/吸附开关/缩放下拉）、**修复嵌套绝对定位拖拽写回坐标 bug**（layout.x 相对父 padding box，含 margin 换算）；性能按 FR-12：ContentLayer/NodeView `memo` + ctx 对象引用稳定（字段就地更新）+ 悬停/参考线/框选全在 overlay 层
+- **新增** `ContextMenu.tsx`（DOM 右键菜单）、`snapping.ts` / `align.ts`（纯函数，单测覆盖）、`canvasContext.ts`（几何 context 供右栏）
+- **走查清单审计补漏**：对照 `docs/figma-parity-checklist.md` M1 段（P0-01~19）逐条核对源码，唯一缺口为 **P0-06 悬停尺寸提示**——悬停标签原仅显示图层名，已补 `W × H` 尺寸徽标（Canvas 悬停 overlay 双徽标渲染）；其余项确认已实现（多选方向键整体移动、双击下钻 deepestAtPoint、缩放 20%–400% 钳制、下拉 适合/50/100/200/400、Ctrl+Shift+Z 重做、插入提示与落位均排除自身子树、锁定节点不可点选/框选、图层树点击选中同步）
+- **Editor.tsx**：快捷键扩 Ctrl+A 全选 / Esc 反选 / 方向键微调（Shift ×10）/ Tab 同级循环 / 工具字母 V H F R O L T P（M1 仅 select/hand 有行为）
+- **PropertyPanel**：多选顶部对齐+等距分布条（FR-28，仅共享 ABSOLUTE 父级时生效，流式按 Figma 语义不动并给提示）
+- **styles.css**：状态栏/右键菜单/文本编辑浮层/对齐条样式（`.canvas-hint` 由状态栏取代）
+
+**结果**：全部门禁绿。
+- `tsc --noEmit` OK；**vitest 61/61**（旧 43 + 新 `tests/m1-canvas.test.ts` 18：吸附/对齐分布/新 reducer/历史 ≥100 往返/transient 基线合并）；`npm run build` OK
+- e2e **16/16 ≥98%**、viewport **64/64**、walkthrough **8/8**（三项回归无损）
+- 新增 `npm run smoke-m1`（`scripts/m1-smoke.mjs` → `dist/walkthrough/m1-smoke.json`）：**22/22**——状态栏/Shift+1·0/Ctrl+滚轮锚点缩放/H·空格光标/Ctrl+A/Ctrl+G 成组选新框/Ctrl+Z 撤销/画布外起框框选/节点右键菜单/Esc 关菜单反选/吸附开关/全程零页面错误
+- `npm run demo-report` 已刷新
+
+**验证方式**：全部日志经 `cmd /c >` 重定向；冒烟结论写 `m1-smoke.json`（UTF-8 文件，规避控制台 GBK 乱码）。
+
+**遗留问题**：
+- `docs/figma-parity-checklist.md` 32 条**人工对照走查未执行**（需按 Figma 实测填 PASS/FAIL，P0-18/19 对齐项须在绝对定位页验证）
+- 多选拖拽只动单个节点（框选后拖 1 个其余不动）——是否补多选拖拽待走查后定
+- frame/rect/ellipse/line/text/pen 工具已可切换（字母+光标），创建交互属 M2/M3 范围
+---
+
+### [2026-10-03] M2 界面复刻（PRD v1.0 FR-24~29 + FR-13~14，P0）开发完成
+
+**背景**：用户下达「m2」。M2 = 里程碑第二阶段（目标 2026-10-30），把编辑器外壳从「功能可用」做到「界面结构对标 Figma」（三栏 / 菜单栏 / Design 面板分区 / 图层树全交互 / 浅色主题）。
+
+**修改内容**：
+- **schema**：`NodeBase.visible?`（FR-29 显隐，旧 JSON 缺省即可见）
+- **store.ts**：新增 `TOGGLE_VISIBLE`（两态语义 undefined↔false，入历史）、`CREATE_FRAME`（FR-14：reducer 内建 FRAME + FIXED 尺寸 + ABSOLUTE 父继承 + patch 覆盖 + 选中新节点，插入索引由 Canvas/预设计算传入）；`TOGGLE_LOCK` 支持 `ids` 参数（图层行定点操作）
+- **新增** `canvasBus.ts`（命令总线 send/onCmd：fit/zoomSet/zoomIn/zoomOut/createFrame + publishScale/onScale，属性面板→画布单向解耦）、`Pages.tsx`（页面页签：当前页 + 16 个 demo 页快速打开 LOAD_PAGE，带 confirm）
+- **Editor.tsx 重写**：`CanvasGeometryContext.Provider` 上提至 Editor 根（修复 M1 审计发现的右栏 AlignToolbar 拿不到几何的问题）；左栏三页签 页面/图层/资产（默认图层）、右栏 Design/Prototype（disabled 占位，注明 M7 前不启用）
+- **Toolbar.tsx 重写**（FR-25/27）：File/Edit/View 菜单栏（下拉/hover 切换/外点关闭/Esc stopImmediatePropagation/快捷键提示/不支持项禁用标注）、9 工具按钮条（select/hand/frame/rect/ellipse/line/text/pen/image，is-active 高亮）、右侧 撤销重做/缩放下拉（总线）/分享 disabled（P2 协作 M7 后启用）/生成代码/Pixel Diff/主题切换；Ctrl+N/O/S/E/=/- 全局绑定；主题 localStorage `ui-compiler.theme` + `documentElement.dataset.theme`；**移除 新建/打开/保存 独立按钮**（移入 File 菜单，走查脚本同步改路径）
+- **Canvas.tsx**：`modeRef` 增 draw；stageMouseDown 重排（isPan 任意位置 → frame 工具任意位置起笔 → isBg → 框选）；NodeView 非 select 工具冒泡（修绘制起笔被 cancelBubble 拦截）、`visible===false` 跳渲染；deepestAtPoint/applyMarquee 跳过隐藏节点；`createFrameAt`（flow 根按中心 dropIndex、abs 根算 patch）+ 单击空白 100×100；actionsRef 扩 zoomIn/zoomOut/createFrameCentered + canvasBus 订阅 + publishScale；悬停 `W × H` 尺寸徽标（M1 审计 P0-06 补漏）
+- **PropertyPanel.tsx 重排**（FR-28）：位置与尺寸（X/Y/W/H/圆角）→ 布局 → 填充 → 描边 → 效果 → 排版 → 内容 七分区；新增 `FRAME_PRESETS`（iPhone 15 Pro 393×852 / **iPhone SE 375×667** / iPad 820×1180 / Desktop 1440×900，P0-20）+ FramePresets 组件（tool=frame 时显示，含空选中分支）
+- **Layers.tsx 整体重写**（FR-29）：折叠集（默认全展开）/画布选中→自动展开父级+scrollIntoView（双向同步）/双击 inline 改名（Enter/blur 提交、Esc 取消）/眼睛·锁定按钮/HTML5 dnd 拖拽重排（before/inside/after 三区、**RECTANGLE 不作嵌套目标**（与画布 findContainerAt 一致）、同父移动按下标「摘除后空间」换算、跨容器 abs 用几何 context 换算保留页面坐标）/类型图标
+- **styles.css**（FR-24）：硬编码色抽成 CSS 变量（btn-hover/ws-line/ws-bg/code/checker/status-bg/menu-shadow/danger），新增 `[data-theme='light']` 浅色覆盖；菜单栏/工具条/页面页签/图层 dnd 指示线/改名输入/Frame 预设网格/页签禁用态样式
+- **脚本同步**：`walkthrough.mjs` 组件→资产、打开改 File 菜单两级路径；`m1-smoke.mjs` 同改打开路径；新增 `scripts/m2-smoke.mjs` + `npm run smoke-m2`
+
+**结果**：全部门禁绿。
+- `tsc --noEmit` OK；**vitest 73/73**（旧 61 + 新 `tests/m2-store.test.ts` 12：TOGGLE_VISIBLE 两态/入历史、CREATE_FRAME FIXED+ABSOLUTE patch+索引钳制+非法父无操作、MOVE_NODE 同父前后移动/跨容器 patch/自身与子树保护/UNDO、UPDATE_NAME）；`npm run build` OK
+- e2e **16/16 ≥98%**、viewport **64/64**、walkthrough **8/8**（三项回归无损，脚本选择器已适配新菜单路径）
+- `smoke-m1` **22/22**（打开路径改 File 菜单后回归通过）
+- 新增 `npm run smoke-m2` → `dist/walkthrough/m2-smoke.json`：**18/18**——三栏+菜单+工具条结构 / 分享·Prototype 禁用 / File 菜单+禁用项 / Esc 关菜单 / 页面列表 17 行 / 资产 Palette / 打开 03 页 53 行 / 工具 is-active / 预设网格 4 项 / iPhone SE 预设 +1 层 / 拖画创建 +1 层 / 双击改名 / 眼睛显隐往返 / 图层拖拽重排 / 多选对齐条 8 按钮 / 浅色主题切换+持久化+切回 / 零页面错误
+- `npm run demo-report` 已刷新
+
+**验证方式**：同 M1——日志 `cmd /c >` 重定向、冒烟结论写 `m2-smoke.json`（UTF-8）。
+
+**遗留问题**：
+- 浅色主题为整体变量覆盖的「够用级」实现，细节对比度未做 Figma 逐项校准
+- 图层 dnd 仅 before/after/inside 三区，未做自动展开悬停折叠（悬停 800ms 展开容器）
+- Prototype 右栏 tab、分享按钮为占位禁用，待 M7 协作评审
+- `docs/figma-parity-checklist.md` F/G 组（P0-24~29、P0-20）仍需人工对照 Figma 实测填 PASS/FAIL
+---
+
+### [2026-10-03] PRD v1.1：Figma 全对照 + 像素级 + 样片（研究 + 撰写 + 三遍评审）
+
+**背景**：用户下达新指令——UI 画板全细节、功能与分类完全对照原版 Figma，转码像素级还原，最终样片要展示组件种类/参数/多页面设计与跳转；要求先研究 Figma 细节、用 pm skill 重写 PRD、review 三遍通过后继续开发。
+
+**修改内容**：
+- **研究前置**：两个并行 research 任务共 30+ 次检索（Figma 官方 Help/Developers 文档 + 社区），沉淀 UI3 结构、右栏 Design 分区全字段、16 类图层×参数全集、原型触发器/动作/动画/Overlay/Flow、CSS 像素映射实践、快捷键表与冲突裁定
+- **`docs/PRD.md` 整体重写 v1.0 → v1.1**（482 行，front-matter `version: 1.1`）：FR 从 43 条扩至 **62 条**分 A~J 十区；三大升级 ①对照基准明确 Figma GA（UI3），新增「Figma 全量对照矩阵」作唯一验收凭据（FR-56，替代 32 条清单独据地位）②转码像素级——CSS 映射全集（FR-47）+ Inter 字体度量对齐（FR-48）+ 三方像素指标（FR-51：16 页 ≥98% 保持 / 画布↔出码 ≥95% / 样片 ≥99%）③样片为核心交付（FR-57 五区 + `npm run showcase`）；**Prototype/多 Page 从 0 入范围为 P0**（FR-39~45：触发器 10 类/动作/动画/Overlay 9 定位/Flow/连接线/Present 演示）；变体/布尔/钢笔/蒙版/多边形/星形从 P2 升 **P1 本版承诺**；里程碑重排（M3=UI3+参数全集+像素基础 11-14、M4=组件/矢量 11-28、M5=原型 12-12、M6=样片+矩阵 GA 2027-01-09）
+- **三遍评审（用户指定）**：Pass1 结构/清晰度 4 修复（旧 FR 编号废止注记、P0 定义与 M5/M6 交付矛盾、FR-51 里程碑映射缺失、M2 交付行不全）；Pass2 对照研究 5 修复（四边独立描边 FR-18/47、Change to 动作 FR-40、Shift+2 FR-3、快捷键布局表 FR-9、Diamond 渐变）；Pass3 可实现性/事实核对 3 修复（Diamond 无原生 CSS 方案注记、`public/` 实测不存在标待新建、样片比对限定初始态）；评审后 `status: draft → approved`，Revision History 补 1.1r1 行
+
+**结果**：PRD v1.1 approved；U+FFFD 扫描 0。遗留：跨 Page 跳转口径 Open Question（默认完全对照 Figma = 同 Page 导航，待用户拍板）；对照矩阵升级（32 条→全量）为 M3 启动前置。
+---
+
+### [2026-10-03] M3 启动：UI3 重排第一步（底部浮动工具轨 + navigation bar）
+
+**修改内容**：
+- **Toolbar.tsx**：顶栏 `.tool-strip` 移出 header → fragment 新增底部浮动轨 `<div className="tool-strip floating-tools">`（**保留类名与按钮结构**，m2-smoke `.tool-strip .tool-btn`/`.tool-btn[title^="Frame"]` 选择器零改动）；顶部文件条保留 brand/菜单/撤销缩放/生成代码/Pixel Diff/主题
+- **Editor.tsx**：editor-body 最左新增 `.nav-rail`（UI3 navigation bar 骨架：主菜单/搜索 disabled 占位，页面/图层/资产联动 leftTab 高亮，评论/账户占位）；Prototype tab disabled title 改为「按 PRD v1.1 于 M5 实现（P0）」（原引用 v1.0/M7 已过时）
+- **styles.css**：`.floating-tools`（fixed 居中 bottom 44px 避让状态栏、z-index 40、阴影）、`.nav-rail`/`.nav-btn`（44px 窄条、is-active 主题色、变量适配深浅主题）
+
+**结果**：全部门禁绿——`tsc` OK、**vitest 73/73**、`build` OK、`smoke-m1` **22/22**、`smoke-m2` **18/18**（结构断言含 tools=9 通过）、`walkthrough` **8/8**。
+
+**遗留问题**：
+- UI3 五区尚缺：Contextual options 栏、7 菜单扩充（Object/Text/Plugins/Help——m2-smoke 断言 `menubar===3` 需同步改）、新工具（Slice/Section/Polygon/Star/Arrow/Comment）入轨与长按子菜单
+- 浮动工具轨与状态栏/快捷键面板的像素对照待 Figma 实测截图校准
+---
+
+### [2026-10-03] M3 第二步：FR-16 形状参数——四角独立圆角 + cornerSmoothing 全链路
+
+**修改内容**：
+- **schema**：`StyleSchema.cornerSmoothing?: number`（0–1，可选字段旧 JSON 缺省不破——Do-Not-Touch 向后兼容规则）
+- **PropertyPanel.tsx 圆角行改造**：单值 NumField / 数组态 2×2 四格 `.radius-grid`（TL TR BR BL 同序）/ 行尾切换按钮 `◻↔▣`（合并取 TL、展开四等值）；新增「平滑」行（0–100% 输入 ×/100 存 0–1）
+- **compile.ts**：`cornerSmoothing>0 → corner-shape: squircle`（浏览器不认识则忽略，几何不变，diff 无风险）
+- **Canvas.tsx**：IMAGE 两处 `typeof radius === 'number' ? radius : 0` → `radius ?? 0`（Konva Rect 原生支持四角数组，图片节点四角独立渲染）
+- **styles.css**：`.radius-grid`（2×2）/ `.radius-toggle`（联动/独立高亮态）
+- **新增 `tests/fr16-shapes.test.ts` 5 例**：四角→`1px 2px 3px 4px`、单值→`12px`、smoothing>0→squircle（0/缺省不输出）、JSON 往返+旧项目缺省、四角语义保序
+
+**结果**：全部门禁绿——`tsc` OK、**vitest 78/78**（73+5）、`build` OK、e2e **16/16 ≥98%** exit 0、viewport exit 0、三冒烟 m1/m2/walkthrough 全 exit 0。
+
+**遗留问题**：
+- 画布 Konva 不绘制 squircle（smoothing>0 画布显示普通圆角、出码为 squircle）——画布↔出码微差，待 Konva Path 超椭圆方案补齐；面板四格布局（2×2 就地展开）与 Figma 弹层形态差异待对照矩阵校准
+- FR-16 其余项未做：arcData 饼环、多边形/星形点数、箭头端点、LINE height=0（依赖 OVAL/POLYGON/STAR/LINE 节点类型入 schema，M3 后续）
+---
+
+### M3 第三步（2026-10-03）：工具点击即创建（P0-21 文本 / P0-22 矩形）
+
+**内容**（PRD v1.1 FR-15/FR-16 落地，文本点击创建 + 矩形拖画创建）：
+- **store.ts**：新 Action `INSERT_NODE`（Canvas 预构建含 id 的完整节点后插入——文本创建需返回 id 立即进入编辑态，dispatch 无法返回值，故走预构建模式；同 M2 GROUP「结构 reducer、坐标 Canvas 预计算」风格）；reducer `structuredClone` 后插入、索引钳制、非法父无操作、`selectedIds:[node.id]`、进撤销栈
+- **Canvas.tsx**：
+  - `createShapeAt(kind, w, h, at, parentId?)`：矩形 FIXED 拖画尺寸、文本保持工厂 HUG；父级 ABSOLUTE→contentOrigin 局部 patch+mode，flow→dropIndex（页面坐标）；支持嵌套容器插入
+  - `stageMouseDown`：绘制集扩为 frame|rect（任意位置起笔）；text 工具分支清 `suppressClickRef` 残留（根因见下）
+  - `endInteraction` draw 分支按 tool 分派 rect→createShapeAt / frame→createFrameAt
+  - `stageClick` text 分支提前至 isBg 早退**之前**：点 TEXT/BUTTON→进入该文本编辑（Figma 语义）；点容器/空白→最深容器（`findContainerAt`）内创建+即进编辑
+  - `handleClick`（节点 onClick）：`cancelBubble=true` 移至 ignore/select 判断之后——非选择工具放行冒泡至 stage（原实现首行取消冒泡，stageClick 永远收不到节点上的点击）
+- **scripts/m2-smoke.mjs**：+3 步（矩形拖画 55→56、文本单击创建+编辑态可见 56→57、Escape 提交退出编辑）——18→21 步
+- **新增 `tests/fr15-create.test.ts` 4 例**：插入/选中/撤销、文本 HUG+patch 坐标、索引钳制+非法父、深拷贝防外部篡改污染历史
+
+**排障记录**（文本单击创建 FAIL→OK 三连修）：
+1. 点击处命中 demo 页节点→原实现仅空白创建被 `if (!isBg) return` 挡住——改为 Figma 语义「点哪建哪」（点文本编辑、点容器内创建）
+2. 节点 `handleClick` 首行 `e.cancelBubble=true` 吞掉冒泡→stageClick 收不到——条件后移，非 select 工具放行
+3. **根因**：rect 拖画后 `suppressClickRef=true` 滞留（draw 结束不重置、text 的 mousedown 不进任何重置分支）→stageClick 首行早退——text 工具 mousedown 显式 `suppressClickRef=false`（选中工具在节点上有 `resetClick`，文本工具无节点 mousedown 处理故缺失）
+
+**结果**：全门禁绿——`tsc` OK、**vitest 82/82**（78+4）、`build` OK、e2e **16/16 ≥98%**（最低 99.17%）、viewport **64/64**、三冒烟 m1 **22/22** / m2 **21/21** / walkthrough **8/8**；改动文件 U+FFFD=0。
+
+**遗留问题**：
+- ellipse/line/pen 工具仍无创建行为（需 OVAL/LINE 节点类型入 schema，紧随其后）
+- 文本创建初始位置=点击点左上（Figma 为基线对齐，待对照矩阵校准）；空文本提交（无输入 Esc）保留空节点（Figma 删除，P2 级差异）
+- imageScaleMode（P0-23 图片填充四模式）未开始
+---
+
+### M3 第三步-B（2026-10-03）：图片填充四模式（P0-23 / PRD v1.1 FR-20 scaleMode）
+
+**内容**：
+- **schema**：`StyleSchema.imageScaleMode?: 'FILL'|'FIT'|'CROP'|'TILE'`（可选字段缺省 FILL，JSON 演进规则）
+- **compile.ts**：`node.type==='IMAGE'` → `object-fit: cover`（FILL/缺省/CROP 近似）/ `contain`（FIT）；TILE 不出 object-fit（走背景平铺）
+- **html.ts / reference.ts 同步**：TILE → `<div style="background-image:url(...);background-repeat:repeat">`；其余保持 `<img>`（两生成器结构一致，像素基准不裂）
+- **Canvas.tsx KImage**：FILL/CROP→cover 源图中央 `crop` 裁剪（Konva 原生 crop）；FIT→contain 等比缩放居中；TILE→`<Rect fillPatternImage fillPatternRepeat="repeat">`；占位灰 Rect 分支不变
+- **PropertyPanel**：src 行下加「填充」`SelectField`（Fill/Fit/Crop/Tile）→ `UPDATE_STYLE`
+- **新增 `tests/fr20-image.test.ts` 6 例**：四模式 object-fit 映射、TILE 背景出码（html+reference 同步、无 `<img>`）、非 TILE `<img>` 结构、JSON 往返+旧项目缺省
+
+**结果**：全门禁绿——`tsc` OK、**vitest 88/88**（82+6）、`build` OK、e2e **16/16 ≥98%**（**15-图片密集页面 99.88% 无漂移**——demo 图片宽高比与节点一致，cover 与原拉伸等价）、viewport **64/64**、三冒烟 m1/m2/walkthrough 全过；改动文件 U+FFFD=0。
+
+**遗留问题**：
+- CROP 为 cover 近似（Figma 裁切变换矩阵/把手未做）；TILE 缩放参数（tileScale）未做；图片 7 项调整滑杆（Exposure 等→CSS filter 映射）未做——均 FR-20 后续
+- ellipse/line/pen 工具无创建行为（需 OVAL/LINE 类型入 schema，M3-6 一起）
+- 文本创建初始位置=点击点左上（Figma 基线对齐，待对照矩阵校准）；空文本提交保留空节点（Figma 删除，P2 级）
+---
+
+### M3 第四步（2026-10-03）：Fill 多层+四型渐变（FR-17）、Stroke 全参数（FR-18）
+
+**内容**（PRD v1.1 B 类参数，P0 画布功能核心）：
+- **schema**：`FillLayer[]`（type 五型：SOLID/Linear/Radial/Angular/Diamond、color、opacity 层透明、visible 显隐、angle、stops[{position,color,opacity}]）入 `StyleSchema.fills`（数组序=面板序=CSS 层序，首层在上）；`BorderSchema` 扩展：`widths` 四边独立、`align` 三对齐（缺省 INSIDE）、`dash`、`cap`（None/Round/Square+5 箭头，供矢量出码）、`join`、`miterLimit`、`opacity`——全部可选字段，旧 JSON 零迁移
+- **compile.ts 出码（FR-47 映射）**：
+  - fills→`background-image` 逗号叠层（SOLID→`linear-gradient(c,c)` 技巧；层/stop 透明度→`withAlpha` 色乘算支持 #hex/rgb/rgba）
+  - 角度换算：Figma 向量角(0=右) → CSS `(angle+90)%360`；Linear→`linear-gradient(Ndeg)`、Radial→`radial-gradient(circle at 50% 50%)`、Angular→`conic-gradient(from Ndeg)`、**Diamond→线性近似**（无原生 CSS，对照矩阵实测后择优 SVG）
+  - fills 接管旧 `background`（设 fills 时不输出旧字段；无 fills 走旧路径零回归）
+  - Stroke：INSIDE→`border`（box-sizing:border-box）；CENTER→`border` 半宽+`outline` 外半；OUTSIDE→`box-shadow: 0 0 0 w` **与既有 boxShadow 逗号合并**；四边独立→`border-top/right/bottom/left`；dash→`dashed`；opacity→rgba；BUTTON 分支防 `border:none` shorthand 重置 per-side
+- **PropertyPanel**：Fill 分区重做为多层列表（每层：显隐钮/色或渐变类型下拉/层透明度/上移下移删除；渐变层展开角度+stop 列表[位置%/色/透明度/删]+加 stop；`+ 添加填充`；无 fills 时从旧 background 派生展示、编辑即迁移）；Stroke 分区扩至全字段（宽度单值↔四边 2×2 切换钮、三对齐、层透明度、dash+gap、端点 cap 8 项、连接 join+miter）
+- **Canvas.tsx**：`fillLayerProps`（SOLID→fill；Linear→Konva `fillLinearGradient*` 按角算起止点；Radial→`fillRadialGradient*`；**Angular/Diamond→首停靠色近似**）+ `strokeLayerProps`（四边独立→取最大宽近似、`dash`→Konva 原生、lineJoin/miterLimit）；多层按底→顶倒序渲染（fills[0] 最后声明=视觉最上），仅顶层接收事件与描边；层透明×节点透明乘算
+- **styles.css**：`.fill-layer(-head)`/`.mini-btn`/`.fill-gradient-chip`/`.fill-gradient`/`.fill-stop`/`.add-layer-btn`/`.props-note`
+- **新增 `tests/fr17-18-fill-stroke.test.ts` 14 例**：叠层序/显隐/透明度、角度换算 0→90°与 90→180°、四型出码、stops 位置与透明度、fills 接管+旧路径回归、三对齐×3、四边、dash+opacity、旧 JSON 回归、往返保序
+
+**结果**：全门禁绿——`tsc` OK、**vitest 102/102**（88+14）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、三冒烟 m1 **22/22** / m2 **21/21** / walkthrough **8/8**；改动文件 U+FFFD=0。
+
+**遗留问题**：
+- 画布近似（LOG 口径，对照矩阵标黄）：三对齐 Konva 无原生（居中近似，INSIDE 出码与画布差 1×stroke 宽的边缘）；四边独立取最大宽画单 stroke；Angular/Diamond 渐变画布为首停靠色；IMAGE 节点不吃 fills 叠层
+- 出码近似：Diamond→linear-gradient；CENTER+四边独立组合未完全体（Edge Case 10，出码按 per-side INSIDE 近似）；cap 5 箭头/miter join 存 schema 未出码（CSS 盒模型无此概念，SVG 矢量出码 FR-21 承接）
+---
+
+### M3 第五步（2026-10-03）：7 菜单全集（FR-33）+ 快捷键面板（FR-9）
+
+**内容**：
+- **菜单 3→7**：File/Edit/View 保留，新增 **Object**（上下移/置顶底 →REORDER/REORDER_Z、组合 Ctrl+G、锁定、布尔/组件/轮廓置灰）、**Text**（左中右对齐 →UPDATE_STYLE textAlign、大小写/段落置灰）、**Plugins**（整组 3 项置灰）、**Help**（快捷键面板入口、帮助中心/关于置灰）
+- **置灰+tooltip 规则（FR-33）**：`MenuItemDef` 增 `note` 字段；渲染 `title=note ?? '本版暂不支持'`；超范围条目 label 不再堆「（暂不支持）」（View/File 既有项保留防冒烟回归）
+- **快捷键面板**：新 `src/editor/shortcuts.ts` **布局表**（SHORTCUT_TABLE 27 条×5 组：工具/文件/编辑/移动/视图，`TOOL_KEYS` 与工具轨 9 键单源对应——FR-9「数据结构驱动，禁散落硬编码」）+ `ShortcutsDialog.tsx`（分组两栏渲染、Esc/点外关闭）；Ctrl+Shift+? 开关（capture 监听，输入态不拦截，Esc 关闭时阻断下层）
+- **m2-smoke 同步（选择器耦合义务）**：`menubar === 3` → `=== 7`；新增 4 步：7 菜单全集断言、面板开（≥25 行布局表渲染）、Esc 关、Plugins 整组禁用+tooltip——**18→25 步**（含 M3-3 的 3 步+本步 4 步，菜单结构步从 21→25）
+- **新增 `tests/fr33-shortcuts.test.ts` 4 例**：表字段非空、必备分组、TOOL_KEYS↔TOOLS 9 工具对照、核心键（Ctrl+Shift+?/Tab/Shift+方向键）在表
+
+**结果**：全门禁绿——`tsc` OK、**vitest 106/106**（102+4）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、三冒烟 m1 **22/22** / m2 **25/25** / walkthrough **8/8**；改动文件 U+FFFD=0。
+
+**遗留问题**：
+- 快捷键重映射（自定义面板）按 PRD 对照矩阵实测口径后置；Object/Text 菜单可用项未做「无选中禁用态」（空选中点击=无操作，视觉上不置灰）
+- Help 其余项、Plugins 体系、Text 大小写——置灰规则随对照矩阵逐条核对（FR-33 置灰规则入矩阵行）
+---
+
+### M3 第六步（2026-10-03）：OVAL/LINE 节点类型入 schema + 拖画创建（FR-16 完整 / P0-22）
+
+**内容**：
+- **schema（types.ts）**：`NodeKind` 扩 `OVAL`/`LINE`；新 `ShapeNode { type: 'OVAL' | 'LINE' }`（叶子，非 isContainer）入 `UINode` 联合；`StyleSchema.rotation?: number`（deg，顺时针；LINE 斜角用，旧 JSON 零迁移）
+- **factory.ts**：OVAL 默认 120×80（复用 RECTANGLE 布局抽 `defaultLayoutRect`）、LINE 默认 100×0 FIXED；LINE 默认描边 `{width:1,color:'#000000'}`；`kindName` 加 Oval/Line；createNode ShapeNode 分支
+- **compile.ts 出码**：OVAL→强制 `border-radius: 50%`（覆盖显式 radius，不出 `corner-shape`）；LINE 专用段→`height:0 + border-top（宽/色/dash/opacity）+ transform: rotate(Ndeg) + transform-origin: 0 50%`（rotation=0 不出 transform；通用 border 分支跳过 LINE）
+- **reference.ts 修复**：叶子判定 RECTANGLE 扩为 RECTANGLE|OVAL|LINE（原非容器掉 container 分支会因 children undefined 崩溃）；html/taro 容器判定基于 `!isContainer` 自动适配，结构零改
+- **Canvas.tsx**：`createShapeAt` 扩 kind（OVAL 同 RECTANGLE FIXED；LINE w=hypot 长、h=0、style.rotation 传斜角）；`stageMouseDown` draw 集加 `ellipse|line`；`endInteraction` 分派——ellipse 走归一化 bbox、**line 起止点 `atan2` 求角 + `hypot` 求长（起点=拖画原点，单击默认长 100 角 0）**；renderNode 加 LINE 分支（Konva `Line points=[起点,起点+cos/sin×长]`、stroke/dash/lineCap 取 border 配置、`hitStrokeWidth=max(lw,8)` 可点选）+ OVAL 走 Ellipse（fills 多层与 strokeLayerProps 同构复用，无 cornerRadius）；`fill` 兜底 #E8E8E8 含 OVAL；光标自动 crosshair（既有 `tool!=='select'` 规则）
+- **Layers.tsx** `TYPE_ICON` 加 `OVAL:'⬭'` `LINE:'╱'`；**Palette.tsx** ITEMS 加 Oval/Line（走既有 ADD_NODE，叶子插入父 children 自动正确）
+- **m2-smoke +2 步**：椭圆拖画（层计数 +1）、直线拖画（层计数+1 且 `.layer-name` 含 Line，**用 filter 而非 last()——dropIndex 不保证插末尾**）——**25→27 步**
+- **新增 `tests/fr16-oval-line.test.ts` 5 例**：factory 叶子/命名/LINE h0+默认描边、OVAL 50% 覆盖 radius 且无 corner-shape、LINE height0+border-top+rotation+origin 与 rotation=0 无 transform、reference/html/taro 不崩、JSON 往返保 rotation
+
+**结果**：全门禁绿——`tsc` OK、**vitest 111/111**（106+5）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、三冒烟 m1 **22/22** / m2 **27/27** / walkthrough **8/8**；改动文件 U+FFFD=0。
+
+**遗留问题**：
+- LINE height=0 故 deepestAtPoint 不命中（选中靠 Konva `hitStrokeWidth` stroke 命中 ✓，树选择器/框选不覆盖）；OVAL 点击命中按矩形 bbox 近似（椭圆四角可点进）
+- 画布 Ellipse 渐变按矩形 bbox 起止（视觉可接受，对照矩阵标黄）；Polygon/Star/Slice/Section/Arrow 留 M4（P1）
+- m2 冒烟 step 8 改名对象由「新文本」变「新 Line」（功能等价，断言自洽）——历史步语义微漂移，不改
+---
+
+### M3 第七步（2026-10-03）：Inter 本地托管 + 字体栈单源（FR-48）
+
+**内容**：
+- **依赖与文件**：`@fontsource-variable/inter`（可变字重 100–900）→ 4 个 woff2（latin/latin-ext × normal/italic，277KB）copy 至**新建** `public/fonts/`；`index.html` 加 2 个 normal preload（`crossorigin`）
+- **单源 `src/font.ts`**：`FONT_STACK = 'Inter, Arial, "PingFang SC", "Microsoft YaHei", sans-serif'` + `FONT_FACE_CSS`（@font-face×4、`font-display:swap`、`unicode-range` 分区——PRD Edge Case 11 swap 口径）
+- **替换 8 处散落字面（FR-48「样式规则单源」）**：`compile.ts ROOT_FONT_FAMILY`、`compiler/measure.ts` 文本测量、`Canvas.tsx` Konva 文本×3（编辑中/静态）、`generator/html.ts` body、`generator/reference.ts` body、`generator/project.ts` Taro app.scss（注释注明需接入方托管）、`editor/pixelDiff.ts` xhtml
+- **注入路径**：编辑器 `main.tsx` 注入 FONT_FACE_CSS 到 head；出码 html/reference 在 `<style>` 段拼入同一段（同源同字体）；**Taro 工程字体文件无法由 text-only 生成器携带**（遗留）
+- **e2e 基建修复（关键）**：`screenshot.mjs` 由 `file://` 改**本地 HTTP 静态服务**（file:// 下 `/fonts/` 404 → Inter 从未加载，两端一致回退掩盖问题）；`build-pages.ts` 加 `public/fonts → dist/fonts` 拷贝（出码站点根 `/fonts/`，Vite 只把 public 拷到 `dist/app/`——outDir=`dist/app`）
+- **新 `tests/fr48-font.test.ts` 5 例**：FONT_FACE_CSS 四面/swap/100–900/public 路径、public/fonts 实体四文件齐备、出码 html/reference/Taro 注入同源、styles.css Inter 打头、6 文件无 Arial 裸栈残留
+- **devDependencies**：+ `@types/node`（测试 fs/path 类型）
+
+**结果**：全门禁绿——`tsc` OK、**vitest 116/116**（111+5）、`build` OK、e2e **16/16 ≥98%**（**diff 数值变化证明 Inter 真加载**：16-多层嵌套 2542→2487px）、viewport **64/64**、三冒烟 m1 **22/22** / m2 **27/27** / walkthrough **8/8**；字体 200 加载验证（`document.fonts` Inter/normal:loaded）；改动文件 U+FFFD=0。
+
+**事故与修复**：
+- walkthrough 一度 FAIL：`FONT_STACK` 双引号嵌进 `pixelDiff.ts` xhtml 的 `style="…"` 属性 → HTML 结构截断 → SVG img 渲染失败 → diff-details 打不开；修为属性内 `.replace(/"/g, "'")`（原版特意单引号）
+- 首轮 fontcheck「无字体加载」为验证脚本自身 server 漏 `decodeURIComponent`（中文目录名 404），非产品问题
+
+**遗留问题**：
+- Taro 工程（dist/taro）字体文件未随生成携带（生成器 text-only）；app.scss 已声明 Inter 优先并注释托管口径
+- 编辑器内 Pixel Diff 面板（svg-as-img 沙箱）不加载外链字体 → 回退 Arial 近似（LOG 注明，对照矩阵标黄）
+- 斜体/非 latin-ext 文本实际加载按 unicode-range 惰性（未加载 face 仅 unloaded 态）
+---
+
+### M3 第八步（2026-10-03）：对照矩阵全量升级（FR-56）
+
+**内容**：`docs/figma-parity-checklist.md` 105 行 32 条 P0 草案 → **224 行 / 73 走查行（P0 53 + P1 17 + P2 3）全量站点级矩阵**
+- **覆盖 v1.1 FR-1~62** 分十一节（画布/拖拽/菜单快捷键/多选/工具创作/组件样式/UI3/原型/转码像素/质量样片/工程未来）
+- **修正 FR 编号漂移**（v1.0→v1.1）：P0-23 图片 FR-17→**FR-20**、P0-24→FR-31/32、P0-25→FR-33、P0-26→FR-34、P0-27→FR-38、P0-28/29→FR-37、P0-30→FR-46/52、原 P0-31→P0-51/FR-53、原 P0-32→P0-52~53/FR-54~55（原编号仅存历史版本）
+- **新增附 A** 16 demo 页×9 视觉要素（布局/文字/描边/圆角/效果/渐变/图片/图标矢量/间距，模块 100%）；**附 B** Design 面板 11 分区×（可见/可编辑/默认值）；**附 C** 7 菜单可用/置灰能力表
+- **GA 通过线（FR-56 原文）**：总 ≥95% **且**四模块 100%（附 A / 附 B / 第八节原型 P0 行 / FR-57 样片）
+- **里程碑列**：标注 M1–M3 已交付回归项（走查失败即缺陷）与 P1/P2 排期；原型节 P0-39~45 标 M5（GA 四模块之一）
+- Open Question 关联：P0-45 跨 Page Navigate 按 v1.1 默认「不实现」口径走查（待用户拍板）
+
+**结果**：行数实核 P0=53/P1=17/P2=3=73 ✓；FFFD=0；FR 引用逐条对 PRD v1.1 L157~250 原文核对。
+
+**遗留问题**：
+- 矩阵结果列待 PM+QA 逐行实测填充；附 A 每格需人工/截图判定
+- FR-12/60 性能行需 1000 节点 demo 页素材（M4 补）
+- FR-47 映射抽样行（P0-46）的「近似项标注口径」待对照矩阵实测时逐项确认
+---
+
+### M3 第九步（2026-10-03）：Effects 8 类全栈（FR-19）+ 图层混合（FR-34 余量）
+
+**内容**：
+- **Schema**（`types.ts`）：`EffectKind` 8 种（DROP_SHADOW/INNER_SHADOW/LAYER_BLUR/BACKGROUND_BLUR/PROGRESSIVE_BLUR/NOISE/TEXTURE/GLASS）+ `Effect`（可选 x/y/blur/spread/color/radius/startRadius/beta/density/opacity/color2/scale + Glass 7 参数 + visible）+ `BlendMode`/`BLEND_MODES` 16 种 + `StyleSchema.effects?`/`blendMode?`
+- **出码**（`compile.ts`）：DROP→box-shadow、INNER→inset 合并、LAYER→`filter:blur`、BACKGROUND→`backdrop-filter`、PROGRESSIVE→起始/主半径均值近似、GLASS→blur+saturate+brightness 链近似、NOISE/TEXTURE→`url(#fx-noise-<nodeId>)`；**shadowParts 恒以 OUTSIDE 描边开头、数组序=渲染序、有 effects 忽略旧 `boxShadow`**（兼容：无 effects 才 push legacy）；`mix-blend-mode` 小写连字符（NORMAL 不输出）
+- **SVG defs**（`html.ts` 新 `collectFxDefs(page)`）：NOISE/TEXTURE per-node `<filter><feTurbulence baseFrequency=1/radius numOctaves=density><feColorMatrix slope=opacity>`，`<body>` 后注入；`reference.ts` 同源注入（同 id 同参数，参考端与出码端一致）
+- **面板**（`PropertyPanel.tsx`）：效果区重做为 fill-layer 同款列表——类型下拉 8 中文标签/显隐○●/上移下移/删除/按 kind 分类参数（阴影 5 字段、模糊 1–2、噪点纹理 4、玻璃 5）/`+ 添加效果`（首条即清 legacy boxShadow）；**新增「图层」section**（BLEND_MODES select + 透明度 Row 从填充区移入，FR-34 分区口径）
+- **画布**（`Canvas.tsx`）：`shadowProps(style)` 取首条 visible DROP_SHADOW → Konva shadowColor/Blur/Offset，挂 TEXT/BUTTON/IMAGE×3/LINE/fills 底层(idx0)/单层分支；多层/INNER/模糊类画布近似不画（出码端完整）
+- **新 `tests/fr19-effects.test.ts` 8 例**：双阴影合并与序、blur/backdrop、均值近似、GLASS 链、NOISE defs 参数+html/reference 双端、显隐+blend、legacy 兼容三态（纯旧/迁移/OUTSIDE 并存）、JSON 往返
+- **样式**（`styles.css`）：`.eff-params` 两列 flex 容器（不复用 `.fill-gradient` 防 fill 区回归）+ `.eff-field`
+
+**结果**：全门禁绿——`tsc` OK、**vitest 124/124**（116+8）、`build` OK、e2e **16/16 ≥98%**、三冒烟 m1 22/22 / m2 27/27 / walkthrough 8/8；改动 8 文件 U+FFFD=0。
+
+**遗留问题**：
+- 画布仅首条 DROP_SHADOW 实体渲染（Konva 单组 shadow）；INNER/LAYER_BLUR/BACKGROUND_BACKDROP/噪点纹理玻璃仅出码端保真——对照矩阵附 A「效果」格以出码端判定
+- PROGRESSIVE_BLUR 为 CSS 无原生的均值近似、GLASS 为三函数链近似（参数 slope 口径待与 Figma 实测校准）
+- TEXTURE 双色（color2）走 feColorMatrix 降级（LOG 此处仅色值单色近似）
+---
+
+### M3 第十步（2026-10-03）：节点级 Export 设置与 ZIP 导出（FR-24）
+
+**内容**：
+- **Schema**（`types.ts`）：`ExportSetting { format: PNG|JPG|SVG|PDF; scale: 1|2|3; suffix? }` + `NodeBase.exportSettings?: ExportSetting[]`（可多条预设；旧 JSON 缺省即无）
+- **Store**：新 action `UPDATE_EXPORT_SETTINGS`（空数组=删除字段，pushHistory 非 transient）
+- **右栏 Export 分区**（FR-34 ⑪，位于「内容」附加区前）：预设列表——format select 4 项、scale select 1x/2x/3x（**SVG/PDF 锁 1x disabled 并出 note「对照 Figma 限制」**，切到 SVG/PDF 自动归 1）、suffix 输入、删除、`+ 添加导出设置`、空态 note；复用 fill-layer 样式
+- **导出链路**（新 `src/editor/exporter.ts` + canvasBus 扩展）：
+  - `canvasBus.requestCapture(region(page坐标), pixelScale, mime)` 请求-应答（requestId + 15s 超时）
+  - Canvas 订阅 `captureRegion`：abs = stagePos + region×zoom、`pixelRatio = desired/zoom` → `stage.toDataURL`（**导出尺寸与画布缩放/平移无关**）
+  - `exportSelection(page, geometry, selectedIds, projectName)`：选区中带设置的节点逐条产物流——PNG/JPG=region 截取（dataURL→bytes）、SVG=`svgOfNode` foreignObject 单节点（外层固定尺寸 ABSOLUTE 容器 + 内层坐标归零 + `<style>` 内嵌出码 CSS）、PDF=跳过记 skipped；`createZip`（既有 store ZIP）→ `downloadBlob`；全部无设置/无产物 throw 由菜单 alert
+  - 文件名 Figma 约定 `<name><suffix><@2x>.<ext>`（非法字符→_，空名回退 id）
+- **菜单**：File「导出图片（暂不支持）」→ **「导出所选为图片 / SVG（ZIP）」启用**（skipped 时 alert 明细）
+- **新 `tests/fr24-export.test.ts` 5 例**：effectiveScale（SVG/PDF 恒 1x）/命名五态/foreignObject+namespace+css+文本/JSON 往返+旧缺省/ZIP PK 头
+- **真实链路验证**（临时 playwright 脚本，验后删）：画矩形→Export 区加 PNG@2x→File 导出→**5/5**（ZIP 解析 `Rectangle_1@2x.png` PNG magic ✓ + SVG 预设 `Rectangle_1.svg` 含 foreignObject ✓）
+
+**结果**：全门禁绿——`tsc` OK、**vitest 129/129**（124+5）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、m1 22/22 / m2 **27/27** / walkthrough 8/8；改动 9 文件 U+FFFD=0。
+
+**断言报备（改先记录）**：`scripts/m2-smoke.mjs` File 菜单步 `disabledItems >= 2` → **`>= 1` 且要求含「导出所选」**——FR-24 启用导出项后禁用项从 2（导出图片+导入）降为 1（仅导入占位），语义随产品更新（步数 27 不变）。
+
+**遗留问题**：
+- PDF 仅持久化设置、不产物流（浏览器侧无渲染库，记 skipped；工程侧补）
+- SVG 为 foreignObject 像素级近似（非矢量描边化）；JPG 无透明度（合成黑底，Konva jpeg 语义）
+- region 截取在极高 zoom（pixelRatio<1）时按目标尺寸重采样（Konva 支持小数 pixelRatio）
+---
+
+### M3 第十一步（2026-10-04）：Constraints 约束 + 拖画落点容器（FR-35，连带修复 2 缺陷）
+
+**内容**：
+- **Schema**：`HorizontalConstraint`(LEFT/RIGHT/CENTER/SCALE) + `VerticalConstraint`(TOP/BOTTOM/CENTER/SCALE) + `Constraints` + `LayoutSchema.constraints?`（缺省 {LEFT,TOP} 对照 Figma；**PRD「5 档×2 轴」按括号值域解释为 Figma 实际 4 档**——Left/Right/Center/Scale 水平、Top/Bottom/Center/Scale 垂直，见报备）
+- **纯函数 `src/editor/constraints.ts`**：`recomputeChild/recomputeChildren`——以 **drag 起点父尺寸与子快照**为基准算终值（避免逐帧累计误差）；LEFT/TOP 不动、RIGHT/BOTTOM 平移 delta、CENTER 半移、SCALE 比例（x/w 同比）；old/new span≤0 防除零；空 patch 过滤
+- **Canvas 链路**：把手 `onMouseDown` 抓 `startG+startChildren` 快照（仅 `mode==='ABSOLUTE'` 容器）并读 `ctrlKey`；`ctx.onResize` 在 UPDATE_LAYOUT 后发 `UPDATE_LAYOUT_MULTI(transient)` 子项 patch；**mousemove 中按住 Ctrl 置 `ignoreConstraints`**（按下过即忽略全程）
+- **Store**：`UPDATE_LAYOUT_MULTI` 加 `transient?`（拖动中不压历史栈，与 UPDATE_LAYOUT 同款）
+- **面板**（位置与尺寸区，X/Y 下方）：约束 4×2 双 select（水平：左/右/水平居中/水平缩放；垂直：上/下/垂直居中/垂直缩放）；**父为 Auto Layout 流 → Row 显示「Auto layout（约束不生效）」占位语义**（对照 FR-35 互斥规则）；root 无约束 Row
+- **新 `tests/fr35-constraints.test.ts` 8 例**：四档×2 轴/两轴组合/缺省 LEFT,TOP/防除零（全零+单轴）/过滤空 patch/JSON 往返+旧缺省
+- **真实链路验证**（临时 playwright，验后删）：root 与 Frame 切「绝对定位」→ 画 Frame+矩形（**矩形进 Frame 为子**）→ 约束 RIGHT → 抓 X/Y/W/H 真实几何算把手坐标 → 拖 +150 → **8/8**：W 300→450 ✓、矩形 X 50→200 跟随 ✓、Ctrl 拖 W+60 且 X 不变 ✓
+
+**连带缺陷修复（验证中发现，均为对照 Figma 的真缺陷）**：
+1. **拖把手 mouseup 合成 stage click 反选**（选中清空、面板消失）→ 把手 `onMouseDown` 置 `suppressClickRef=true`（下次 mousedown 复位，无粘性）
+2. **拖画创建不找落点容器**（rect/oval/line/Frame 恒插 root；仅 TEXT 走 `findContainerAt`）→ draw 收尾按**框中心**（LINE 按起点）`findContainerAt` 判定容器，`createFrameAt` 加可选 `parentId`；空白处拖画 findContainerAt→null→root（原行为保持）
+
+**结果**：全门禁绿——`tsc` OK、**vitest 137/137**（129+8）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、m1 22/22 / m2 27/27 / walkthrough 8/8；改动 6 文件 U+FFFD=0。
+
+**报备**：
+- PRD L200「5 档×2 轴」按 Figma 实际 **4 档×2 轴**实现（括号列值 Left/Right/Center/Scale+Top/Bottom 混写，Centre 双轴重复计即 4 档/轴）；矩阵 P1-12「5 档」行走查时以 4 档×2=8 组合判定
+- 拖画落点容器判定为**中心点**语义（与文本工具一致；Figma 为相交判定，边缘情形可能有差——矩阵实测时记录）
+
+**遗留问题**：
+- 约束仅作用于**拖把手 resize**；面板数值改 W/H 不触发子项重算（Figma 数值改宽子项会动——待矩阵实测确认是否补）
+- 拖画中心点判定在「中心在外、框与容器相交」边缘不嵌套（对照 Figma 相交判定的近似）
+---
+
+### M3 第十二步（2026-10-04）：Auto Layout 全量补齐（FR-36）
+
+**Schema（LayoutSchema 扩展）**：
+- `wrap?: 'NO_WRAP'|'WRAP'`（缺省不折行）+ `gapCross?`（wrap 交叉轴行/列间距，缺省沿用 gap）
+- `minWidth?/maxWidth?/minHeight?/maxHeight?`（px 约束）
+- `clipContent?`（overflow hidden）
+- `AlignMode` 增 **`BASELINE`**（基线对齐，仅横向有意义）
+- `prevMode?`（Ignore auto layout 切走前的流方向，切回恢复）
+- **Ignore auto layout = 子 `mode:'ABSOLUTE'`**（复用既有字段；流式父下按自身 x/y，不入游标——Figma 同语义）
+
+**layout.ts（几何，扩展非破坏）**：
+- `clampSize`：min/max 于 childSize 与 hug 出口夹紧（**根节点除外**，根 min-height 被 100vh 规则占用）
+- flow 段（hug+assign）过滤 `mode==='ABSOLUTE'` 子：hug 尺寸不计入、gap/FILL/游标不参与；assign 后按 `contentX+x/y` 单独放置（与 ABSOLUTE 父分支同构）
+- **HORIZONTAL+WRAP**：hug 按已知宽折行算行数×行高+gapCross；assign 按 contentW 分行、行内独立跑 justify（SPACE_BETWEEN 按行宽）、行间 gapCross、行内 cross 对齐用行高（STRETCH/CENTER/END）
+- **BASELINE 几何近似 START**（出码 `align-items:baseline` 由浏览器精确对齐——报备）
+
+**compile.ts（出码）**：
+- wrap→`flex-wrap:wrap` + `gap: <row> <col>`（横向 row=gapCross/col=gap，纵向反之）；无 wrap 时 gap **由 `>0` 改 `!==0`**（负 gap 出码，PRD gap 负值）
+- min/max→`min-width/max-width/min-height/max-height`（root 除外）；clipContent→`overflow:hidden`；BASELINE→`align-items:baseline`
+- 流父子 `mode==='ABSOLUTE'` → `position:absolute + left/top`（`parentIsAbsoluteContainer` 判定加子条件）
+
+**面板（布局区）**：
+- **宽限/高限** 4×NumField（`onClear` 新回调：输入清空删字段；根隐藏）
+- flow 容器增 **折行**（不折行/折行）+ wrap 时 **行间距**；**裁剪** 按钮（复用 radius-toggle）
+- **对齐** select：横向时追加「基线」档（纵向隐藏）
+- **定位** Row（流父内子）：流内/绝对定位切换——切绝对存 `prevMode`+x/y(0)，切回恢复方向并清 x/y；flow 父容器子的「方向」Row 在 ignore 中隐藏（避免重复表达）
+- **store MOVE_NODE**：拖入流式容器时退出 ignore（`prevMode ?? 'VERTICAL'`，清 x/y）——对照 Figma「拖入 auto layout 进流」
+
+**测试 `tests/fr36-autolayout.test.ts` 12 例**：min/max 夹紧（自身+容器 HUG）、wrap 几何（折行高/行位置）、ignore（游标+x/y+HUG 不计入）、出码 5 组（wrap 两值 gap/负 gap/min-max/BASELINE+clip/ignore absolute）、字段 JSON 往返——**12/12 一次过**。
+
+**结果**：全门禁绿——`tsc` OK、**vitest 149/149**（137+12，17 文件）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、m1 22/22 / m2 27/27 / walkthrough 8/8；改动 6 文件 U+FFFD=0。
+
+**报备（对照口径）**：
+- **VERTICAL+WRAP 画布近似单列**（出码 flex-wrap 由浏览器折列；PRD wrap 指「行间距」即横向折行语义——矩阵实测如涉纵向折列再补几何）
+- BASELINE 画布几何=START 近似（出码端保真）
+- min/max 不作用于**根**节点（根尺寸由 100vh/viewport 规则接管）
+- wrap 分行「行内独立 justify」为浏览器 flex multiline 同构；align-content（行分布）未单独暴露（缺省 stretch 占满，与画布一致）
+
+**遗留问题**：
+- 面板数值改容器 W/H 不触发约束子重算（FR-35 遗留，一并待矩阵）
+- MIN>MAX 时 max 优先（夹紧顺序 min→max，无冲突校验）
+---
+
+### M3 第十三步（2026-10-04）：文本引擎全字段补齐（FR-15）
+
+**Schema（StyleSchema 文本段扩展，全部可选字段——旧数据零迁移）**：
+- `lineHeightMode`（AUTO/PIXELS/PERCENT，缺省 PIXELS=旧语义）+ `letterSpacingMode`（PIXELS/PERCENT）
+- `textAlignVertical`（TOP/CENTER/BOTTOM）、`textAlign` 增 **`justify`**（4 档齐）
+- `paragraphSpacing`（段间加高）、`paragraphIndent`（首行缩进）
+- `textWrap`（缺省 true；false=不折行）、`textTruncation`+`maxLines`（Truncate 截断）
+- `textCase` 5 档（ORIGINAL/UPPER/LOWER/TITLE/SMALL_CAPS）、`textDecoration` 3 档（NONE/UNDERLINE/STRIKETHROUGH）
+- `openType`（liga/kern/dlig 三项）
+- **Auto resize 3 模式不加字段**：面板 select 联动 layout widthMode/heightMode（自动宽高=HUG×HUG、定宽自动高=FIXED×HUG、固定=FIXED×FIXED；反推显示）
+
+**measure.ts（测量，双实现同改）**：
+- 共享 `applyTextCase`（TITLE=词首大写近似 CSS capitalize；SMALL_CAPS 近似原样）、`effectiveLetterSpacingPx`（%=字号百分比）、`effectiveLineHeight`（AUTO=1.4×字号、%=数值%×字号）
+- 测量收尾 `finalizeText`：**Truncate 行上限**（height 按 maxLines 截）+ **段落间距**（按原始段数加高，截断不减段）
+- textCase 参与宽度测量、textWrap=false 忽略 maxWidth 折行、paragraphIndent 计入宽度
+
+**compile.ts（出码）**：
+- 行高：PIXELS/缺省→px、PERCENT→单位less（1.5）、AUTO→不输出（浏览器 normal；画布/测量按 1.4 近似——报备）
+- 字距 %→`0.1em`（CSS letter-spacing 不收 %）；text-align justify；paragraphIndent→text-indent
+- textWrap=false→`white-space:pre`（保 \n 不折）；textCase→text-transform 4 映射（SMALL_CAPS→small-caps）
+- textDecoration→underline/line-through；Truncate→`-webkit-box + line-clamp + overflow hidden + ellipsis`
+- OpenType→`font-feature-settings`（liga/dlig）+ `font-kerning`
+- textAlignVertical：**定高文本**且非 TOP→`display:flex + column + justify-content:center|flex-end`（truncate 的 -webkit-box 优先不叠加）
+
+**画布（Canvas KText，Konva 9.3.22 原生 props）**：
+- text=`applyTextCase` 后串、lineHeight=单位换算 multiplier、letterSpacing=px 换算
+- `verticalAlign`（Konva 原生 top/middle/bottom）、`textDecoration`、`wrap='none'`（关换行）、`ellipsis`+maxLines×lineHeight 高度（截断）
+- BUTTON 文本同步单位换算（lineHeight/letterSpacing）
+
+**面板排版区**：字号/字重/颜色保留；**行高**=单位 select+值（AUTO 禁输入）、**字距**=单位 select+值、段间距、首行缩、对齐 4 档、垂直对、自动换行 toggle、自动大小 3 档、截断 toggle+最大行、形态 5 档、装饰 3 档、OpenType 三按钮（liga/kern/dlig）
+
+**测试 `tests/fr15-text.test.ts` 19 例**：行高/字距单位 4 组、textCase 5 档、测量 7 组（nowrap/段距/缩进/截断/case 参与/字距参与）、出码 10 组（行高三态/字距/justify+indent/pre/textCase/textDecoration/line-clamp/OpenType/垂直 flex）、字段 JSON 往返——**19/19 一次过**
+
+**结果**：全门禁绿——`tsc` OK、**vitest 168/168**（149+19，18 文件）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、m1 22/22 / m2 27/27 / walkthrough 8/8；改动 6 文件 U+FFFD=0。
+
+**报备（近似口径）**：
+- 行高 Auto：出码 normal（浏览器≈1.2）vs 画布/测量 1.4——两端不一致处（Figma Auto=字体 metrics）
+- SMALL_CAPS：出码保真（small-caps），画布/测量近似原样（Konva 无小型大写）
+- paragraphSpacing：测量+几何生效，**出码无 CSS 原生段间距**（忽略）、画布行渲染不含（忽略）——两端视觉微差
+- paragraphIndent：测量按「全宽+indent」近似（非仅首行判定）；画布 Konva 无首行缩进（忽略）
+- TITLE：词首大写近似（`\b[a-z]`），与 Figma Title Case 边界（缩写/数字）可能有差
+
+**遗留问题**：
+- 文本垂直对齐仅出码+画布生效，**HUG 高度下无意义**（与 Figma 一致）
+- OpenType 仅出码（Konva canvas 无 font-feature 控制，画布由字体默认）
+- Contextual options 栏的「Text 排版快捷」（PRD FR-13）未随本步补——记 P2
+---
+
+
+
+### M3 第十四步（2026-10-04）：形状全集——多边形/星形/弧形/箭头端点（FR-16）
+**Schema（ShapeNode 扩形，全部可选）**：- NodeKind 增 `POLYGON` | `STAR`；StyleSchema 增 `arcData`（startingAngle/endingAngle deg、innerRadius 比例 0-1）、`pointCount`（3-60）、`innerRadius`（星形内径 0-1）
+- factory：defaultStyle 给 POLYGON pointCount=3、STAR pointCount=5+innerRadius=0.38；defaultLayout 复用矩形盒；kindName 同步
+**工具与创建**：- store Tool 增 `polygon`/`star`；Toolbar TOOLS 增两项（⬠/☆，**Figma 同无字母快捷键**——fr33 断言改「11 轨 9 有键」）- Canvas：`createShapeAt` kind union 扩两值（FIXED 拖画尺寸同矩形）、draw 收尾分支、onPointerDown 工具白名单三处接入
+**画布渲染（react-konva）**：- POLYGON/STAR：单位点集 helper（顶朝上顺时针）→ `flattenPx` → Konva.Line closed（fills 多层/描边/阴影同构 RECT 路径复用）- OVAL arcData **激活判定**=sweep<360 或 inner>0（0/360/0 整圆=等效普通椭圆，不破既有 border 语义）→ Konva.Arc（innerRatio×rx、rotation=start、scaleY 椭圆化）
+- LINE 箭头端点：cap=ARROW_* 时两端同款头——TRIANGLED=Konva.Arrow 实心、LINES=描边三角近似开口、DIAMOND/POLYGON=闭合点集（r=0.75hl 尖朝外）、CIRCLE=Circle；hl=max(lw×3,8)
+**出码（compile.ts）**：- POLYGON/STAR→`clip-path: polygon(...)`（与画布同 helper % 口径；**fill 保真、描边经裁剪不保真**）- OVAL arc→`conic-gradient(from=start+90deg, color 0..sweep, transparent)` + `border-radius:50%` + 内径>0 时 `mask-image/-webkit-mask-image radial-gradient 打孔`；conic 色取 fills[0] 首 stop；**arcShaped 跳过 fills 出码与 border 出码**（conic 接管）
+- LINE ARROW_*→data-URI SVG（`<line>`+两端头元素、dash/线帽同参）替代 border-top，height=2×pad（**含头盒高，与画布几何 0 高差——LOG 报备**）；无箭头 cap 保持 border-top+height 0 原状
+**面板（PropertyPanel 圆角区后）**：- POLYGON/STAR：边数（3-60）；STAR 内径（1-99%）
+- OVAL：弧形三字段（起/止角 0-360、内径 0-99%），缺省 0/360/0=普通椭圆等效（arcData 存在但非激活）
+**测试 `tests/fr16-new-shapes.test.ts` 20 项**：helper 5（点集顶朝上/星形交替半径/flatten/clip 串/arcSpec 归一含负角）、出码 clip-path 3、conic+mask 5（from 换算/跨0环/前缀/整圆不走/fills 首色）、箭头 5（无 cap 回归/TRIANGLED/DIAMOND/LINES/CIRCLE）、schema 往返+旧数据 2——**20/20 一次过**（2 断言修正：星形内点取 s[1]、height 字面 '0'）
+**结果**：全门禁绿——`tsc` OK、**vitest 188/188**（168+20，19 文件）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、m1 22/22 / m2 27/27（断言 tools 9→11）/ walkthrough 8/8；改动 12 文件 U+FFFD=0
+**报备（近似口径与后置）**：- 形状描边出码=clip-path 裁剪近似（顶点处 border 段可见性不保真；完全保真需 SVG 形状——P2）
+- arc 多层填充/渐变→取首 stop 纯色；渐变 conic 无原生等价；弧的描边出码整段省略（画布 Konva.Arc 有描边）
+- 箭头出码为 data-URI SVG、盒高含头（画布几何高 0）；箭头头尺寸 hl=max(lw×3,8) 近似（Figma 随描边缩放曲线非精确）
+- LINES 开口箭头画布=描边三角近似（Konva.Arrow fill transparent 含底边线）
+- **画布形状拖拽把手后置**（等比缩放内切半径把手——FR-16 报备后置项）
+- FR-13「Shape 组长按子菜单」不做：工具轨平铺（现状），多边形/星形独立钮——PRD FR-13 子菜单项另行排期
+**遗留问题**：- POLYGON/STAR 在 flow 容器内由普通盒约束参与布局（非 Figma 形状语义特殊化）——矩阵实测如涉再补
+- 弧形/星形参数无画布直接把手（仅面板数值）——M4 体验项
+---
+
+
+### M3 第十五步（2026-10-04）：Frame/Section/Slice 全语义（FR-14）
+**范围盘点（PRD FR-14 五项）**：- 拖画创建 ✓ 既有（createShapeAt）／设备预设 4 档 ✓ 既有（393×852、375×667、820×1180、1440×900）／单击空白 100×100 ✓ 既有（draw 收尾 box 兜底）／Clip content ✓ FR-36 既有——**本步补 Section + Slice**
+**Schema**：- NodeKind 增 `SECTION` | `SLICE`；ContainerNode.type 增 SECTION（isContainer 同步）；SLICE 归 ShapeNode 叶子（无 children）
+- factory：SECTION=ABSOLUTE 包裹容器 200×200、默认 `rgba(128,128,128,0.12)` 浅底+圆角 8（深浅主题中性近似，报备）；SLICE=ABSOLUTE 100×100、无样式——**ABSOLUTE 双双保证不占 flow**（FR-35 既有过滤链路零改动）
+**工具与创建**：- Tool/TOOLS 增 `section`/`slice`（工具轨平铺、无字母键——沿 FR-13/16 报备口径；fr33 断言 11→13、m2 断言同步）；TYPE_ICON 补 SECTION/SLICE/POLYGON/STAR（FR-37 全量图标升级仍另并）
+- draw 收尾：**Section 恒挂 Page 顶层**（不传 parentId——Figma 语义 Section 不入 Frame）；Slice 跟随落点容器（FR-35 中心点判定链路）
+**画布**：- SLICE 专属渲染：虚线圈定框（灰 dash[6,4] + 极浅填充），监听选中但无样式语义
+- SECTION：走容器渲染路径（背景 Rect + children），**标题 KText 在框上沿外侧**（node.name、12px、`#8A8A8A`、宽=框宽 ellipsis 截断、不监听命中）
+**出码与生成器（含 2 个真缺陷修复）**：- compileNode 顶部跳过 SLICE——不生成出码节点，父 flow 自然不占位；SECTION=普通容器 div（标题不出码）
+- **修复① generator/reference.ts**：renderFlat 非容器判定原列举 RECT/OVAL/LINE——SLICE/POLYGON/STAR 落入容器分支读 `container.children`（undefined）→ TypeError；改为 SLICE 直接 return + 形状列表补 POLYGON/STAR（FR-16 遗留坑一并除）
+- **修复② generator/html.ts**：buildPreviewDom 对 SLICE 渲染无样式 div（classNames 缺失）→ 同步 return ''（与 compile 跳过同口径）
+- 两缺陷症状：DiffModal runPixelDiff 抛错→ error 态无 `.diff-details`→ walkthrough Pixel Diff 步骤超时（走查暴露）
+**walkthrough 新步骤**「拖画创建 Section + Slice（FR-14）」：工具轨点选→画布 drag→图层树断言（Section=1 Slice=1）；选择器用 `.tool-strip [title=…]`（工具轨为 floating 独立容器，非 header `.toolbar`）
+**测试 `tests/fr14-section-slice.test.ts` 9 项**：预设 4 档逐一锁定、Section 容器/容纳/出码、flow 不占位、Slice 非容器/出码跳过/兄弟不受影响/flow 中节点数不变、exportSettings 往返（格式/倍率/后缀+无视觉样式）、旧数据不破——**9/9 一次过**（ExportSetting 字段修正：format/scale/suffix）
+**结果**：全门禁绿——`tsc` OK、**vitest 197/197**（188+9，20 文件）、`build` OK、e2e **16/16 ≥98%**、viewport **64/64**、m1 22/22 / m2 27/27（tools 11→13）/ walkthrough **9/9**（新步骤 图层 57→59）；改动 15 文件 U+FFFD=0
+**报备**：- Section 底色=中性半透明近似（Figma 浅灰随主题）；标题灰色 `#8A8A8A` 非主题联动
+- Section 顶层约束仅创建路径（拖入 Frame 手动移动不拦——Figma 硬约束项矩阵实测如涉再补）
+- Slice 与 exporter 联动=exportSettings 字段既有（FR-24 链路）；「按 Slice 批量导出」走查归 FR-24 矩阵行
+**遗留**：- 图层树 16 类图标升级、Section 画布标题双击改名把手（图层树双击改名既有）——归 FR-37
+- Palette 资产区无 Section/Slice 快捷添加（工具轨平铺已够）——P3
+---
+
+### M3 第十六步（2026-10-04）：CSS 像素映射全集补齐（FR-47）
+
+**任务**：FR-47「全部视觉属性→CSS 像素级映射」收尾。探明现状后补 5 小缺项 + 写全映射断言测试；其余按报备口径锁定。
+
+**五项补实现（全在 src/compiler/compile.ts）**：
+- **NodeContext** 新增 `parentNegGap` / `childIndex`（compilePage 根默认 0；compileNode 仅向非 ABSOLUTE 子传：父负 gap 原值 + 子序号，ABSOLUTE 子不计序）
+- **负 gap→margin 修正**：CSS gap 不收负值——父仅出 `gap` 正值；`negGap<0` 时首个之后的流式子主轴侧并入负 margin（VERTICAL=上、HORIZONTAL=左），首子不加，语义=子项重叠。WRAP 行列模型不适用负 gap，跳过（报备）
+- **flex 映射字面化**：主轴 FILL→`flex:1 1 0`（原 1 1 auto）+ min 归零保留；HUG 非 abs 子补 `flex:0 0 auto`（原仅 fit-content）；FILL 统一声明压过 HUG，`flex-grow/shrink` 显式属性仍可后覆
+- **`-webkit-font-smoothing:antialiased`**：文本出码常驻（FR-47 文字节字面）
+- **Constraints 4×2 出码**（abs 子，父尺寸已知前提）：LEFT/TOP=现状 `left/top px`；RIGHT=`right=父宽-x-宽`、BOTTOM=`bottom=父高-y-高`（缺省 x/y 时退 `父边-尺寸`）；CENTER=`calc(50% + Δpx)`；SCALE=`left/top %` + 覆盖 width/height 为百分比。回退：父尺寸或宽高未知→LEFT/TOP 现状。PRD 字面 CENTER 用 transform——出码取 calc left 以避与 rotation（transform）冲突（报备）
+
+**2 处旧口径测试迁移**：`compiler.test.ts` FILL 断言 `1 1 auto`→`1 1 0`（FR-47 字面）；`fr36-autolayout.test.ts` 负 gap 断言 `gap:-4px`（FR-36 时原样出，实际为无效 CSS）→双子场景：父无 gap + 次子含负 margin。
+
+**新增 `tests/fr47-css-map.test.ts` 37 项（9 describe）**：A=Auto Layout 全参（gap 正/负、wrap 双轴 gap、justify/align 含 baseline、FILL/HUG flex、min/max、padding、FIXED px）；D/E/F=Stroke 三对齐（INSIDE border-box / CENTER border 半+outline 外半 / OUTSIDE box-shadow 扩）+ 四边独立 widths+圆角组合 + 四角 radius；G=Effects（多层 shadow 含 spread+inset、LAYER/BACKGROUND blur、NOISE/TEXTURE→SVG url）；H=4 渐变（LINEAR +90 角度换算、stop 含透明度、RADIAL、ANGULAR from、DIAMOND 线性近似、SOLID）；I=blend **16 核心集**逐个 lower-hyphen 映射（PRD 字面 20——CSS 可映射集 16+Pass through 仅组用，报备）+ opacity；K=Constraints 4×2 全档+混合；L=图片 scaleMode（FILL/CROP→cover、FIT→contain、TILE 无 object-fit；**7 调整 schema 无字段=FR-20 余项断言不锁**）；M/N/O/P=line-height 三档（AUTO 不输出）、letter-spacing px/em、justify 文字、text-transform 4 映射、font-smoothing、HUG→fit-content+0 0 auto（PRD width:auto 等价报备）、line-clamp、clipContent。报备项落点 describe 标注不锁。
+
+**门禁**：`tsc` OK；**vitest 234/234**（197+37，21 文件）；`build` OK；e2e **16/16 ≥98%**（assert-pages 224/224）；viewport **64/64**；m1 22/22 / m2 27/27；walkthrough **9/9**；本轮 4 改动文件 U+FFFD=0。
+
+**报备（FR-47 字面 vs 实现）**：
+- 图片 7 调整（Exposure…Shadows）→ schema 无字段，归 **FR-20 余项**
+- 圆角蒙版 overflow（蒙版=border-radius+clip，fill 圆角≠出码遮罩）→ 依赖 **FR-23 蒙版 P1**
+- line-height AUTO→字体度量 natural（FR-15 既定口径，不写 normal——normal≈1.2 非度量值）
+- HUG 出 `fit-content` 而非字面 `width:auto`（语义等价；auto 会解析容器宽度反悖 HUG）
+- CENTER 约束 `calc(left)` 代替字面 transform（保 rotation transform 归属唯一）
+- WRAP 下负 gap 跳过（折行堆叠模型不适用，编辑器 UI 已挡负值）
+- blend mode=16 核心集（CSS 标准同 16）；Diamond=线性近似（CSS 无原生，矩阵实测后可择 SVG）
+- Truncate→line-clamp 需 block/inline-size 前提：现有 `-webkit-box` 出码保留
+
+**后续**：矩阵行 `docs/figma-parity-checklist.md` 待 M6 统一采样；FR-47 完成后 M3 尾量仅剩矩阵采样归档，向 GA 线（矩阵 ≥95%+四模块 100%）推进。
+---
+
+### M3 第十七步（2026-10-14）：FR-51② 画布↔出码基线首跑 + 对照矩阵 M3 段实测（M3 收口）
+
+**目标**：M3 仅剩两项收尾——①FR-51②「画布截图 vs 出码页截图 ≥95%」首跑定基线（PRD 明确 M3 要做，此前无实现）；②对照矩阵 M3 段逐行实测填结果（`docs/figma-parity-checklist.md` 结果列全空）。
+
+**修改内容**：
+- **e2e 通道**（`src/editor/Editor.tsx`）：`VITE_E2E_HOOK=1` 构建时挂 `window.__UIC_E2E__`——`snapshot()`（page 坐标根级子节点几何，取自 Editor 层 resolveLayout）+ `captureRegion()`（透传既有 `canvasBus.requestCapture` FR-24 导出 API）；未开 env 时零挂载，无行为变化
+- **新管线**（`scripts/canvas-diff.mjs` + `package.json` 的 `canvasdiff`）：静态服务 dist → Playwright 开编辑器 → File→打开 16 页 page.json → 根级子节点几何并集为捕获区 → 画布 1:1 光栅化（pixelScale=1）vs `render.png` 同区裁剪 → pixelmatch（threshold 0.1，同 diff.mjs）→ `dist/canvas-diff/report.json` + 逐页 canvas/diff.png；CANVAS_TARGET 仅报告分级不硬拦（PRD：基线由 PM 确认终值）
+- **缺陷修复①画布多层渐变静默失效**（三处叠加）：a) `src/demo/pages.ts` 两处 DSL 遗留 CSS 渐变字符串简写（07 头部/13 海报背景）迁移为 FR-17 结构化 fills（CSS 角 135/160→Figma 向量角 45/70，出码 +90 还原，视觉等价）；b) `src/editor/Canvas.tsx` `fillLayerProps` 的 Konva colorStops 由 5 元组（position,r,g,b,opacity）改为成对 [offset, rgba] 格式——5 元组致 Konva 解析失败静默回退纯色；c) 渐变 props 补 `fillPriority: 'linear-gradient'/'radial-gradient'`——Konva 默认 fillPriority=color，纯色 fill 恒覆盖渐变（画布渐变从未真正渲染过）
+- **缺陷修复②Konva 文本基线偏高 ~1px**：dy 探测（`scripts/dy-probe.mjs` 临时实验）证实全页系统性 +1px 最优——Konva 默认 MIDDLE 基线按 em-box 中点定位，DOM 为半行距+ascent；启用 `Konva._fixTextRendering = true`（fontBoundingBox 公式与 CSS line box 一致）
+- **文本换行口径**：`textWrap()` 统一 word 模式（原 CJK char/拉丁 word 分叉）——word 下 Konva 对纯 CJK 二分断行≈char，混排拉丁词保整词贴近浏览器；净效果中性（部分页 ±0.3pp），语义对齐保留
+- **矩阵实测**（`scripts/m3-matrix.mjs` + `package.json` 无需脚本项，node 直跑）：15 项交互断言全 PASS（P0-21/21b 排版实时、P0-22 三形状拖画+四角独立圆角、P0-23 scaleMode 四模式、P0-24 目视、P0-25 七菜单、P0-26 分区次序、P0-27 状态栏、P0-33 快捷键、P0-34/34b 工具轨+contextual、P0-35 加层、P0-36 描边字段、P0-46 出码 SCSS 抽样、P0-47 /fonts 4 woff2、P0-49 三方指标引用、P0-27 回归），截图证据 `dist/m3-matrix/`；矩阵 15 行 PASS + 汇总/差异结论/修订历史更新
+- **文档**：PRD 1.1r2（验证映射 FR-51 行补首跑结果+修订历史）；README 下轮补 canvasdiff 命令
+
+**结果**：完成。FR-51② 基线=avg 98.12%、15/16≥95%、min 92.07%（14-长文本页面：混排换行点位分歧，dy 归零无偏移，纯行内重影——PRD 风险表预登记项，归因豁免登记矩阵差异与结论 #1，M6 终验复核）；修复后 07 页 67.36%→98.47%、13 页 21.38%→97.30%。
+
+**验证方式**：`npx tsc` 0 错；`vitest` 234/234（21 文件）；`build` OK；`npm run pages` 224/224；`npm run e2e` 16/16≥98%；`npm run viewport` 64/64；`npm run walkthrough` 9/9；`smoke-m1` 22/22；`smoke-m2` 27/27；`npm run canvasdiff` 16 页（基线见上）；`node scripts/m3-matrix.mjs` 15/15。
+
+**遗留问题**：
+- 14 页 92.07% 换行分歧豁免待 M6 终验（如需收敛可择机做 DOM 文本测量缓存，记矩阵差异 #1）
+- dist/app 需 `VITE_E2E_HOOK=1` 构建方含 e2e 通道——已由 `precanvasdiff`（`scripts/build-e2e-hook.ts`，vite build 注入 define）自动解决，`npm run canvasdiff` 自含全流程；本日复跑验证基线复现（avg 98.12%/15-16/min 92.07%）
+- FR-56 矩阵 M4/M5 行与附 A/B/C 留 QA/M6 GA 全量；PRD v1.1 定稿三遍评审已过（1.1r1），无需再动
+- M3 至此可宣告收口，下一步进 M4（组件/样式/矢量，FR-21~23、25~29 + FR-49）

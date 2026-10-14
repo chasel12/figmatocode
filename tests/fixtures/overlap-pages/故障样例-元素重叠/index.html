@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>故障样例：flow 兄弟元素重叠</title>
+<style>
+  html, body { margin: 0; padding: 0; }
+  .card {
+    width: 343px;
+    margin: 0 auto;
+    padding: 16px;
+    font-family: Arial, "PingFang SC", sans-serif;
+  }
+  /* 两个普通流兄弟：第二个用负 margin 压到第一个身上 → 非故意重叠 */
+  .block-a { height: 80px; background: #c7d2fe; }
+  .block-b { height: 80px; background: #fbcfe8; margin-top: -40px; }
+  .ok-a { height: 60px; background: #bbf7d0; }
+  .ok-b { height: 60px; background: #bae6fd; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="block-a">Block A</div>
+    <div class="block-b">Block B（负 margin 压盖 A → 应被检出）</div>
+    <div class="ok-a">正常 A</div>
+    <div class="ok-b">正常 B</div>
+  </div>
+</body>
+</html>

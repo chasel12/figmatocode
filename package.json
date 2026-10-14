@@ -1,0 +1,43 @@
+{
+  "name": "ui-compiler",
+  "private": true,
+  "version": "0.1.0",
+  "description": "UI Compiler - 结构化 UI 编译平台：UI AST → Layout Compiler → Taro/HTML → Pixel Diff",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "pages": "npx vite-node scripts/build-pages.ts && node scripts/assert-pages.mjs",
+    "shot": "node scripts/screenshot.mjs",
+    "diff": "node scripts/diff.mjs",
+    "viewport": "node scripts/viewport-check.mjs",
+    "precanvasdiff": "vite-node scripts/build-e2e-hook.ts",
+    "canvasdiff": "node scripts/canvas-diff.mjs",
+    "walkthrough": "node scripts/walkthrough.mjs",
+    "demo-report": "node scripts/demo-report.mjs",
+    "smoke-m1": "node scripts/m1-smoke.mjs",
+    "smoke-m2": "node scripts/m2-smoke.mjs",
+    "e2e": "npm run pages && npm run shot && npm run diff"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "konva": "^9.3.16",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-konva": "^18.2.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "pixelmatch": "^5.3.0",
+    "playwright": "^1.63.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

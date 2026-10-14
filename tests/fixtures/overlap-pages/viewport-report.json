@@ -1,0 +1,86 @@
+{
+  "pagesDir": "C:\\Users\\ASUS\\Desktop\\project\\figmacode\\tests\\fixtures\\overlap-pages",
+  "viewports": [
+    "375x812",
+    "390x844",
+    "414x896",
+    "768x1024"
+  ],
+  "criteria": [
+    "no-horizontal-overflow",
+    "no-flow-sibling-overlap"
+  ],
+  "total": 4,
+  "pass": 0,
+  "fail": 4,
+  "results": [
+    {
+      "page": "故障样例-元素重叠",
+      "viewport": "375x812",
+      "pass": false,
+      "overflowPass": true,
+      "overlapPass": false,
+      "scrollWidth": 375,
+      "clientWidth": 375,
+      "offenders": [],
+      "overlaps": [
+        {
+          "a": "div.block-a",
+          "b": "div.block-b",
+          "area": 13720
+        }
+      ]
+    },
+    {
+      "page": "故障样例-元素重叠",
+      "viewport": "390x844",
+      "pass": false,
+      "overflowPass": true,
+      "overlapPass": false,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "offenders": [],
+      "overlaps": [
+        {
+          "a": "div.block-a",
+          "b": "div.block-b",
+          "area": 13720
+        }
+      ]
+    },
+    {
+      "page": "故障样例-元素重叠",
+      "viewport": "414x896",
+      "pass": false,
+      "overflowPass": true,
+      "overlapPass": false,
+      "scrollWidth": 414,
+      "clientWidth": 414,
+      "offenders": [],
+      "overlaps": [
+        {
+          "a": "div.block-a",
+          "b": "div.block-b",
+          "area": 13720
+        }
+      ]
+    },
+    {
+      "page": "故障样例-元素重叠",
+      "viewport": "768x1024",
+      "pass": false,
+      "overflowPass": true,
+      "overlapPass": false,
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "offenders": [],
+      "overlaps": [
+        {
+          "a": "div.block-a",
+          "b": "div.block-b",
+          "area": 13720
+        }
+      ]
+    }
+  ]
+}
