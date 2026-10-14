@@ -1,0 +1,210 @@
+﻿
+# M5 原型线实施方案（Wave1 评审产出）
+
+> 评审日期 2026-10-14 · 对象：D0 Schema 定稿（docs/schema-decisions.md）+ 既有架构
+> 用途：M5 原型线（FR-39~45 多 Page + Prototype 面板 + Present 预览 + FR-50 原型出码）落地说明书，供执行代理照做。
+> 证据分级：标注「行号」的为已读代码核实；标注「执行时核对」的为未验证推断，执行代理须先核对再动手。
+
+## 0. 现状事实清单（评审核验基线）
+
+| # | 事实 | 位置 |
+|---|---|---|
+| F1 | `EditorState` 为单页结构：`page: UIPage`；历史为整页快照 `past/future` + `pendingBaseline`（transient 微调基线）；`HISTORY_LIMIT=100` | store.ts:8-19, :76, :91-108 |
+| F2 | `pushHistory`/`transientEdit` 以 `clonePage` 整页深拷贝为写入单位；UNDO 在 `pendingBaseline` 存在时先落基线 | store.ts:91-108 及 COMMIT/UNDO/REDO case 段（LOAD_PAGE :501 之前；行号未逐行核对） |
+| F3 | 已有页级 action：`LOAD_PAGE`（重置历史）/`NEW_PAGE`/`RENAME_PAGE`；无 pages[] 概念 | store.ts:501, :513, :517, :541 |
+| F4 | autosave：key `ui-compiler.autosave.v1`，存 `{page, projectName}`，500ms debounce；读侧 `loadAutosave` 无版本分支 | Editor.tsx:14, :16-26, :70-79 |
+| F5 | 右栏已有 Design/Prototype 双 tab；Prototype 为占位文案 `props-empty` | Editor.tsx:35, :244-261 |
+| F6 | 无 Present 入口；「分享」按钮 disabled（P2 口径）；「生成代码」在 :391 | Toolbar.tsx:388-392 |
+| F7 | File→保存固定 `{version:1, page}`；File→打开只解析 `page` 字段（v1） | Toolbar.tsx:12-14, :61-75 |
+| F8 | 左栏 Pages 仅「当前页 + 16 个 demo 页」：`LOAD_PAGE` 直载，切页丢弃历史且 confirm 警告 | Pages.tsx:10-33（confirm 在 :14-18） |
+| F9 | 出码单页：`generateHtml` 产出无脚本 HTML；CodeModal 组 taro + preview/index.html + reference.html 进 ZIP | html.ts:94-120; CodeModal.tsx:22-42 |
+| F10 | e2e 走查模式：playwright + vite preview :4173 + `.menu-btn/.side-tab/.props` 选择器 + dialog 自动 accept | walkthrough.mjs:12-58, :43, :53-58 |
+| F11 | Schema 已定稿：`PrototypeInteraction`（触发器十类 :271 / 动作八类 :266 / 过渡七类 :276 / overlay 九宫 :300 段）、`FlowDef` :314、`UIProject v2`（pages/components/tokens/flows）:407 | types.ts（grep 行号核实） |
+| F12 | `NodeBase` 已挂 `interactions?`（:354）与 `flowStart?`（:356），数组序=执行序 | types.ts:354, :356 |
+| F13 | `UIPage` 已含 `id/name/viewport/root`（:398），多页迁移不需要新增页级字段 | types.ts:398-405 |
+| F14 | `main.tsx` 直接 render `<App/>`，无 react-router、无路由基建 | main.tsx:10-16 |
+| F15 | 测试基线 234 用例全绿（schema-decisions.md 记载），含大量依赖 `initialState(page, projectName)` 形状的 store 单测 | schema-decisions.md 头注；tests/ 目录 |
+| F16 | 工具键：钢笔 'P'（V 线工具轨）、单字母工具键段在键盘 effect 内 | Toolbar.tsx:20-33; Editor.tsx:81 起键盘 effect，Escape 在 :124 |
+
+## 1. 多 Page 状态设计（FR-39）
+
+### 1.1 历史取舍：按页独立（结论）
+
+| 方案 | 优 | 劣 |
+|---|---|---|
+| A 全局历史（pages[] 整体进快照） | reducer 改动最小 | ① 切页入 undo 栈，UNDO 会撤出「上一页的样子」，违反 Figma 语义；② 内存×页数（100 步 × N 页深拷贝）；③ 切页必须 flush pendingBaseline，transient 机制易踩 |
+| B 按页独立历史（采纳） | 切页不入任何 undo 栈；内存只随活跃页增长；正好落 schema-decisions §四.4「state.page 为当前页视图」口径 | reducer 需要一层「action 落到当前页」的包装；跨页结构操作要额外处理——但 FR-45 已把跨页交互排除在 P0 外，此缺点不在范围内 |
+
+**结论：B。** 跨页编辑 P0 不存在（FR-45「Navigate 目标限定同 Page 内 Frame」），B 的唯一缺点恰在范围外；A 的缺点在用户可见行为层（undo 语义错乱）。
+
+### 1.2 迁移步骤（保持既有 case 逐字不动）
+
+1. `EditorState` 增加：
+   - `pages: UIPage[]`（持久权威，对应 UIProject.pages）
+   - `currentPageId: string`
+   - `history: Record<pageId, { past: UIPage[]; future: UIPage[]; pendingBaseline: UIPage | null }>`
+   - `page` 保留为当前页视图：reducer 每个入口先 resolve 当前页、出口回写 `pages[i]`。既有全部 case 的 `state.page` 读取与 `clonePage` 写入模式不动。
+2. `initialState(page, projectName)` 签名不变（F15 保命）：内部包成 `pages:[page]`。测试接口层零感知。
+3. 新 action（store.ts 多页 action 段 = P 线所有权，schema-decisions §二）：
+   - `ADD_PAGE`（尾插 + 切为当前页，进**项目级**操作，不进任何页历史）
+   - `DELETE_PAGE`（至少保留 1 页；被删页上 `flowStart` 节点与它页指向它的交互按 §2.4 broken-link 口径处理，不级联改 store 既有 DELETE case）
+   - `SELECT_PAGE`（不进历史；进入前先 COMMIT flush 当前页 `pendingBaseline`，否则丢一步微调）
+   - `DUPLICATE_PAGE`、`REORDER_PAGE`（可选，P0 后置）
+   - `UPDATE_INTERACTIONS { id, interactions }`（整列表替换，`pushHistory` 进当前页历史）
+4. 每页 viewport 随 UIPage 自带（F13），无需迁移字段。
+
+### 1.3 autosave v1→v2 兼容策略
+
+- 写侧（Editor.tsx:70-79 改造）：key 换 `ui-compiler.autosave.v2`，内容：
+  `{ version: 2, currentPageId, project: { name, pages, components: {}, tokens: [], flows: [] } }`
+  M5 时点 C 线未合入，components/tokens 写空表保证 v2 形状自洽，C 线合入后填真值。
+- 读侧（loadAutosave 改造）：先读 v2；miss 则读 v1 key `{page, projectName}` → `upgradeProjectV1(page, projectName)` 包成 v2 → **原样写回 v2 key，不删 v1 key**（降级/双开无害）。
+- `upgradeProjectV1` 单点放 `src/editor/project.ts`（P 线独占文件，schema-decisions §二），供三处共用：autosave 读侧、File→打开、旧 fixture。
+- 读失败 catch 回退默认页（沿 Editor.tsx:24-26 既有 catch 先例）。
+- 保存文件里不再出现 `version:1`；「单页 JSON 继续兼容」只指打开路径（UIProject.version 定死 2，types.ts:407 注释）。
+
+### 1.4 File→保存/打开 v2（Toolbar.tsx:12-14, :61-75）
+
+- `serializePage` → `serializeProject`（`{version:2, project}`）；打开侧同时解析 v1（`data.page` 单页）与 v2（`data.project`），复用 `upgradeProjectV1`。
+
+## 2. Prototype 面板信息架构（FR-40/41/42/43）
+
+### 2.1 挂载点与作用域
+
+- `Editor.tsx:260` 的 `props-empty` 占位替换为 `<PrototypePanel />`（新文件 `src/editor/PrototypePanel.tsx`，P 线独占）。
+- P0 仅对 `type==='FRAME'` 的选中节点开放编辑；其他节点显示空态「选中 Frame 以配置交互」（FR-45 目标口径一致；schema 允许任意节点挂 interactions，热区编辑为后续扩展）。
+
+### 2.2 字段映射表（面板控件 → PrototypeInteraction，types.ts:287-312）
+
+| 面板三段选择器 | 控件 | 映射字段 | 值域（schema） | P0 面板约束 |
+|---|---|---|---|---|
+| 触发器 | select | `trigger` | :271-274 十类 | 列 5 类：ON_CLICK / ON_HOVER / ON_PRESS / AFTER_TIMEOUT / KEYDOWN（schema-decisions §四.5）；其余 5 类置灰「后并」 |
+| └ After delay | number(ms) | `timeoutMs` | 可选 | 仅 trigger=AFTER_TIMEOUT 显示；缺省 300 |
+| └ Key | text | `key` | 可选 | 仅 KEYDOWN 显示；自由文本（'Escape' 等），不做按键捕获 |
+| 动作 | select | `action` | :266-269 八类 | 列 6 类：NAVIGATE / BACK / SCROLL / OPEN_LINK / OPEN_OVERLAY / CLOSE_OVERLAY；CLOSE 与 CHANGE_TO 置灰（CHANGE_TO 随 C 线变体，schema-decisions §四.5） |
+| └ 目标 | select 下拉 | `targetId` | 同页 FRAME 节点 id | NAVIGATE/OPEN_OVERLAY 必填；下拉数据 = 当前页 root 子树过滤 `type==='FRAME'`；目标删除后显示「已断开」置灰（§2.4） |
+| └ URL | text | `url` | 可选 | 仅 OPEN_LINK |
+| └ Scroll 行为 | select | `scrollBehavior` | TOP/BOTTOM/POINT | 仅 SCROLL；POINT 出码滚到目标 Frame 对应点位 |
+| 过渡 | select + ms + easing | `transition.kind/duration/easing/bezier/direction` | :276-285 | 列 7 类：INSTANT/DISSOLVE/MOVE_IN/MOVE_OUT/PUSH/SLIDE_IN/SLIDE_OUT；SMART_ANIMATE 置灰；duration 缺省 300；easing 五档 + CUSTOM（bezier 四值输入） |
+| └ 方向 | select | `transition.direction` | LEFT/RIGHT/TOP/BOTTOM | 仅 MOVE/PUSH/SLIDE 显示 |
+| Overlay 定位 | 九宫按钮组 | `overlayPosition` | :300-304 九值 | 仅 OPEN_OVERLAY；MANUAL 首版按 CENTER（PRD「+手动」P1），PRESET 置灰 |
+| └ 点外关闭 | checkbox | `overlayCloseOnOutside` | boolean | 仅 OPEN_OVERLAY；缺省 true（Figma 缺省） |
+| 删除交互 | 行尾 × | — | — | 数组序=执行序（types.ts:354 注释）；P0 不做拖拽排序 |
+| Flow 起点 | 面板底部 toggle | `flowStart`（节点字段）+ flows 表 | :356, :314-320 | toggle 写 `node.flowStart` 并在 `project.flows[]` 记 `{id,name,startNodeId}`；一页多 Flow 多条目（FR-43） |
+
+写回路径：面板 dispatch `UPDATE_INTERACTIONS`（§1.2-3）。**该 action 落 store.ts 需按 schema-decisions 共享热点规则回报主线单点合入，执行代理不得绕过。**
+
+### 2.3 过渡出码对照（FR-41）
+
+INSTANT→无 CSS；DISSOLVE→opacity 过渡；MOVE_IN/OUT、PUSH、SLIDE_IN/OUT→transform translate 按 direction；SMART_ANIMATE 留位不实现（走查报备「可选」）。
+
+### 2.4 broken link（FR-45）
+
+- 不改 store 既有 DELETE case；断言点在消费端：目标 id 查不到 → 面板显示「已断开」置灰、Present 忽略该交互、出码 runtime 对缺失锚点 no-op + console.warn 一次。
+- 面板行尾提供「清除」按钮写回 interactions 数组（可清理）。
+
+## 3. Present 预览实现路径（FR-44/45）
+
+### 3.1 二选一：全屏遮罩层（结论与理由）
+
+选**全屏遮罩层**（fixed overlay），不选独立路由：
+
+1. 无路由基建：main.tsx 直接 render（F14），引入 react-router 属超范围依赖变更，且 URL/路由改造会冲击 walkthrough/m1-smoke/m2-smoke 既有选择器路径（PRD「双冒烟选择器」Edge Case 教训）。
+2. 状态零拷贝：遮罩层直接复用 in-memory 工程（pages/interactions），独立路由需解决跨页签状态同步或 URL 编码工程，P0 无必要。
+3. 出码隔离：FR-50 出码走 generator 构建期产物，Present 是编辑器内运行时；两者共用 §4 交互语义协议，实现各自独立。
+
+### 3.2 最小实现清单（新目录 src/editor/present/，P 线独占）
+
+1. `PresentOverlay.tsx`：position:fixed 全屏遮罩 + 背景色（页面 root 背景或缺省 #fff）+ 设备容器（页面 viewport 尺寸居中，可 fit 缩放）。挂载状态放 Editor 顶层 useState（视图态不进 store 历史，沿 `tool` 字段先例 store.ts:18-19 注释）。
+2. 入口：Toolbar.tsx:388 分享按钮旁新增 Present 按钮；快捷键 Ctrl+Alt+P（组合键规避钢笔 'P'，F16）。
+3. 起点解析：选中 Frame 有 `flowStart` → 从它开始；否则 `flows[0].startNodeId`；否则当前页第一个 FRAME；全无 Frame → 遮罩内空状态提示（FR-44「未配置目标时的空状态提示」）。
+4. 渲染：复用 `compilePage` + `buildPreviewDom`（html.ts:55-63），产物注入 shadow DOM 隔离编辑器 styles.css；按 pageId 缓存编译结果。
+5. `presentRuntime.ts` 导航执行器：根容器事件委托 → 查交互（§4 同一协议）→ NAVIGATE 换页渲染 + 内部历史栈（←/→）；BACK 弹栈；OPEN_LINK window.open；OPEN_OVERLAY 挂浮层（九宫定位 + 点外关）；SCROLL scrollIntoView。Esc 退出：监听在遮罩层并 stopPropagation，同时 Present 期间需 gate 编辑器键盘 effect（Editor.tsx:81 起，Escape :124 会误触 SELECT null）。
+6. 热区可视化：H 键 toggle，为所有带交互的节点加 outline（1px 蓝框 + 左上圆点），再按 H 或 3s 自动隐藏。
+7. R 重启：清历史栈回起点；侧栏 Flows 下拉切起点（最小版）。
+8. 返回/刷新：Esc 与遮罩右上 × 退出；「刷新」= R 同义（重编译当前页）。P0 可只留 Esc + ×，←/→/R/H 键盘项入走查断言。
+
+内联预览（Shift+Space）标注 P0 内可选后置，不阻塞主线。
+
+验收：新增 `scripts/present-smoke.mjs`（沿用 walkthrough.mjs 模式 F10）：配交互 → Present → 点击跳转断言页面切换 → Esc 断言遮罩卸载。
+
+## 4. FR-50 原型出码
+
+### 4.1 data-interaction 属性协议
+
+- 属性名：`data-interaction`；值 = **JSON 数组的白名单投影**：
+  字段白名单 `[trigger, action, targetId, url, timeoutMs, key, scrollBehavior, transition{kind,duration,easing,bezier,direction}, overlayPosition, overlayCloseOnOutside, changeToVariant]`；`id` 不进投影（数组序=执行序）。
+- 编码格式：`JSON.stringify(数组)` 后做两处替换（值内 `'`→`\u0027`、`&`→`\u0026`），HTML 属性用**单引号包裹**（JSON 双引号因此合法）；反序列化即 `JSON.parse(el.getAttribute('data-interaction'))`。
+  （html.ts:7-13 escapeHtml 是否转义单引号——执行时核对；上方 `\u0027` 方案已规避该依赖。）
+- 目标锚点：`targetId` → DOM 锚点。makeRenderer 是否输出节点 id 为 DOM id——执行时核对；若无，则每节点补 `data-node="<nodeId>"` 属性，runtime 按 `data-node` 定位。
+- 无 JS 静态模式的关系：布局/样式全部编译期 CSS（FR-46 口径），`data-interaction` 纯声明式、无 JS 也无害；runtime.js 可整体删除，页面仍呈现完整首帧（容器 hidden 缺省由 CSS 表达）。这正是 schema-decisions §四.3「单页 v1 出码保持静态」的延伸：**v2 工程且含交互 → 输出 runtime.js；否则与现状零差异**。
+
+### 4.2 事件绑定表（runtime.js）
+
+| trigger | DOM 事件 | 绑定方式 | 备注 |
+|---|---|---|---|
+| ON_CLICK | click | 委托（容器 root + closest('[data-interaction]')） | 主路径 |
+| ON_HOVER / MOUSE_ENTER | mouseover + relatedTarget 判定 | 委托模拟（mouseenter 不冒泡） | |
+| MOUSE_LEAVE | mouseout + relatedTarget 判定 | 同上 | |
+| ON_PRESS | mousedown/mouseup | 委托 | Figma while pressing 含 down+up 周期，P0 简化并报备 |
+| AFTER_TIMEOUT | setTimeout | DOMContentLoaded 扫描启动 | P0 简化：加载即计时，报备 |
+| KEYDOWN | keydown on document，比对 `key` | 委托 | |
+| ON_DRAG / TOUCH | pointer/touch | — | P0 置灰不出码（PRD 触发器 P0 未列） |
+| ON_LOAD | DOMContentLoaded | 直接触发 | |
+
+动作执行：NAVIGATE → 页容器切换；BACK → 内部栈弹出；OPEN_OVERLAY/CLOSE_OVERLAY → 浮层显隐；OPEN_LINK → window.open；SCROLL → scrollIntoView({behavior:'smooth' 可配 transition）。
+
+### 4.3 多页出码结构（决策）
+
+- **单 HTML 内嵌全部 Page 容器**：`<section data-uic-page="<pageId>" hidden>`，NAVIGATE = 切 hidden + 过渡 class（DISSOLVE 等，duration/easing 内联注入）。
+- 理由：① 同文档内动画可行（location 跳转丢过渡与 Back 语义）；② ZIP 单文件预览闭环；③ 不动 `scripts/build-pages.ts` 既有 per-page 静态管线（该脚本未读——执行步骤 7 时先核对结构，保证 FR-52 `npm run pages` 断言不破）。
+- 产物：`index.html + index.css + runtime.js`（generatePrototypeProject 落 generator/project.ts 或新 generator/prototype.ts，P 线文件）。CodeModal.tsx:22-42 增分支：v2 工程且存在 interactions → 原型 ZIP；否则现行为零回归。
+
+## 5. 风险清单（与轨道 V / C 的冲突与合入顺序）
+
+| # | 风险 | 概率×影响 | 触发时计划怎么变 |
+|---|---|---|---|
+| R1 | store.ts 多页 action 段与 C 线组件/tokens action 段并行改动 → 合并冲突 | 高×高 | P 线先合（schema-decisions §一「P 线先行，C 线消费」）；顺序 = 步骤 1-2 → 主线单点合入 → C 线起步。若已并行，C 线独立 section 编写并 rebase |
+| R2 | Editor.tsx 为三线共享挂载点 | 中×中 | P 线改动收敛 3 处：:260 PrototypePanel 替换、Present 挂载、autosave :14-26/:70-79；每次改动跑三脚本（walkthrough/m1-smoke/m2-smoke）守绿 |
+| R3 | V 线 Canvas.tsx 工具状态机与连接线绘制同文件 | 中×中 | P0 连接线降级：仅面板列表可视化交互行，画布箭头另开任务书（需主线协调 Canvas.tsx 时段）；写对照矩阵备注 |
+| R4 | autosave 升级有洞 → 丢一版编辑 | 低×中 | v1 key 不删；upgradeProjectV1 单测覆盖 v1 fixture→v2 断言 |
+| R5 | 234 用例依赖单页 initialState 形状 | 中×中 | §1.2-2 签名不变方案；若仍破，回步骤 2 收敛改动而非改测试 |
+| R6 | 钢笔 'P' 与 Present 快捷键 | 低×低 | 已规避（Ctrl+Alt+P） |
+
+合入顺序建议：**步骤 1-2（多页内核 + project.ts）最先独立合入** → C 线基于 v2 工程起步 → P 线步骤 3-7 并行推进 → V 线不受阻（禁碰面无交集）。
+
+## 6. 实施步骤（8 步，每步含验收命令）
+
+| # | 步骤 | 交付物 | 依赖 | 验收命令 | 估算 乐/现/悲 |
+|---|---|---|---|---|---|
+| 1 | project.ts 序列化层 | upgradeProjectV1 / serializeProject / parseProject + v1 fixture 单测 | 无 | `npx vitest run tests/fr39-project.test.ts && npm test` | 2/3/5h |
+| 2 | store 多页内核 | EditorState.pages/currentPageId/per-page history + ADD/DELETE/SELECT_PAGE + UPDATE_INTERACTIONS（主线合入） | 1 | `npx tsc --noEmit && npm test`（234+新增全绿） | 4/6/10h |
+| 3 | autosave v2 + File v2 | Editor.tsx 读/写侧、Toolbar.tsx 保存/打开改造 | 1,2 | `npm run build`；v1→v2 升级断言并入步骤 7 脚本 | 2/3/5h |
+| 4 | Pages 真页签 | 新建/切换/重命名/删除，移除 confirm 丢历史路径（Pages.tsx:14-18） | 2 | `node scripts/walkthrough.mjs` + 新增多页走查段（建页→各画 Frame→互切→内容与 undo 正确） | 3/4/8h |
+| 5 | PrototypePanel | 三段选择器 + §2.2 映射 + broken link + Flow toggle | 2 | `npm test`（DSL 字段断言：导出 JSON 断言 interactions 形状，对 PRD FR-40 验证行）+ `npm run dev` 走查 | 4/6/10h |
+| 6 | present/ 遮罩层 | PresentOverlay + presentRuntime（Esc/H/R/←→/空状态/Flows 下拉） | 5 | `node scripts/present-smoke.mjs`（新） | 5/8/14h |
+| 7 | FR-50 出码 | data-interaction 协议 + generatePrototypeProject + runtime.js + CodeModal 分支 | 1,2（5 供联调） | `npm test`（协议转义往返/白名单投影/无 JS 删 runtime 断言）+ playwright 导出页点击跳转 + `page.on('console')` 零报错 | 5/8/14h |
+| 8 | 收口 | PRD 走查行材料、对照矩阵「不支持项」登记（跨 Page Navigate/SMART_ANIMATE/DRAG/MANUAL 定位） | 1-7 | `npm run walkthrough && npm run e2e` | 1/2/4h |
+
+悲观档触发条件：R1 冲突实际发生（+合入等待）、走查选择器连锁破坏（R2）、§4.1 两处「执行时核对」点与预期不符。
+
+**关键路径**：1 → 2 → 5 → 6 → 7 → 8（步骤 3、4 与 5 可并行，均只依赖 2）。
+
+**里程碑与偏离信号**：
+- M-A（步骤 1-2）：多页内核可用，验收 = tsc+test 全绿。偏离信号：既有 234 用例出现成片失败 → 回步骤 2 收敛，不打测试补丁。
+- M-B（步骤 3-5）：页签/持久化/面板可用，验收 = walkthrough 多页段绿 + DSL 断言。偏离信号：autosave 升级丢数据 → 停，回 §1.3 审升级函数。
+- M-C（步骤 6-7）：Present + 出码闭环，验收 = present-smoke + 导出页交互断言零报错。偏离信号：shadow DOM 与编辑器样式互染 → 隔离策略降级为独立 iframe。
+- M-D（步骤 8）：M5 收口材料齐。偏离信号：e2e 任一脚本红 → 不得带红合入 M6。
+
+## 需要拍板的问题（默认方案已给）
+
+1. 历史按页独立（§1.1 B 案）——默认 B；若主线坚持全局历史，§1.2 需重排并接受 undo 语义偏差。
+2. UPDATE_INTERACTIONS 落 store.ts 的合入窗口——默认：回报主线单点合入（共享热点规则），执行代理不直改。
+3. 连接线画布箭头（FR-44 前半）是否入 P0——默认：降级为面板列表可视化，画布部分另开任务书。
+4. 多页出码结构——默认：单 HTML 多容器（§4.3）；若 M6 样片要求 per-page HTML，改 build-pages 管线前须回主线。
+
+## 执行前必须核对的三处（未验证项）
+
+1. html.ts:7-13 escapeHtml 的引号处理（影响 §4.1 转义细则，已给规避方案）。
+2. makeRenderer（html.ts:55 起）是否输出节点 id 为 DOM id（决定是否需要 data-node 锚点属性）。
+3. scripts/build-pages.ts 产物结构（§4.3 保证不改其管线；步骤 7 前核对）。

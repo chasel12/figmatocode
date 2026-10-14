@@ -16,6 +16,8 @@
     "precanvasdiff": "vite-node scripts/build-e2e-hook.ts",
     "canvasdiff": "node scripts/canvas-diff.mjs",
     "walkthrough": "node scripts/walkthrough.mjs",
+    "showcase": "node scripts/showcase.mjs",
+    "perf-1000": "node scripts/perf-1000.mjs",
     "demo-report": "node scripts/demo-report.mjs",
     "smoke-m1": "node scripts/m1-smoke.mjs",
     "smoke-m2": "node scripts/m2-smoke.mjs",
