@@ -18,7 +18,7 @@ import type {
   VerticalConstraint,
 } from '../schema/types';
 import { BLEND_MODES, hasText, isContainer } from '../schema/types';
-import { clonePage, findById } from '../schema/factory';
+import { findById } from '../schema/factory';
 import { useEditor } from './store';
 import { useCanvasGeometry } from './canvasContext';
 import { canvasBus } from './canvasBus';
@@ -61,16 +61,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 /**
- * FR-20 余项（Wave1 轨道I）：图片 7 项调整滑杆（读写 node.imageAdjustments）。
+ * FR-20 余项（Wave1 轨道I 实现，Wave2 主线收敛）：图片 7 项调整滑杆（读写 node.imageAdjustments）。
  *
- * 口径报备（本轨道结论）:
- * - `imageAdjustments` 是 NodeBase 字段，store.ts 现有 action（UPDATE_STYLE 等）写不到它，
- *   且本轨道禁碰 store.ts → 面板用 LOAD_PAGE（整页写入）+ SELECT（恢复选中）双发落盘，
- *   每次变更清空撤销历史（LOAD_PAGE 语义）；滑杆 onChange 直写，拖动过程多次提交，
- *   历史粒度粗是已知代价（后续主线可在 store.ts 加 UPDATE_IMAGE_ADJUSTMENTS 收敛）。
- * - 画布为 Konva 渲染不吃 DOM CSS filter，「画布即时生效」需 Canvas.tsx 配合（禁区）
- *   → 本期数据即时生效（松手/拖动即落盘、图层面板可见），像素级即时预览未做。
- * - CSS filter 映射表（供编译器主线出码合成）：exposure→brightness、contrast→contrast、
+ * 口径报备：
+ * - Wave2 起走 store 专用 action UPDATE_IMAGE_ADJUSTMENTS（transient 滑杆过程 + COMMIT 收笔），撤销粒度与 resize 一致。
+ * - 画布为 Konva 渲染不吃 DOM CSS filter，像素级即时预览待 Canvas 接入（禁区另波处理）；当前数据即时落盘。
+ * - CSS filter 映射表（供编译器出码合成）：exposure→brightness、contrast→contrast、
  *   saturation→saturate；色温/色调/高光/阴影 4 项本期占位不生效（css 返回 null）。
  */
 const IMG_ADJ_FIELDS: { key: keyof ImageAdjustments; label: string; min: number; max: number; step: number; def: number; suffix: string; css: (v: number) => string | null }[] = [
@@ -84,25 +80,15 @@ const IMG_ADJ_FIELDS: { key: keyof ImageAdjustments; label: string; min: number;
 ];
 
 function ImageAdjustSection({ node }: { node: UINode }) {
-  const { state, dispatch } = useEditor();
+  const { dispatch } = useEditor();
   const adj: ImageAdjustments = node.imageAdjustments ?? {};
 
   const write = (next: ImageAdjustments | undefined) => {
-    const nextPage = clonePage(state.page);
-    const found = findById(nextPage.root, node.id);
-    if (!found || found.node.type !== 'IMAGE') return;
-    found.node.imageAdjustments = next;
-    dispatch({ type: 'LOAD_PAGE', page: nextPage, projectName: state.projectName });
-    dispatch({ type: 'SELECT', id: node.id });
+    dispatch({ type: 'UPDATE_IMAGE_ADJUSTMENTS', id: node.id, adjustments: next && Object.keys(next).length ? next : undefined, transient: true });
   };
 
   const clear = () => {
-    const nextPage = clonePage(state.page);
-    const found = findById(nextPage.root, node.id);
-    if (!found || found.node.type !== 'IMAGE') return;
-    found.node.imageAdjustments = undefined;
-    dispatch({ type: 'LOAD_PAGE', page: nextPage, projectName: state.projectName });
-    dispatch({ type: 'SELECT', id: node.id });
+    dispatch({ type: 'UPDATE_IMAGE_ADJUSTMENTS', id: node.id, adjustments: undefined });
   };
 
   return (

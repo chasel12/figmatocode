@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { NodeKind, UINode, UIPage, LayoutSchema, StyleSchema, ContainerNode, ExportSetting } from '../schema/types';
+import type { NodeKind, UINode, UIPage, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments } from '../schema/types';
 import { isContainer } from '../schema/types';
 import { clonePage, createNode, findById } from '../schema/factory';
 
@@ -70,7 +70,11 @@ export type EditorAction =
   | { type: 'REDO' }
   | { type: 'LOAD_PAGE'; page: UIPage; projectName?: string }
   | { type: 'NEW_PAGE' }
-  | { type: 'RENAME_PAGE'; name: string };
+  | { type: 'RENAME_PAGE'; name: string }
+  /* ---- Wave2 主线单点共享 action（D0 schema-decisions §二热点规则：P/C 轨道消费、不各自加）---- */
+  | { type: 'UPDATE_IMAGE_ADJUSTMENTS'; id: string; adjustments: ImageAdjustments | undefined; transient?: boolean }
+  | { type: 'UPDATE_INTERACTIONS'; id: string; interactions: PrototypeInteraction[] }
+  | { type: 'SET_FLOW_START'; id: string | null };
 
 /** FR-11：撤销重做历史 ≥100 步 */
 const HISTORY_LIMIT = 100;
@@ -518,6 +522,38 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const nextPage = clonePage(state.page);
       nextPage.name = action.name;
       return { ...state, page: nextPage, projectName: action.name };
+    }
+
+    /* ---- Wave2 共享 action 段（主线单点维护）---- */
+    case 'UPDATE_IMAGE_ADJUSTMENTS': {
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      if (!found || found.node.type !== 'IMAGE') return state;
+      found.node.imageAdjustments = action.adjustments;
+      return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
+    }
+
+    case 'UPDATE_INTERACTIONS': {
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      if (!found) return state;
+      found.node.interactions = action.interactions.length ? action.interactions : undefined;
+      return pushHistory(state, nextPage);
+    }
+
+    case 'SET_FLOW_START': {
+      const nextPage = clonePage(state.page);
+      const clear = (n: UINode): void => {
+        if (n.flowStart) n.flowStart = undefined;
+        if (isContainer(n)) n.children.forEach(clear);
+      };
+      clear(nextPage.root);
+      if (action.id) {
+        const found = findById(nextPage.root, action.id);
+        if (!found) return state;
+        found.node.flowStart = true;
+      }
+      return pushHistory(state, nextPage);
     }
 
     default:
