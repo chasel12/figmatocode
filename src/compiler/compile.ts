@@ -4,6 +4,7 @@ import type { CompiledNode, CompiledPage, CSSDecl } from './css-model';
 import { FONT_STACK } from '../font';
 import { arcSpec, clipPathPolygon, polygonUnitPoints, starUnitPoints } from './shapes';
 import { maskClipCss, maskDeclarations, maskIndexInGroup } from './mask';
+import { imageAdjustFilter } from './imageAdjust';
 
 const ROOT_FONT_FAMILY = FONT_STACK;
 
@@ -465,6 +466,9 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     // FR-20/FR-47 scaleMode→object-fit：Tile 走背景平铺（html 侧），Crop 近似 cover（裁切把手后续）
     const mode = S.imageScaleMode ?? 'FILL';
     if (mode !== 'TILE') css['object-fit'] = mode === 'FIT' ? 'contain' : 'cover';
+    // FR-20 余项 7 项调整 → CSS filter（映射表单一事实源 src/compiler/imageAdjust.ts）
+    const adjFilter = imageAdjustFilter(node.imageAdjustments);
+    if (adjFilter) css['filter'] = adjFilter;
   }
   let outsideShadow = '';
   const b = S.border;

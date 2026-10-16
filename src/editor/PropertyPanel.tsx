@@ -23,6 +23,8 @@ import { useEditor } from './store';
 import { useCanvasGeometry } from './canvasContext';
 import { canvasBus } from './canvasBus';
 import { alignPatches, distributePatches, type AlignItem, type AlignMode as AlignToolMode } from './align';
+// P1-03：图片 7 项调整映射表单一事实源（面板/出码/画布共用）
+import { IMG_ADJ_FIELDS, imageAdjustCanvasParams } from '../compiler/imageAdjust';
 
 /** FR-14 设备预设（P0-20：iPhone SE = 375×667）——常量抽至 framePresets.ts 供单测锁定 */
 import { FRAME_PRESETS } from './framePresets';
@@ -65,19 +67,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  *
  * 口径报备：
  * - Wave2 起走 store 专用 action UPDATE_IMAGE_ADJUSTMENTS（transient 滑杆过程 + COMMIT 收笔），撤销粒度与 resize 一致。
- * - 画布为 Konva 渲染不吃 DOM CSS filter，像素级即时预览待 Canvas 接入（禁区另波处理）；当前数据即时落盘。
- * - CSS filter 映射表（供编译器出码合成）：exposure→brightness、contrast→contrast、
- *   saturation→saturate；色温/色调/高光/阴影 4 项本期占位不生效（css 返回 null）。
+ * - **映射表迁移到 `src/compiler/imageAdjust.ts` 单一事实源**（P1-03）：面板/出码/画布三处共用，
+ *   避免「面板改了出码没跟」的口径漂移。7 项现已全部出码（Exposure/Contrast/Saturation 精确；
+ *   Temperature/Tint/Highlights/Shadows 为近似，见该模块文件头报备）。
+ * - 画布为 Konva 渲染不吃 DOM CSS filter：Konva 内建滤镜仅能表达 brightness/contrast/saturate 三项，
+ *   色温/色调/高光/阴影在画布上**不生效**（`canvasApproximated` 标记，UI 提示）。
+ *   Konva 侧接线见 Canvas.tsx `ImageFilters`（P1-03 接入）。
  */
-const IMG_ADJ_FIELDS: { key: keyof ImageAdjustments; label: string; min: number; max: number; step: number; def: number; suffix: string; css: (v: number) => string | null }[] = [
-  { key: 'exposure', label: '曝光', min: -100, max: 100, step: 1, def: 0, suffix: '', css: (v) => (v ? `brightness(${(1 + v / 100).toFixed(3)})` : null) },
-  { key: 'contrast', label: '对比', min: -100, max: 100, step: 1, def: 0, suffix: '', css: (v) => (v ? `contrast(${(1 + v / 100).toFixed(3)})` : null) },
-  { key: 'saturation', label: '饱和', min: -100, max: 100, step: 1, def: 0, suffix: '', css: (v) => (v ? `saturate(${(1 + v / 100).toFixed(3)})` : null) },
-  { key: 'temperature', label: '色温', min: -100, max: 100, step: 1, def: 0, suffix: '', css: () => null },
-  { key: 'tint', label: '色调', min: -100, max: 100, step: 1, def: 0, suffix: '', css: () => null },
-  { key: 'highlights', label: '高光', min: -100, max: 100, step: 1, def: 0, suffix: '', css: () => null },
-  { key: 'shadows', label: '阴影', min: -100, max: 100, step: 1, def: 0, suffix: '', css: () => null },
-];
 
 function ImageAdjustSection({ node }: { node: UINode }) {
   const { dispatch } = useEditor();
@@ -91,10 +87,16 @@ function ImageAdjustSection({ node }: { node: UINode }) {
     dispatch({ type: 'UPDATE_IMAGE_ADJUSTMENTS', id: node.id, adjustments: undefined });
   };
 
+  // 画布可表达性：色温/色调/高光/阴影在 Konva 侧无对应滤镜 → 提示用户「仅出码生效」
+  const canvasApprox = imageAdjustCanvasParams(adj).canvasApproximated;
+
   return (
     <>
       <Row label="调整">
-        <div className="props-note">FR-20 余项（7 滑杆，存 imageAdjustments；画布像素级预览待 Canvas 接入）</div>
+        <div className="props-note">
+          7 项均出码为 CSS filter（3 项精确、4 项近似）
+          {canvasApprox && <span className="props-warn"> · 画布不显示近似项</span>}
+        </div>
       </Row>
       {IMG_ADJ_FIELDS.map((f) => (
         <Row key={f.key} label={f.label}>

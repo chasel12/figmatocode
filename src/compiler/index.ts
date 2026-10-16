@@ -6,3 +6,4 @@ export * from './shapes';
 export * from './boolean';
 export * from './mask';
 export * from './tokens';
+export * from './imageAdjust';

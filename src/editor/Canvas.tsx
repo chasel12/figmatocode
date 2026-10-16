@@ -7,7 +7,7 @@ import { hasText, isContainer } from '../schema/types';
 import { FONT_STACK } from '../font';
 import { createNode, findById } from '../schema/factory';
 import { recomputeChildren, type ChildStart } from './constraints';
-import { applyTextCase, arcSpec, createCanvasMeasure, effectiveLetterSpacingPx, effectiveLineHeight, flattenPx, polygonUnitPoints, starUnitPoints, type GeometryMap } from '../compiler';
+import { applyTextCase, arcSpec, createCanvasMeasure, effectiveLetterSpacingPx, effectiveLineHeight, flattenPx, imageAdjustCanvasParams, polygonUnitPoints, starUnitPoints, type GeometryMap } from '../compiler';
 import { pointsToPathD, draftBounds, toLocalPoints, type PenDraftPoint } from './tools/penCore';
 import { arrowHeadPoints, connectorPathD, makeNavigateInteraction, nearestFrameAncestor, pickAnchors, type ConnAnchor, type ConnGeom } from './tools/connections';
 import { useEditor, type Tool } from './store';
@@ -450,6 +450,26 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
   } else if (node.type === 'IMAGE') {
     const radius = style.borderRadius;
     const mode = style.imageScaleMode ?? 'FILL';
+    // P1-03 图片 7 项调整：Konva 侧仅能表达 brightness/contrast/saturate（内建滤镜），
+    // 色温/色调/高光/阴影无对应项——面板以「画布不显示近似项」提示（见 imageAdjust.ts 报备）。
+    const adjParams = imageAdjustCanvasParams(node.imageAdjustments);
+    const konvaFilters: ((imageData: ImageData) => void)[] = [];
+    const filterProps: Record<string, unknown> = {};
+    if (adjParams.brightness !== 0) {
+      konvaFilters.push(KonvaLib.Filters.Brighten);
+      filterProps.brightness = adjParams.brightness;
+    }
+    if (adjParams.contrast !== 0) {
+      konvaFilters.push(KonvaLib.Filters.Contrast);
+      filterProps.contrast = adjParams.contrast;
+    }
+    if (adjParams.saturation !== 0) {
+      konvaFilters.push(KonvaLib.Filters.HSL);
+      filterProps.saturation = adjParams.saturation;
+    }
+    // 有滤镜时需 cache 生效（Konva 语义：filters 只对已缓存节点起作用）
+    const needsCache = konvaFilters.length > 0;
+    const imgFilterProps = needsCache ? { filters: konvaFilters, ...filterProps, cached: true } : {};
     if (img && mode === 'TILE') {
       shape = (
         <Rect
@@ -462,6 +482,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
           fillPatternImage={img}
           fillPatternRepeat="repeat"
           cornerRadius={radius ?? 0}
+          {...imgFilterProps}
           listening={!isRoot && !node.locked}
         />
       );
@@ -499,6 +520,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
           height={ih}
           crop={crop}
           cornerRadius={radius ?? 0}
+          {...imgFilterProps}
           listening={!isRoot && !node.locked}
         />
       );

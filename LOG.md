@@ -1075,3 +1075,31 @@
 **验证方式**：文档内快照与 git log/门禁数字逐一对照（434/434、18/18、矩阵 34 行口径）。
 
 **遗留问题**：无——后续进度仍以本 LOG + checklist 为准，HANDOFF 需随里程碑收口刷新。
+
+---
+
+### [2026-10-16] M6 第五步：P1-03 图片 7 项调整双端接线（HANDOFF 队列 #1，差异 #5 闭环）
+
+**目标**：`imageAdjustments` 数据链路此前「已通但双端零消费」——面板 7 滑杆能存值，但 `compile.ts` 无任何消费者（出码不出 filter），画布亦无像素预览（差异 #5 登记项）。且面板映射表 7 项中 **4 项 `css: () => null` 占位**（色温/色调/高光/阴影不生效）。
+
+**修改内容**：
+- **新 `src/compiler/imageAdjust.ts`（映射表单一事实源）**：`IMG_ADJ_FIELDS`（7 项标签/值域/默认/CSS 片段 + `exact` 精确标记 + `approx` 说明）、`imageAdjustFilter(adj)` 合成 filter 串、`imageAdjustCanvasParams(adj)` 画布可表达性、`hasImageAdjustments`/`normalizeImageAdjustments`。
+  - **7 项全部出码**（P1-03 核心修复）：曝光→`brightness`、对比→`contrast`、饱和→`saturate`（三项**精确**映射）；色温→`sepia+hue-rotate`、色调→`hue-rotate+saturate`、高光→`contrast`、阴影→`brightness`（四项**近似**，各带 `approx` 说明）。
+  - 值 0 不产声明（避免无谓 filter）；合成顺序=表序（确定性）；非有限值跳过（不产 NaN）。
+- **出码接线（`compile.ts` IMAGE 段）**：`css['filter'] = imageAdjustFilter(node.imageAdjustments)`——与既有 `object-fit` 并存互不覆盖。
+- **画布接线（`Canvas.tsx` Image 分支）**：Konva 内建滤镜合成——`Brighten`（曝光）/`Contrast`（对比）/`HSL`（饱和），有滤镜时挂 `cached`（Konva 语义：filters 仅对已缓存节点生效）；TILE 的 `fillPatternImage` Rect 与 `KImage` 两路同接。
+- **面板收敛（`PropertyPanel.tsx`）**：删除本地重复映射表，改 import 单一事实源；新增「画布不显示近似项」提示（`props-warn`，由 `canvasApproximated` 驱动）。
+
+**结果**：完成。差异 #5（imageAdjustments 双端零消费）闭环；7 项全部出码，其中 3 项画布同步生效、4 项画布不可表达（已 UI 提示 + 代码报备）。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **457/457**（32 文件，434→457，净增 23）；`npm run build` OK；`npm run e2e` **16/16 ≥98%**（未动视觉，零回归）；`viewport` **64/64**；`walkthrough` **9/9**；`smoke-m1` **22/22**；`smoke-m2` **27/27**。
+另做**真实浏览器探针**（`scripts/p103-check.mjs`，按铁律验后删除）**5/5**：7 滑杆齐全、拖色温后出「画布不显示近似项」提示、出码含 `filter: brightness(...)`、出码含色温近似 `sepia(`、零页面错误；截图 `dist/p103-check/`。
+
+**报备（近似口径）**：
+- **色温/色调/高光/阴影为 CSS filter 近似**，非 Figma 精确色彩模型：色温用 `sepia` 暖化 + `hue-rotate` 冷化；色调用 `hue-rotate` + 少量 `saturate`；高光/阴影因 CSS filter **无分区调整能力**，分别以 `contrast`/`brightness` 整体近似（精确实现需 SVG `feComponentTransfer` 或多通道 LUT，不在本期范围）。
+- **画布侧仅 3 项生效**：Konva 内建滤镜无对应色温/色调/高光/阴影项，故这 4 项**画布不预览、仅出码生效**（面板已提示，与「画布 Konva 不吃 DOM CSS filter」的既有口径一致）。
+- 映射表从 `PropertyPanel.tsx` 迁至 `src/compiler/imageAdjust.ts`——消除「面板改了出码没跟」的口径漂移风险（本次正是该漂移的实际后果：面板有 7 项、出码 0 项）。
+
+**遗留问题**：
+- 色温/色调若要像素级精确，需 SVG filter 或多通道 LUT（登记为后续专项，非本期）。
+- HANDOFF 队列 #1 已完成，下一项为 #2（P1-08/09 面板小修：组件改名回流 + 样式编辑入口）。
