@@ -16,6 +16,7 @@ import {
   vstack,
   type Spec,
 } from './dsl';
+import { showcasePages } from './showcase';
 
 /* ---------- 01 登录页 ---------- */
 function loginPage(): UIPage {
@@ -577,5 +578,7 @@ export function allDemoPages(): UIPage[] {
     longTextPage(),
     imageGridPage(),
     nestedPage(),
+    // FR-57 样片三区（M6 补齐）：区①图层种类 / 区②参数矩阵 / 区④原型跳转
+    ...showcasePages(),
   ];
 }

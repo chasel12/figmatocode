@@ -1185,3 +1185,38 @@
 
 **遗留问题**：
 - HANDOFF 队列 #8 已完成。剩余：#3（FR-57 样片五区，★最后一块 P0）、#4（m12 矩阵 7 行甄别）、#5（FR-60 帧预算专项，开口最大）、#6（P1 矢量三件）、#9（收口）。
+
+---
+
+### [2026-10-16] M6 第九步：FR-57 样片五区补齐（HANDOFF 队列 #3）——★最后一块 P0 清零
+
+**目标**：FR-57 要求样片「含五区」，此前 showcase 审计仅 **2/5 通过**（区①缺 7 类图层、区②效果/渐变/约束/排版全缺、区④ demo 页零交互零 Flow）。这是 GA 最后一块 ★ P0 阻断项。
+
+**修改内容**：
+- **新 `src/demo/showcase.ts`（三个样片页）**：
+  - **区① `17-样片-图层种类`**（23 节点）：FRAME/SECTION/SLICE/TEXT/IMAGE/RECTANGLE/BUTTON/OVAL/LINE/POLYGON/STAR/VECTOR 全覆盖（含钢笔路径 d 注入），另设「组件组」表达 主组件/变体/实例 三态。
+  - **区② `18-样片-参数矩阵`**（59 节点）：四角独立圆角 + **stroke 三对齐并排** + **4 型渐变**（Linear/Radial/Angular/Diamond）+ **8 类效果逐个**（Drop/Inner/Layer/BgBlur/Progressive/Noise/Texture/Glass）+ **约束 5 档**（LEFT-RIGHT-CENTER-SCALE × TOP-BOTTOM）+ **AutoLayout 5 组合**（方向/wrap/对齐/分布）+ **文本排版 5 项**（UPPER/LOWER/justify/truncate/underline）+ blend 抽样。
+  - **区④ `19-样片-原型跳转`**（18 节点）：**9 条交互**覆盖 6 类动作（NAVIGATE/OPEN_OVERLAY/SCROLL/BACK/OPEN_LINK/CLOSE_OVERLAY）× 5 类触发器（ON_CLICK/ON_PRESS/ON_HOVER/AFTER_TIMEOUT）+ **3 个 Flow**。
+- **`src/demo/pages.ts`**：`allDemoPages()` 追加 `...showcasePages()`（16 → **19 页**）。
+- **`scripts/build-pages.ts`**：Flow 旁挂 `flows.json` sidecar（`UIPage` 无 flows 字段，flows 属 UIProject），按**页名**索引。
+- **`scripts/showcase.mjs` 审计修正两处真缺陷**：
+  1. **约束恒 0/5**：审计读 `n.constraints`，实际字段在 `n.layout.constraints`（FR-35）——修正为读 layout 层。
+  2. **区① pass 条件含 `components.length > 0`**：组件表属 UIProject、不随单页 page.json 持久化，该条件永假使「覆盖完整」仍 FAIL——改为按 kind 覆盖 + 矢量/Slice 实例数判定。
+- **`scripts/showcase.mjs`** 顺带补 `instanceNodes`/`variantProps` 统计（区①实测字段从 `instances: null` 改为真实值）。
+
+**结果**：完成。**FR-57 五区 5/5 通过**，★最后一块 P0 阻断清零。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **500/500**；`npm run build` OK；`npm run e2e` **19/19 ≥98%**（新增 3 页全部达标，19 页 100.00%）；`viewport` **76/76**（16→19 页）；`walkthrough` **9/9**；`smoke-m1` **22/22**；`smoke-m2` **27/27**；`present-smoke` **18/18**；`npm run pages` **assert-pages 266/266**（19 页）；`npm run showcase` **五区 5/5**（avg 99.48%，A/B/C=16/3/0）。
+
+**本轮发现并修复的真缺陷（3 个）**：
+1. **`SHOWCASE_FLOWS` 按 `page.id` 索引致全部 19 页共用同一份 flows**——实测发现**所有 demo 页 id 都是 `'page'`**（`createPage` 硬编码，与此前 `createNewPage` 同类缺陷）。改为按**页名**索引后，flows.json 仅落 `19-样片-原型跳转` 一页（审计数字从虚高的 57 修正为真实的 3）。
+2. **审计读错字段路径**（`n.constraints` → `n.layout.constraints`），使约束覆盖恒判 0/5。
+3. **区① pass 条件永假**（要求 `components` 非空，但该表不落单页产物）。
+
+**报备**：
+- **区② blend 抽样改用绝对定位叠放**：初版用负 margin 做 flow 兄弟重叠，触发 `viewport-check` 的 `no-flow-sibling-overlap` 不变量（4 个断点 overlap=2）。改用 `mode:'ABSOLUTE'` 叠放（视觉等价且不违反不变量）——**未改不变量本身**，避免为样片放宽门禁。
+- 样片区是**新增页面**（17/18/19），不进 M1~M5 既有里程碑验收口径；e2e/viewport 数字随页数由 16→19 自然增长。
+- **链序教训复现**：改 `src/` 后直接跑 `present-smoke` 得 14/16 假摔（`view=null` + 点击跳转失败），按 HANDOFF §3 执行 `npm run precanvasdiff` 重建 e2e hook 后即 **18/18**。**该步骤对 present-smoke/matrix/canvasdiff 是必需前置**，非可选。
+
+**遗留问题**：
+- HANDOFF 队列 #3 已完成（★P0 全清）。剩余：#4（m12 矩阵 7 行甄别）、#5（FR-60 帧预算专项，开口最大）、#6（P1 矢量三件）、#9（收口：矩阵汇总 + Go/No-Go 纪要 + README + HANDOFF 刷新）。

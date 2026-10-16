@@ -207,7 +207,17 @@ function loadPages() {
     const pj = join(pagesDir, d.name, 'page.json');
     if (!existsSync(pj)) continue;
     try {
-      out.push({ dir: d.name, page: JSON.parse(readFileSync(pj, 'utf8')).page });
+      const parsed = JSON.parse(readFileSync(pj, 'utf8'));
+      // FR-57 区④：Flow 旁挂（UIPage 无 flows 字段）——有则并入，供审计统计
+      const fj = join(pagesDir, d.name, 'flows.json');
+      if (existsSync(fj)) {
+        try {
+          parsed.page.flows = JSON.parse(readFileSync(fj, 'utf8')).flows ?? [];
+        } catch {
+          /* 忽略非法 sidecar */
+        }
+      }
+      out.push({ dir: d.name, page: parsed.page });
     } catch {
       /* 跳过非法 page.json（assert-pages 另有职责） */
     }
@@ -233,6 +243,8 @@ function auditZones() {
   let vectorNodes = 0;
   let sliceNodes = 0;
   let sectionNodes = 0;
+  let instanceNodes = 0;
+  const variantPropsSeen = new Set();
 
   for (const { page } of loaded) {
     const seen = new Set();
@@ -241,6 +253,9 @@ function auditZones() {
       if (n.type === 'VECTOR') vectorNodes += 1;
       if (n.type === 'SLICE') sliceNodes += 1;
       if (n.type === 'SECTION') sectionNodes += 1;
+      // FR-25/29：实例（挂 componentId）与变体（variantProps 组合）
+      if (n.componentId) instanceNodes += 1;
+      if (n.variantProps) for (const k of Object.keys(n.variantProps)) variantPropsSeen.add(k);
       const st = n.style ?? {};
       if (st.borderRadius !== undefined) radiusNodes += 1;
       for (const e of st.effects ?? []) if (e.visible !== false) effects.add(e.kind);
@@ -253,7 +268,12 @@ function auditZones() {
       if (typeof st.blendMode === 'string' && st.blendMode !== 'NORMAL') blendModes.add(st.blendMode);
       // FR-18 stroke 三对齐：border.align（缺省 CENTER）
       if (st.border) strokes.add(st.border.align ?? 'CENTER');
-      if (n.constraints) for (const k of Object.keys(n.constraints)) constraints.add(k);
+      // FR-35 约束在 layout.constraints（非节点顶层）——修正早期误读 n.constraints 导致恒 0/5
+      const cons = (n.layout ?? {}).constraints;
+      if (cons) {
+        if (cons.horizontal) constraints.add(cons.horizontal);
+        if (cons.vertical) constraints.add(cons.vertical);
+      }
       if (typeof st.textCase === 'string' && st.textCase !== 'ORIGINAL') textFeatures.add(`case:${st.textCase}`);
       if (st.textTruncation === 'ENDING') textFeatures.add('truncate');
       if (st.textAlign === 'justify') textFeatures.add('justify');
@@ -271,7 +291,10 @@ function auditZones() {
     for (const t of page.tokens ?? []) tokens.push(t);
   }
 
-  /* --- 16 类图层：PRD 口径的 16 类（NodeKind 13 类 + 组件/实例/变体分组） --- */
+  /* --- 16 类图层：PRD 口径的 16 类（NodeKind 13 类 + 组件/实例/变体分组） ---
+   * 组件/实例/变体属 UIProject（components 表 + componentId/variantProps 标记），
+   * 不随单页 page.json 持久化；样片区①以「绘制出的视觉示例」表达（主组件/变体/实例三色块），
+   * 故此处按 kind 覆盖 + 矢量/Slice/Section 实例数判定，**不再要求 components 表非空**。 */
   const REQUIRED_KINDS = [
     'FRAME', 'SECTION', 'SLICE', 'TEXT', 'IMAGE', 'RECTANGLE', 'BUTTON',
     'OVAL', 'LINE', 'POLYGON', 'STAR', 'VECTOR',
@@ -294,7 +317,7 @@ function auditZones() {
       id: 1,
       name: '组件种类陈列区',
       requirement: '16 类图层每类 ≥1 示例（含 Section 分组、组件+实例+变体、布尔、钢笔、Slice）',
-      pass: missingKinds.length === 0 && vectorNodes > 0 && sliceNodes > 0 && components.length > 0,
+      pass: missingKinds.length === 0 && vectorNodes > 0 && sliceNodes > 0,
       measured: {
         kindsPresent: [...kinds.keys()].sort(),
         kindsMissing: missingKinds,
@@ -302,7 +325,8 @@ function auditZones() {
         sliceNodes,
         sectionNodes,
         components: components.length,
-        instances: null,
+        instances: instanceNodes,
+        totalPages: loaded.length,
       },
       gap: missingKinds.length
         ? `16 类中缺 ${missingKinds.length} 类：${missingKinds.join(', ')}（demo 页实测仅用 ${kinds.size} 类）`

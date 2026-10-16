@@ -6,6 +6,7 @@ import type { GeometryMap } from '../src/compiler/layout';
 import { createApproxMeasure } from '../src/compiler/measure';
 import { generateHtml, generateReferenceHtml, generateTaroProject } from '../src/generator';
 import { allDemoPages } from '../src/demo/pages';
+import { SHOWCASE_FLOWS } from '../src/demo/showcase';
 import type { UIPage, UINode } from '../src/schema/types';
 
 const ROOT = process.cwd();
@@ -82,6 +83,10 @@ for (const page of pages) {
   writeFileSync(join(pageDir, 'page.json'), JSON.stringify({ version: 1, page }, null, 2), 'utf8');
   writeFileSync(join(pageDir, 'index.scss'), scssFromPage(compiled), 'utf8');
   writeFileSync(join(pageDir, 'geometry.json'), JSON.stringify(exportGeometry(page, geometry), null, 2), 'utf8');
+  // FR-57 区④：Flow 定义旁挂（UIPage 无 flows 字段，flows 属 UIProject）——供 showcase 审计读取。
+  // 按**页名**索引：demo 页共用 createPage 默认 id:'page'，按 id 会串页。
+  const flows = SHOWCASE_FLOWS[page.name];
+  if (flows?.length) writeFileSync(join(pageDir, 'flows.json'), JSON.stringify({ flows }, null, 2), 'utf8');
 
   const taroDir = join(TARO_DIR, id);
   for (const file of taroFiles) {
