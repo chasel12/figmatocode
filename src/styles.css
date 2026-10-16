@@ -1617,6 +1617,51 @@ body {
   white-space: nowrap;
 }
 
+/* ---- P1-09 样式行内编辑 ---- */
+.assets-token-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 3px;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text);
+}
+
+.assets-token-name-input:hover,
+.assets-token-name-input:focus {
+  border-color: var(--border);
+  background: var(--panel);
+}
+
+.assets-token-color {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.assets-token-num {
+  width: 44px;
+  flex: none;
+  padding: 1px 3px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+}
+
+/* P1-03：画布不表达近似项的提示 */
+.props-warn {
+  color: #e0a35f;
+}
+
 /* ---- FR-29 变体区 ---- */
 .assets-variant {
   margin-top: 6px;

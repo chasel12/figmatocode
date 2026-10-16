@@ -462,7 +462,15 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = findById(nextPage.root, action.id);
       if (!found) return state;
       found.node.name = action.name;
-      return pushHistory(state, nextPage);
+      // P1-08：改名回流组件表——实例/主组件改名时同步 components[].name（差异 #6①）
+      // 语义：改名该实例所在的组件定义（Figma 中改实例名即改组件名，所有实例名跟随）。
+      const compId = found.node.componentId;
+      const base = pushHistory(state, nextPage);
+      if (!compId || !state.components[compId]) return base;
+      return {
+        ...base,
+        components: { ...state.components, [compId]: { ...state.components[compId], name: action.name } },
+      };
     }
 
     case 'UPDATE_EXPORT_SETTINGS': {

@@ -7,6 +7,23 @@ import type { ComponentDef } from '../schema/types';
  * FR-26 Assets 面板：本地组件列表 + 搜索 + 插入。
  * FR-25 入口：选区→创建组件、选中实例→回写主组件（PUSH_TO_COMPONENT，超出任务书枚举的报备项）。
  */
+/**
+ * P1-09：`<input type="color">` 只接受 `#rrggbb`，而样式值可能是缩写 hex / rgb() / 颜色名。
+ * 归一化到合法 hex；无法解析时回退 #000000（避免输入框空白）。
+ */
+function hexOf(color: string): string {
+  const s = (color ?? '').trim();
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(s);
+  if (rgb) {
+    const h = (n: string) => Number(n).toString(16).padStart(2, '0');
+    return `#${h(rgb[1])}${h(rgb[2])}${h(rgb[3])}`;
+  }
+  return '#000000';
+}
+
 export function AssetsPanel() {
   const { state, dispatch } = useEditor();
   const [query, setQuery] = useState('');
@@ -220,7 +237,41 @@ export function AssetsPanel() {
                     <span className={`assets-token-kind ${t.kind === 'PAINT' ? 'is-paint' : 'is-text'}`}>
                       {t.kind === 'PAINT' ? '◐' : 'T'}
                     </span>
-                    <span className="assets-token-name">{t.name}</span>
+                    {/* P1-09：样式行内编辑（差异 #6②）——改值即 dispatch UPDATE_TOKEN，引用者同步已实现 */}
+                    <input
+                      className="assets-token-name-input"
+                      value={t.name}
+                      title="样式名（改名）"
+                      onChange={(e) => dispatch({ type: 'UPDATE_TOKEN', id: t.id, name: e.target.value })}
+                    />
+                    {t.kind === 'PAINT' ? (
+                      <input
+                        className="assets-token-color"
+                        type="color"
+                        title="颜色值（引用者同步更新）"
+                        value={hexOf(t.style.fills?.[0]?.color ?? t.style.background ?? '#000000')}
+                        onChange={(e) =>
+                          dispatch({
+                            type: 'UPDATE_TOKEN',
+                            id: t.id,
+                            style: t.style.fills?.length
+                              ? { fills: [{ ...t.style.fills[0], color: e.target.value }, ...t.style.fills.slice(1)] }
+                              : { background: e.target.value },
+                          })
+                        }
+                      />
+                    ) : (
+                      <input
+                        className="assets-token-num"
+                        type="number"
+                        min={1}
+                        title="字号（引用者同步更新）"
+                        value={t.style.fontSize ?? 16}
+                        onChange={(e) =>
+                          dispatch({ type: 'UPDATE_TOKEN', id: t.id, style: { fontSize: Math.max(1, Number(e.target.value) || 1) } })
+                        }
+                      />
+                    )}
                     <button
                       className="mini-btn"
                       title="应用到选中节点"
