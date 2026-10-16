@@ -144,7 +144,9 @@ export type EditorAction =
   /** FR-22 布尔运算：对选中 VECTOR 参集合并为一条结果 VECTOR（原参集删除） */
   | { type: 'BOOLEAN_OP'; op: BooleanOp }
   /** FR-23 Use as mask：把选中容器标记/取消为蒙版组（复用 layout.clipContent 作显式开关） */
-  | { type: 'TOGGLE_MASK'; ids?: string[] };
+  | { type: 'TOGGLE_MASK'; ids?: string[] }
+  /** P1-04 锚点二次编辑：写回 VECTOR 的 path d（可同时调整几何，transient 供拖动中不压栈） */
+  | { type: 'UPDATE_VECTOR_D'; id: string; d: string; patch?: Partial<LayoutSchema>; transient?: boolean };
 
 /** FR-11：撤销重做历史 ≥100 步 */
 const HISTORY_LIMIT = 100;
@@ -1174,6 +1176,16 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       }
       if (!any) return state;
       return pushHistory(state, nextPage);
+    }
+
+    /* ---- P1-04 锚点二次编辑 ---- */
+    case 'UPDATE_VECTOR_D': {
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      if (!found || found.node.type !== 'VECTOR') return state;
+      found.node.vector = { ...(found.node.vector ?? { d: '' }), d: action.d };
+      if (action.patch) found.node.layout = { ...found.node.layout, ...action.patch };
+      return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
 
     default:

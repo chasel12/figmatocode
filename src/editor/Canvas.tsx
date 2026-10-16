@@ -8,7 +8,7 @@ import { FONT_STACK } from '../font';
 import { createNode, findById } from '../schema/factory';
 import { recomputeChildren, type ChildStart } from './constraints';
 import { applyTextCase, arcSpec, createCanvasMeasure, effectiveLetterSpacingPx, effectiveLineHeight, flattenPx, imageAdjustCanvasParams, polygonUnitPoints, starUnitPoints, type GeometryMap } from '../compiler';
-import { pointsToPathD, draftBounds, toLocalPoints, type PenDraftPoint } from './tools/penCore';
+import { parsePathD, pointsToPathD, draftBounds, rebuildFromPoints, toLocalPoints, type PenDraftPoint } from './tools/penCore';
 import { arrowHeadPoints, connectorPathD, makeNavigateInteraction, nearestFrameAncestor, pickAnchors, type ConnAnchor, type ConnGeom } from './tools/connections';
 import { useEditor, type Tool } from './store';
 import { computeSnap, type GuideLine, type Rect as SnapRect } from './snapping';
@@ -1249,6 +1249,13 @@ export function Canvas() {
   };
 
   const endInteraction = () => {
+    // P1-04：锚点拖拽收笔（提交一步历史，撤销粒度=一次拖拽）
+    if (anchorDrag.current) {
+      anchorDrag.current = null;
+      setHoverVecAnchor(null);
+      dispatch({ type: 'COMMIT' });
+      return;
+    }
     // FR-44 连接线：从连接点起手拖线，mouseup 落点=最近 FRAME 祖先 → 创建 ON_CLICK/Navigate/Instant
     if (connDraftRef.current) {
       const at = connDraftRef.current;
@@ -1549,6 +1556,39 @@ export function Canvas() {
     return list;
   }, [state.selectedIds, geometry, state.page]);
 
+  /**
+   * P1-04：已提交 VECTOR 的锚点二次编辑。
+   * 仅当选中的是 VECTOR（select 工具、仓库内可解析的 d）时给出锚点集；
+   * 锚点坐标为**页面系**（节点几何原点 + 本地 d 坐标），与拖画/收笔同坐标系。
+   */
+  const vecAnchors = useMemo(() => {
+    if (isPan || state.tool !== 'select' || state.selectedIds.length !== 1) return null;
+    const id = state.selectedIds[0];
+    if (id === state.page.root.id) return null;
+    const g = geometry[id];
+    const found = findInTree(state.page.root, id);
+    if (!g || !found || found.node.type !== 'VECTOR' || found.node.locked) return null;
+    const d = found.node.vector?.d ?? '';
+    const parsed = parsePathD(d);
+    if (!parsed.ok || !parsed.points.length) return null;
+    const origin = contentOrigin(g, found.node.layout);
+    return {
+      id,
+      closed: parsed.closed,
+      anchors: parsed.points.map((p, i) => ({
+        index: i,
+        x: origin.x + p.x,
+        y: origin.y + p.y,
+        hx: p.hx ?? 0,
+        hy: p.hy ?? 0,
+      })),
+    };
+  }, [state.selectedIds, geometry, state.page, isPan, state.tool]);
+
+  // P1-04：锚点拖拽（page 坐标起手快照，拖动时整节点重算 d）
+  const anchorDrag = useRef<{ id: string; index: number; startX: number; startY: number; points: PenDraftPoint[]; closed: boolean; origin: { x: number; y: number } } | null>(null);
+  const [hoverVecAnchor, setHoverVecAnchor] = useState<number | null>(null);
+
   // FR-44 连接线：单选 FRAME（select 工具、非平移）时给出连接点 + 已有交互的目标箭头线。
   // 目标不在当前页几何（跨页/已删=broken link）的交互不画线——面板已显「已断开」，画布静默（报备口径）。
   const conn = useMemo(() => {
@@ -1670,6 +1710,35 @@ export function Canvas() {
   };
 
   const stageMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // P1-04：锚点拖拽优先于其他交互（拖锚点改形；本地坐标按新包围盒归零后回写）
+    if (anchorDrag.current) {
+      const st = stageRef.current;
+      const pt = st?.getPointerPosition();
+      if (!st || !pt) return;
+      const at = pagePoint(st, pt);
+      const drag = anchorDrag.current;
+      const dx = at.x - drag.startX;
+      const dy = at.y - drag.startY;
+      const moved: PenDraftPoint[] = drag.points.map((p, i) =>
+        i === drag.index ? { ...p, x: Math.round((p.x + dx) * 100) / 100, y: Math.round((p.y + dy) * 100) / 100 } : p,
+      );
+      // 本地点集 → 绝对坐标 → 重算 d 与包围盒（与收笔同口径）
+      const abs = moved.map((p) => ({ ...p, x: p.x + drag.origin.x, y: p.y + drag.origin.y }));
+      const { d, bounds } = rebuildFromPoints(abs, drag.closed);
+      dispatch({
+        type: 'UPDATE_VECTOR_D',
+        id: drag.id,
+        d,
+        patch: {
+          width: Math.max(1, Math.round(bounds.width)),
+          height: Math.max(1, Math.round(bounds.height)),
+          x: Math.round(bounds.x),
+          y: Math.round(bounds.y),
+        },
+        transient: true,
+      });
+      return;
+    }
     // FR-44：拖线期间只需光标位置（mode 恒 idle，与钢笔草稿同挂载点）
     if (connDraftRef.current) {
       const stage = stageRef.current;
@@ -2103,6 +2172,46 @@ export function Canvas() {
                     stroke={SEL_COLOR}
                     strokeWidth={1.5 / scale}
                     listening={false}
+                  />
+                ))}
+              </>
+            )}
+            {/* P1-04：已提交 VECTOR 的锚点（可拖动二次编辑；与手柄同位但语义不同——锚点改形，手柄改框） */}
+            {vecAnchors && (
+              <>
+                {vecAnchors.anchors.map((a) => (
+                  <Circle
+                    key={`vec-anchor-${a.index}`}
+                    x={a.x}
+                    y={a.y}
+                    radius={(hoverVecAnchor === a.index ? 5.5 : 4) / scale}
+                    fill={a.index === 0 ? SEL_COLOR : HANDLE_COLOR}
+                    stroke={SEL_COLOR}
+                    strokeWidth={1.5 / scale}
+                    onMouseEnter={() => setHoverVecAnchor(a.index)}
+                    onMouseLeave={() => setHoverVecAnchor(null)}
+                    onMouseDown={(e) => {
+                      e.cancelBubble = true;
+                      suppressClickRef.current = true;
+                      const g = geometry[vecAnchors.id];
+                      const found = findInTree(state.page.root, vecAnchors.id);
+                      if (!g || !found) return;
+                      const parsed = parsePathD(found.node.vector?.d ?? '');
+                      if (!parsed.ok) return;
+                      const stage = stageRef.current;
+                      const pointer = stage?.getPointerPosition();
+                      if (!stage || !pointer) return;
+                      const at = pagePoint(stage, pointer);
+                      anchorDrag.current = {
+                        id: vecAnchors.id,
+                        index: a.index,
+                        startX: at.x,
+                        startY: at.y,
+                        points: parsed.points,
+                        closed: parsed.closed,
+                        origin: contentOrigin(g, found.node.layout),
+                      };
+                    }}
                   />
                 ))}
               </>

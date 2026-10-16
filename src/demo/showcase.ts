@@ -103,9 +103,14 @@ function kindsPage(): UIPage {
   ];
 
   const page = makePage('17-样片-图层种类', children, { rootStyle: { background: C.bg } });
-  // VECTOR 需要 vector 字段（Spec 未承载，直接注入到已构建节点）
+  // VECTOR 需要真实 path（Spec DSL 不承载 vector 字段，构建后注入）。
+  // 注意：factory 给 VECTOR 的默认值是占位 `M 0 0`，故不能以 `!n.vector` 判定——
+  // 必须识别占位值并替换（曾因此让样片矢量一直是空路径）。
+  const REAL_D = 'M 6 64 C 6 20 40 6 84 6 C 60 26 58 44 44 64 Z';
   const inject = (n: import('../schema/types').UINode): void => {
-    if (n.type === 'VECTOR' && !n.vector) n.vector = { d: 'M 6 64 C 6 20 40 6 84 6 C 60 26 58 44 44 64 Z' };
+    if (n.type === 'VECTOR' && (!n.vector?.d || n.vector.d.trim() === 'M 0 0')) {
+      n.vector = { ...(n.vector ?? {}), d: REAL_D };
+    }
     if ('children' in n) n.children.forEach(inject);
   };
   inject(page.root);

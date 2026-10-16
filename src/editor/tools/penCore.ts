@@ -71,3 +71,122 @@ export function draftBounds(points: PenDraftPoint[]): { x: number; y: number; wi
 export function toLocalPoints(points: PenDraftPoint[], ox: number, oy: number): PenDraftPoint[] {
   return points.map((p) => ({ x: r2(p.x - ox), y: r2(p.y - oy), hx: p.hx, hy: p.hy }));
 }
+
+/* ---------- P1-04：已提交路径的锚点二次编辑（d ⇄ 点集往返） ---------- */
+
+/** d → 点集解析结果 */
+export interface ParsedPath {
+  points: PenDraftPoint[];
+  closed: boolean;
+  /** 解析是否完整（遇到不支持的指令 → false，调用方应放弃编辑而非改坏路径） */
+  ok: boolean;
+}
+
+const num = (s: string): number => Number(s);
+
+/**
+ * SVG path d → 可编辑点集（**仅支持本工具产出的子集**：M/L/C/Z）。
+ *
+ * 口径：本编译器产出的 d 全部由 `pointsToPathD` 生成，只用 M/L/C/Z 四种指令，
+ * 故解析器只需覆盖该子集；遇到 Q/A/S/T 等外来指令立即返回 `ok:false`，
+ * 调用方据此**禁用锚点编辑**（宁可不给编辑，也不要把路径改坏）。
+ *
+ * 控制点→手柄换算（`pointsToPathD` 的逆）：
+ *   段 a→b 的 C 写成 `C c1 c2 b`，其中 c1 = a + a.h、c2 = b - b.h。
+ *   故 a.h = c1 - a、b.h = b - c2。首段缺 c1 时按 a 点自身近似。
+ */
+export function parsePathD(d: string): ParsedPath {
+  const out: PenDraftPoint[] = [];
+  let closed = false;
+  if (!d || !d.trim()) return { points: out, closed, ok: true };
+
+  const toks = d.trim().match(/[MLCZmlcz]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? [];
+  let i = 0;
+  let cur: PenDraftPoint | null = null;
+
+  const need = (n: number): number[] | null => {
+    const vals: number[] = [];
+    for (let k = 0; k < n; k += 1) {
+      if (i >= toks.length) return null;
+      const v = num(toks[i]);
+      if (!Number.isFinite(v)) return null;
+      vals.push(v);
+      i += 1;
+    }
+    return vals;
+  };
+
+  while (i < toks.length) {
+    const cmd = toks[i];
+    if (!/^[MLCZmlcz]$/.test(cmd)) return { points: out, closed, ok: false };
+    i += 1;
+    const upper = cmd.toUpperCase();
+
+    if (upper === 'Z') {
+      closed = true;
+      continue;
+    }
+    if (upper === 'M') {
+      const v = need(2);
+      if (!v) return { points: out, closed, ok: false };
+      cur = { x: r2(v[0]), y: r2(v[1]) };
+      out.push(cur);
+      continue;
+    }
+    if (upper === 'L') {
+      const v = need(2);
+      if (!v) return { points: out, closed, ok: false };
+      cur = { x: r2(v[0]), y: r2(v[1]) };
+      out.push(cur);
+      continue;
+    }
+    // C：c1 c2 b —— 反推两端手柄
+    const v = need(6);
+    if (!v) return { points: out, closed, ok: false };
+    const [c1x, c1y, c2x, c2y, bx, by] = v;
+    if (cur) {
+      const hx = r2(c1x - cur.x);
+      const hy = r2(c1y - cur.y);
+      if (hx !== 0 || hy !== 0) {
+        cur.hx = hx;
+        cur.hy = hy;
+      }
+    }
+    const next: PenDraftPoint = { x: r2(bx), y: r2(by) };
+    const hx2 = r2(bx - c2x);
+    const hy2 = r2(by - c2y);
+    if (hx2 !== 0 || hy2 !== 0) {
+      next.hx = hx2;
+      next.hy = hy2;
+    }
+    cur = next;
+    out.push(next);
+  }
+
+  // 收尾归一：`pointsToPathD(closed)` 会**显式写出末→首段再追加 Z**，
+  // 故闭合路径解析出的末锚点与首锚点重合。此处删掉该冗余锚点，
+  // 否则再次序列化会多加一段（往返不闭合）。
+  if (closed && out.length > 1) {
+    const first = out[0];
+    const last = out[out.length - 1];
+    if (Math.abs(first.x - last.x) < 1e-6 && Math.abs(first.y - last.y) < 1e-6) out.pop();
+  }
+
+  return { points: out, closed, ok: true };
+}
+
+/** 点集 → 节点本地 d + 包围盒（锚点编辑后重算几何用；与 commitPen 同口径） */
+export function rebuildFromPoints(
+  points: PenDraftPoint[],
+  closed: boolean,
+): { d: string; bounds: { x: number; y: number; width: number; height: number } } {
+  if (!points.length) return { d: '', bounds: { x: 0, y: 0, width: 0, height: 0 } };
+  const b = draftBounds(points);
+  const local = toLocalPoints(points, b.x, b.y);
+  return { d: pointsToPathD(local, closed), bounds: b };
+}
+
+/** 该 d 是否可编辑（全 M/L/C/Z 子集） */
+export function isEditablePathD(d: string): boolean {
+  return parsePathD(d).ok;
+}
