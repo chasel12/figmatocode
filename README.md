@@ -24,12 +24,26 @@ UI AST ──► Layout Compiler ──► Code Generator ──► Taro / HTML
 
 ```bash
 npm install
-npm run dev        # 启动可视化编辑器
-npm test           # 编译器单元测试（vitest）
-npm run build      # 类型检查 + 构建编辑器到 dist/app
-npm run e2e        # 全链路：生成 16 个测试页 → 截图 → Pixel Diff
-npm run canvasdiff # FR-51② 画布↔出码对比（需先 VITE_E2E_HOOK=1 npm run build）
+npm run dev         # 启动可视化编辑器
+npm test            # 编译器单元测试（vitest，519 例）
+npm run build       # 类型检查 + 构建编辑器到 dist/app
+npm run e2e         # 全链路：生成 19 个测试页 → 截图 → Pixel Diff
+npm run canvasdiff  # FR-51② 画布↔出码对比（需先 VITE_E2E_HOOK=1 npm run build）
+npm run showcase    # FR-57 样片：对照卡 + 五区审计 → dist/showcase/
+npm run walkthrough # 编辑器走查（9 步）
+npm run smoke-m1    # M1 画布冒烟（22 项）
+npm run smoke-m2    # M2 界面冒烟（27 项）
+npm run present-smoke # FR-44 Present 演示模式走查（18 项）
+npm run viewport    # 多断点无横向溢出 + 无兄弟重叠（76 项）
+npm run perf-1000   # FR-60 千节点性能采样
+npm run zip-assert  # FR-52 ZIP 产物断言
+npm run ci-local    # 本地四门禁等价凭证（tsc/test/build/e2e）
 ```
+
+> **链序提示**：改动 `src/` 后若直接跑 `present-smoke`/`canvasdiff`/矩阵脚本，须先
+> `npm run precanvasdiff` 重建 e2e hook（`dist/app`），否则会拿旧构建得到假结果。
+> 另：`build`/`vitest` 在系统 TEMP 下可能报 `[vite:esbuild-transpile] ... Access is denied`，
+> 属环境限制非代码缺陷——将 `TEMP`/`TMP` 指向工作区内目录即可（验后删除该目录）。
 
 `npm run e2e` 会在 `dist/pages/<页面>/` 下输出：
 
@@ -39,35 +53,46 @@ npm run canvasdiff # FR-51② 画布↔出码对比（需先 VITE_E2E_HOOK=1 npm
 | `reference.html` | Layout Resolver 几何的绝对定位 DOM（reference 侧） |
 | `reference.png` / `render.png` / `diff.png` | 两份截图与差异图 |
 | `page.json` / `index.scss` | 页面 AST 快照与样式 |
+| `geometry.json` | 节点几何快照（diff 区域归属） |
+| `flows.json` | FR-57 原型 Flow 旁挂（仅含 Flow 的页产出） |
 | `diff-report.json` | 逐页相似度报告（`dist/taro/<页面>/` 为 Taro 工程） |
 
-当前结果：**16/16 测试页 ≥ 98% 相似度**（最低 98.55%，多数 > 99.5%）；**FR-51② 画布↔出码首跑基线（2026-10-14）：avg 98.12%，15/16 ≥ 95%**（报告 `dist/canvas-diff/report.json`，`npm run canvasdiff` 可复跑）。
+当前结果：**19/19 测试页 ≥ 98% 相似度**（含 3 个 FR-57 样片页，其中原型跳转页 100.00%）；
+**FR-51② 画布↔出码基线（M3 首跑，2026-10-14）：avg 98.12%，15/16 ≥ 95%**（报告 `dist/canvas-diff/report.json`）；
+**FR-57 样片五区审计 5/5 通过**，avg 99.51%（报告 `dist/showcase/report.json`）。
 
-## 测试页面（覆盖 16 类布局场景）
+## 测试页面（16 类布局场景 + 3 个 FR-57 样片页）
 
 登录、注册、商品列表（双列网格）、商品详情（固定底栏）、订单列表、订单详情、个人中心（渐变头 + 统计）、设置（开关行）、Dashboard（柱状图）、表单（多行输入）、Card 列表（文字标签 chip）、Tab 页面（分段控件 + 底部栏）、绝对定位（海报）、长文本（换行）、图片密集（网格）、多层嵌套（FIXED/FILL/HUG 混合）。
+
+样片三页（`src/demo/showcase.ts`，服务 FR-57 五区）：
+`17-样片-图层种类`（12 类图层 + 矢量/切片/分组）、`18-样片-参数矩阵`（四角圆角/描边三对齐/4 型渐变/8 类效果/约束 5 档/AutoLayout/文本排版/blend）、`19-样片-原型跳转`（9 条交互 6 类动作 + 3 Flow）。
 
 ## 布局语义映射
 
 | 设计语义 | CSS 输出 |
 | --- | --- |
 | `FIXED` | 固定像素；等于父内容宽时转为 `100%` |
-| `FILL`（主轴） | `flex: 1 1 auto` + `min-width/height: 0` |
+| `FILL`（主轴） | `flex: 1 1 0` + `min-width/height: 0` |
 | `FILL`（交叉轴） | `width/height: 100%` |
-| `HUG` | `fit-content`（绝对定位子节点为 `max-content`） |
+| `HUG` | `fit-content` + `flex: 0 0 auto`（绝对定位子节点为 `max-content`） |
 | `ABSOLUTE` 容器 | `position: relative`，子节点 `position: absolute` + `left/top`（相对父级 padding box） |
+| `layout.clipContent` | `overflow: hidden`；**同时是 FR-23 蒙版组的显式开关** |
 
 ## 目录结构
 
 ```
 src/
-├── schema/      # UI AST：类型（NodeKind/SizeMode/LayoutMode）与工厂
+├── schema/      # UI AST：类型（NodeKind/SizeMode/LayoutMode/VectorData/StyleToken…）与工厂
 ├── compiler/    # measure（文本度量）→ layout（几何引擎）→ compile（CSS 生成）
-├── generator/   # Taro TSX/SCSS、HTML 预览、reference DOM、工程文件集
-├── editor/      # 可视化编辑器（画布/图层/属性/撤销/代码/Diff 面板）
-├── demo/        # DSL + 16 个测试页面定义
-scripts/         # build-pages / screenshot / diff（Node + Playwright）
-tests/           # 编译器单元测试
+│                # boolean/mask/tokens/imageAdjust：布尔、蒙版、设计 token、图片调整（纯函数单源）
+├── generator/   # Taro TSX/SCSS、HTML 预览、reference DOM、vector(SVG)、prototype+runtime(FR-50)
+├── editor/      # 可视化编辑器（画布/图层/属性/撤销/代码/Diff/原型/演示/资产）
+│                # present/（Present 演示 + 内联预览）、tools/penCore（矢量路径纯函数）
+├── demo/        # DSL + 16 个测试页面 + showcase（FR-57 样片三页）
+scripts/         # build-pages / screenshot / diff / canvasdiff / showcase / 走查与冒烟
+tests/           # 编译器与 store 单元测试（519 例）
+docs/            # PRD / 对照矩阵 / schema 定稿 / 轨道方案 / HANDOFF 交接手册
 ```
 
 ## 技术栈
@@ -78,4 +103,8 @@ TypeScript · React 18 · react-konva · Vite 5 · Vitest 2 · Playwright · pix
 
 - Pixel Diff 基准视口为 375×812（`SHOT_WIDTH`/`SHOT_HEIGHT` 可覆盖）；多断点 diff 待接入。
 - 字体度量基于 Canvas 近似（Arial + 权重匹配规则），与浏览器在部分中英混排文本上存在 <5% 宽度误差；画布↔出码在混排长文本上有换行点位差异（14 页 92.07%，归因豁免待 M6 终验）。
-- 后续规划见需求文档 `deepseek_markdown_20261001_fd1659.md`（Figma 插件接入、组件库映射、diff 驱动的自动修复回写）。
+- 矢量布尔为 **SVG 填充规则近似**（Union=nonzero，其余=evenodd），Intersect 非严格几何交集；严格拓扑需引入裁剪库。
+- 图片 7 项调整中，色温/色调/高光/阴影为 **CSS filter 近似**且画布不预览（Konva 无对应滤镜）。
+- Layout grid 出码为 **CSS 可表达的等价网格**（Figma 的 Layout grid 本为编辑器辅助线）。
+- 当前进度与剩余队列见 `docs/HANDOFF.md`；需求唯一凭据 `docs/PRD.md`；逐日事实 `LOG.md`。
+

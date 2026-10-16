@@ -1254,3 +1254,37 @@
 **遗留问题**：
 - **HANDOFF 队列 #6 之②③（P1-05 普通形状布尔、P1-14 形状 SVG 化）未做**——**均需 PM 先拍板**（checklist 差异 #13 已列：形状→SVG 化影响像素管线；布尔形状需「创建时自动矢量化」方案）。拍板前不动出码管线。
 - 剩余：#4（m12 矩阵 7 行甄别）、#5（FR-60 帧预算专项）、#6 余项（待拍板）、#9（收口）。
+
+---
+
+### [2026-10-16] M6 第十一步：收口刷新（HANDOFF 队列 #9 之一）——README + HANDOFF 对齐实际状态
+
+**目标**：本轮完成 6 项任务后，`README.md` 与 `docs/HANDOFF.md` 的进度快照/队列已过期（仍写 16 页 / 434 例 / 9bdc5f5 基线 / 旧九项队列），需刷新为实际状态，供后续 agent 直接从准确现场接手。
+
+**修改内容**：
+- **`README.md`**：
+  - 快速开始补全命令清单（`showcase`/`walkthrough`/`smoke-m1`/`smoke-m2`/`present-smoke`/`viewport`/`perf-1000`/`zip-assert`/`ci-local`）。
+  - 新增**链序提示**（改 src 后须先 `precanvasdiff`；esbuild TEMP 旁路）——把 HANDOFF §3 的关键陷阱前置到 README。
+  - 产物表补 `geometry.json` / `flows.json` 两行。
+  - 数字刷新：16/16 → **19/19 ≥98%**；补 FR-57 五区 5/5 + avg 99.51%。
+  - 测试页面节补样片三页说明；布局语义表修正 `FILL`（`flex:1 1 0`，非 `1 1 auto`）与 `HUG`（补 `flex:0 0 auto`）、新增 `layout.clipContent` 行（同时是 FR-23 显式开关）。
+  - 目录结构更新（compiler 纯函数模块、generator/prototype+runtime、editor/present+tools、demo/showcase、docs 一行）。
+  - 限制与路线图**改为如实列近似口径**（布尔填色规则近似、图片 4 项近似且画布不预览、Layout grid 为 CSS 等价表达）。
+- **`docs/HANDOFF.md`**：
+  - 基线 `9bdc5f5` → **`6cad745`**；新增「本轮 6 提交」清单与「已交付（勿重做）」行。
+  - §5 进度快照重写（门禁数字 519/19-19/76-76/五区 5-5；★GA 阻断全清；已闭环差异 #5/#6；仍开放 #1/#4/#7/#13②③）。
+  - §6 队列由 9 项收敛为 **4 项**（m12 甄别 / FR-60 帧预算 / 矢量②③待拍板 / 收口）。
+  - §7 待拍板补第 3 条（P1-05 自动矢量化方案是否接受）。
+  - §8 自检命令数字刷新（519/519、19/19、补 `npm run showcase`）。
+  - **新增 §9「本轮新增的环境/操作陷阱」**：① `precanvasdiff` 是 present-smoke/matrix 的**必需前置**（实测 14/16 假摔→18/18）② `TEMP` 目录 Playwright 需用，勿提前删（`ENOENT: mkdtemp`）③ 样片加节点须跑 viewport（flow 兄弟重叠违反不变量，叠放用 ABSOLUTE）④ **`createPage` 默认 id 恒为 `'page'`**，按 id 索引会串页（本轮实际踩坑）。
+
+**结果**：完成。文档与实际状态一致，交接现场准确。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **519/519**（文档改动不影响代码）。
+两文件 U+FFFD 均为 **0**——其中 `docs/HANDOFF.md` 原有 **1 处 U+FFFD**（在规则 6 自身的示例文本 `$'�'` 里，属**历史遗留**，已用 `git show HEAD:` 核实非本轮引入），本次一并修正为「扫 U+FFFD（替换字符）」的文字表述。
+
+**报备**：README/HANDOFF 的「19/19」「76/76」「五区 5/5」等数字与 `dist/` 下最新产物一致（本轮末尾复跑确认）；`canvasdiff` 基线仍为 M3 首跑口径（avg 98.12%），**未在本轮重跑**——如需刷新需执行 `npm run canvasdiff`（依赖 `precanvasdiff` 构建）。
+
+**遗留问题**：
+- HANDOFF 队列剩余 4 项：#1 m12 矩阵 7 行甄别、#2 FR-60 帧预算专项（开口最大）、#3 矢量②③（**需 PM 拍板**）、#4 最终收口（矩阵全量汇总 + Go/No-Go 纪要 + ci-local 刷新）。
+- `canvasdiff` 基线数字未随 19 页刷新（仍为 16 页口径），应在最终收口时复跑一次。

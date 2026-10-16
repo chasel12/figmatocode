@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）—— UI Compiler 项目快速上手
 
-> 写给：接手本项目开发的 agent。日期：2026-10-16 · 基线 HEAD：`9bdc5f5`（master，工作区干净）
+> 写给：接手本项目开发的 agent。日期：**2026-10-16 第二轮收口** · 基线 HEAD：`6cad745`（master，工作区干净）
 > 本文档是**路线与纪律**；细节以 `docs/PRD.md`（需求唯一凭据）与 `LOG.md`（逐日事实）为准。
 
 ---
@@ -33,7 +33,7 @@
 3. **`src/schema/types.ts` 已定稿冻结**：扩字段/枚举必须「主线单点合入」，然后消费轨再动（历史先例：D0 定稿、Wave2 共享 action）。多轨并行的热点文件（store.ts reducer 入口、Canvas.tsx、Editor.tsx）同此规则。
 4. **浏览器验证用一次性探针脚本**（`scripts/` 下临时 .mjs），验证后删除、截图证据归档 `dist/<专项>/`（照 pen-check/p-track-check 先例）。矩阵级验证脚本（m3/m4/m5-matrix.mjs）**保留落库**，结构：rows[{id,name,ok,note,shot}] + report.json + 截图。
 5. **禁止用 PowerShell 读写含中文源文件**（LOG 有编码毁库事故记录）；编辑一律用文件工具。
-6. 含中文的 U+FFFD 扫描：大改后 `grep -c $'�'` 改动文件应为 0（历史门禁项）。
+6. 含中文文件的编码校验：大改后扫 U+FFFD（替换字符），改动文件应为 0（历史门禁项）。
 7. 提交直接进 **master**（项目惯例，历史 10 条全在 master；无 remote）。提交信息照先例：**批次主题 + 关键修复 + 门禁数字**。
 8. **报备纪律**：与 PRD 字面不同的实现口径（近似/降级/置灰）必须写进 LOG「报备」段 + checklist 差异与结论表，不得静默。
 
@@ -69,41 +69,46 @@ tests/            31 个 *.test.ts = 434 例（vitest，node 环境，不依赖�
 
 **热点文件规则**：`store.ts` 新 action = 主线加（含 EditorAction union + case + 必要时 PAGE_ACTIONS 白名单）；`Canvas.tsx`/`Editor.tsx` 改动串行不并轨；reference.ts 与 html.ts 渲染分支必须成对改（SLICE/VECTOR 两次事故先例）。
 
-## 5. 当前进度快照（2026-10-16 收工时）
+## 5. 当前进度快照（2026-10-16 第二轮收工时）
 
-- **HEAD `9bdc5f5`**；今日 4 提交：清账批(3c9141e)→FR-44 补齐(9c325bf)→autosave v2(077b52c)→M5 入册+★四项修复(9bdc5f5)。
-- **门禁**：tsc 0 · vitest 434/434 · build OK · e2e 16/16≥98% · viewport 64/64 · walkthrough 9/9 · m1 22 · m2 27 · present-smoke 18/18 · canvasdiff 基线 avg 98.12%（M3 口径）。
-- **矩阵**：M3 段 15P；M4 段 11 行 6P/5F；M5 段 13 行首跑 6P/7F→**★P0-41/42/43/48 修复改判 PASS**（现 10P/3F，F=P1-04/05/14 矢量挂账）；m12 段 19 行 12P/7 待甄别。
-- **差异与结论开放项**：#4 帧预算（FR-60 判据 95% 帧<16.7ms 实测 59.7%）、#5 imageAdjustments 双端零消费、#6 组件改名回流+样式编辑入口、#7 约束档位口径（待拍板）、#11 残留（overlay 拖拽/遮罩透明度 P1）、#13 矢量三件（待拍板+专项）、#1 14 页 92.07% 豁免（M6 终验复核）。
+- **HEAD `6cad745`**；本轮 6 提交：#1 P1-03 图片调整双端(9f0f7e5) → #2 P1-08/09 面板小修(c0beec3) → #7 FR-27 四类样式(bd13034) → #8 每页历史(eb97413) → #3 **FR-57 样片五区**(5f58d4d) → #6① P1-04 锚点二次编辑(6cad745)。
+- **门禁**：tsc 0 · vitest **519/519** · build OK · e2e **19/19 ≥98%** · viewport **76/76** · walkthrough 9/9 · m1 22 · m2 27 · present-smoke 18/18 · showcase **五区 5/5**（avg 99.51%，A/B/C=17/2/0）。
+- **★ GA 阻断已全清**（FR-57 五区补齐全过；样片 16→19 页，新增 `src/demo/showcase.ts` 三页）。
+- **已闭环差异**：#5 imageAdjustments 双端消费、#6 组件改名回流+样式编辑入口、#9-#12（上轮）。**仍开放**：#1（14 页 92.07% 豁免待 M6 终验）、#4 帧预算、#7 约束档位口径（待拍板）、#13 矢量三件之②③（待拍板）。
 
 ## 6. 剩余任务队列（按此顺序推，均为 GA 线内）
 
 | # | 任务 | 入手点 | 预估 |
 |---|---|---|---|
-| 1 | **P1-03 图片 7 调整双端接线**（差异 #5）：出码 `filter:` 映射 + 画布 Konva 像素预览 | 数据已通（store UPDATE_IMAGE_ADJUSTMENTS、DSL 字段 7 项）；compile.ts 文本/节点出码段加 filter（Exposure→brightness、Contrast、Saturation、Temperature→sepia/hue-rotate 近似、Tint、Highlights/Shadows 报备近似）；Canvas 侧可用 Konva image filter 或报备仅出码生效 | 2-3h |
-| 2 | **P1-08/09 面板小修**（差异 #6）：①组件/实例改名回流 `components[].name`（改名 action 内按 componentId 同步）②AssetsPanel 样式行加色值/字号编辑控件（dispatch UPDATE_TOKEN 已存在且引用者同步已实现——只差 UI 入口）| store CREATE_COMPONENT/改名路径 + AssetsPanel.tsx 样式 tab | 1-2h |
-| 3 | **FR-57 样片五区扩展**（★最后一块，P0-55）：showcase.mjs 现仅参数矩阵区（16 卡 avg 99.49%）。需：①16 类图层陈列区（含组件+实例+变体、布尔、钢笔路径、Slice）③≥3 Page 设计 ④≥5 类跳转+≥3 Flow+演示走通（用已交付的原型引擎）⑤像素报告入 dist/showcase/。**04/13 两卡 <99% 逐卡收敛含在内**（先看 diff.png 归因） | scripts/showcase.mjs + dist/showcase/report.json | 4-8h |
-| 4 | **m12 段 7 行甄别**：P0-07/10/15 快照通道只给根级子节点（`__UIC_E2E__.snapshot` 设计限制）→ 脚本改走 `__UIC_VIEW__`+DOM 或扩 snapshot；P0-09/11 吸附参考线/插入指示像素扫描需复跑甄别（m1/m2 smoke 同断言是绿的——大概率脚本失配）；FATAL `btn.getAttribute`=脚本 bug | scripts/m12-matrix.mjs | 1.5-3h |
-| 5 | **FR-60 帧预算专项**（差异 #4，最不确定）：1000 节点拖拽 95% 帧<16.7ms 实测 59.7%。方向：Canvas onDragMove→dragMove 快照/约束重算节流（transientEdit 已有基线机制）、ContentLayer memo 命中率剖析、几何 resolve 增量化。改完必须复跑 perf-1000 + 全像素门禁（不得动视觉） | Canvas.tsx + compiler/measure/layout | 4-8h，开口 |
-| 6 | **P1 矢量三件**（差异 #13）：P1-04 锚点二次编辑（Canvas 对已提交 VECTOR 的锚点命中+拖拽，penCore 数据已有）；P1-05 普通形状布尔（形状→路径自动矢量化入口）；P1-14 形状 SVG 化口径（先拍板：改行文案 or 实现——动出码管线有像素回归风险） | Canvas.tsx / boolean.ts / compile.ts | 各 3-5h |
-| 7 | **FR-27 Effect/Grid 样式**：前置=**types.ts 扩 `StyleToken.kind`（主线单点合入）**→ tokens.ts 两类型 + 面板创建 + 导出 | 见 LOG M4 第三步报备 | 2-4h |
-| 8 | **每页历史完整形态**：store 切页换栈 → `EditorState.history: Record<pageId,栈>`（字段已在）| SELECT_PAGE case | 1-2h |
-| 9 | 收口：ci-local 重跑刷新、矩阵全量汇总行（≥95% 精算）、Go/No-Go 纪要（FR-62）、README 补 canvasdiff/showcase/探针命令 | 计划 §步骤 8 | 2-3h |
+| 1 | **m12 段 7 行甄别**：P0-07/10/15 快照通道只给根级子节点 → 脚本改走 `__UIC_VIEW__`+DOM 或扩 snapshot；P0-09/11 像素扫描复跑甄别；FATAL 脚本 bug | `scripts/m12-matrix.mjs` | 1.5-3h |
+| 2 | **FR-60 帧预算专项**（差异 #4，最不确定）：1000 节点拖拽 95% 帧<16.7ms 实测 59.7%。方向：`onDragMove` 重算节流（transientEdit 已有基线机制）、ContentLayer memo 命中率、几何 resolve 增量化。改完必须复跑 perf-1000 + 全像素门禁 | `Canvas.tsx` + `compiler/*` | 4-8h，开口 |
+| 3 | **P1 矢量三件之②③（先拍板）**：P1-05 普通形状布尔（形状→路径自动矢量化方案）；P1-14 形状 SVG 化口径（改行文案 or 实做；动出码管线有像素回归风险） | `Canvas.tsx`/`boolean.ts`/`compile.ts` | 各 3-5h，**需 PM 定口径** |
+| 4 | **收口**：矩阵全量汇总行（≥95% 精算）、Go/No-Go 纪要（FR-62）、ci-local 重跑刷新、HANDOFF 再刷新 | §步骤 8 | 2-3h |
+
+> 已交付（勿重做）：图片 7 项调整双端出码+画布、组件改名回流、样式行内编辑、FR-27 四类样式（含 types.ts 扩 kind）、每页独立历史完整形态、FR-57 样片五区、P1-04 锚点二次编辑。
 
 ## 7. 待用户/PM 拍板（做之前先问）
 
 1. **#7 约束档位口径**：checklist「5 向」文案 vs FR-35 枚举 4 档——按枚举则 P1-12 直接改判 PASS（推荐）。
 2. **#13 之 P1-14**：圆/多边形出码要不要切 SVG（影响像素管线）还是行文案降级为「CSS 通道 + 有 cap/join 需求时手工矢量化」。
-3. **Present vs 导出页 Frame 导航语义**：已按「导出页=滚动定位、Present=换帧」双口径落地并报备；严格统一=Frame 视口容器化（大工程，建议 GA 后）。
-4. P2 协作（FR-61）Go/No-Go 与 Variables 等——M6 评审纪要处理。
+3. **#13 之 P1-05**：普通形状做布尔需「创建时自动矢量化」——是否接受该方案（会改变形状节点类型语义）。
+4. **Present vs 导出页 Frame 导航语义**：已按「导出页=滚动定位、Present=换帧」双口径落地并报备；严格统一=Frame 视口容器化（大工程，建议 GA 后）。
+5. P2 协作（FR-61）Go/No-Go 与 Variables 等——M6 评审纪要处理。
 
 ## 8. 快速自检（接手后 10 分钟）
 
 ```bash
-git log --oneline -4          # 头应为 9bdc5f5 或更新
-npx tsc --noEmit && npx vitest run   # 0 错 + 434/434
-npm run e2e                   # 16/16 ≥98%（含构建，约 3-4 分钟；esbuild 报错→§3 TEMP 旁路）
-# 红灯先查端口孤儿（§3），别急着改代码
+git log --oneline -4                   # 头应为 6cad745 或更新
+npx tsc --noEmit && npx vitest run     # 0 错 + 519/519
+npm run e2e                            # 19/19 ≥98%（含构建，约 3-4 分钟；esbuild 报错→§3 TEMP 旁路）
+npm run showcase                       # FR-57 五区 5/5
 ```
 
-然后读 `LOG.md` 最后 4 条 + checklist「差异与结论」表——即与本交接文档对齐的完整现场。
+然后读 `LOG.md` 最后 6 条 + checklist「差异与结论」表——即与本交接文档对齐的完整现场。
+
+## 9. 本轮新增的环境/操作陷阱
+
+- **改 `src/` 后跑 `present-smoke`/`canvasdiff`/矩阵脚本前，必须先 `npm run precanvasdiff`** 重建 `dist/app`（e2e hook）。本轮实测：不重建则 `present-smoke` 14/16 假摔（`view=null`），重建后 18/18。**这是必需前置，非可选。**
+- **`TEMP` 指向工作区目录时，验完不要立刻删**——Playwright 需要它创建 `playwright-artifacts-*`；删早了报 `ENOENT: mkdtemp`。
+- **样片页加节点后记得跑 `npm run viewport`**：flow 兄弟重叠（如负 margin 做叠放）会触发 `no-flow-sibling-overlap` 不变量；叠放请用 `mode:'ABSOLUTE'`，不要为样片放宽门禁。
+- **`createPage`/`createNewPage` 的 id 语义**：`createPage` 默认 id 恒为 `'page'`（demo 页全部同名 id）；按 `page.id` 做索引/分组会**串页**（本轮踩坑：`SHOWCASE_FLOWS` 按 id 索引致 19 页共用同一份 flows）。多页场景请用 `nextId()` 或按 `page.name` 索引。
