@@ -778,6 +778,18 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
           listening={false}
         />
       )}
+      {node.type === 'FRAME' && node.flowStart && (
+        // FR-43：流程起点蓝标（Figma ▶ 徽标语义；不监听命中，选区标签同点位时让位于其下）
+        <KText
+          text="▶"
+          x={geom.x + 2}
+          y={geom.y - 17}
+          fontFamily={FONT_STACK}
+          fontSize={12}
+          fill={SEL_COLOR}
+          listening={false}
+        />
+      )}
       {children.map((child) => (
         <NodeView key={child.id} node={child} ctx={ctx} interact={interact} />
       ))}
@@ -1804,6 +1816,16 @@ export function Canvas() {
             label: menuNode.locked ? '解锁' : '锁定',
             onClick: () => dispatch({ type: 'TOGGLE_LOCK', ids: [menu.nodeId!] }),
           },
+          ...(menuNode.type === 'FRAME'
+            ? [
+                { divider: true },
+                {
+                  label: menuNode.flowStart ? '移除流程起点' : '设为流程起点',
+                  // FR-43：右键直达 SET_FLOW_START（画布蓝标随之出现/消失）
+                  onClick: () => dispatch({ type: 'SET_FLOW_START', id: menuNode.flowStart ? null : menu.nodeId! }),
+                },
+              ]
+            : []),
           { divider: true },
           { label: '删除', shortcut: 'Del', danger: true, onClick: () => dispatch({ type: 'DELETE' }) },
         ]

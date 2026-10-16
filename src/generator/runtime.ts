@@ -132,18 +132,24 @@ export function buildRuntimeJs(): string {
     }
   }
 
-  /** 切页 + 过渡：INSTANT / 无 transition 直接切（零 CSS 开销） */
-  function switchPage(node, tr) {
+  function focusAnchor(node) {
+    if (node && node.scrollIntoView) node.scrollIntoView({ block: 'start' });
+  }
+
+  /** 切页 + 过渡：INSTANT / 无 transition 直接切（零 CSS 开销）；focus=同页 Frame 目标锚点（Navigate 到 Frame 语义=滚动定位） */
+  function switchPage(node, tr, focus) {
     if (!node) return;
     var kind = tr && tr.kind;
     if (!tr || kind === 'INSTANT' || kind === 'SMART_ANIMATE') {
       showPage(node);
+      focusAnchor(focus);
       animating = false;
       return;
     }
     var duration = durationOf(tr);
     if (duration <= 0) {
       showPage(node);
+      focusAnchor(focus);
       animating = false;
       return;
     }
@@ -197,6 +203,7 @@ export function buildRuntimeJs(): string {
         clearAnim(outgoing);
       }
       clearAnim(node);
+      focusAnchor(focus);
       animating = false;
     }, duration + 20);
   }
@@ -218,17 +225,33 @@ export function buildRuntimeJs(): string {
 
   var stack = [];
 
+  /** 锚点所在页 section（FR-45 口径：UI 唯一可配的 Navigate 目标是同页 Frame，非页 id） */
+  function pageOf(node) {
+    var el = node;
+    while (el && el !== document.body) {
+      if (el.getAttribute && el.getAttribute('data-uic-page')) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
   function navigate(targetId, tr) {
     if (animating) return;
     var node = findPage(targetId);
+    var focus = null;
     if (!node) {
-      warnOnce('nav-' + targetId, 'NAVIGATE 目标页不存在（broken link）：' + targetId);
+      focus = findAnchor(targetId);
+      if (focus) node = pageOf(focus);
+    }
+    if (!node) {
+      warnOnce('nav-' + targetId, 'NAVIGATE 目标不存在（broken link）：' + targetId);
       return;
     }
     var from = activePageId();
-    if (from === targetId) return;
-    if (from) stack.push(from);
-    switchPage(node, tr);
+    var to = node.getAttribute('data-uic-page');
+    if (from === to && !focus) return;
+    if (from !== to && from) stack.push(from);
+    switchPage(node, tr, focus);
   }
 
   function goBack() {

@@ -75,14 +75,15 @@ const DIRECTION_OPTIONS: { value: NonNullable<PrototypeTransition['direction']>;
 
 const OVERLAY_POSITIONS: NonNullable<PrototypeInteraction['overlayPosition']>[] = [
   'TOP_LEFT', 'TOP_CENTER', 'TOP_RIGHT',
-  'CENTER',
+  'CENTER', 'MANUAL', 'PRESET',
   'BOTTOM_LEFT', 'BOTTOM_CENTER', 'BOTTOM_RIGHT',
 ];
 
 const OVERLAY_LABEL: Record<string, string> = {
   TOP_LEFT: '左上', TOP_CENTER: '中上', TOP_RIGHT: '右上',
-  CENTER: '居中',
+  CENTER: '居中', MANUAL: '手动（首版按居中）',
   BOTTOM_LEFT: '左下', BOTTOM_CENTER: '中下', BOTTOM_RIGHT: '右下',
+  PRESET: '预设（置灰）',
 };
 
 const NEEDS_TARGET: PrototypeActionKind[] = ['NAVIGATE', 'OPEN_OVERLAY'];
@@ -357,6 +358,7 @@ export function PrototypePanel() {
                         key={p}
                         className={`proto-pos ${(it.overlayPosition ?? 'CENTER') === p ? 'is-active' : ''}`}
                         title={OVERLAY_LABEL[p]}
+                        disabled={p === 'PRESET'}
                         onClick={() => patchAt(idx, { overlayPosition: p })}
                       >
                         {OVERLAY_LABEL[p]}

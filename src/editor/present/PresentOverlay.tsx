@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { compilePage } from '../../compiler';
 import { buildPreviewDom } from '../../generator/html';
 import { findById } from '../../schema/factory';
-import type { ContainerNode, UINode, UIPage } from '../../schema/types';
+import type { ContainerNode, PrototypeTransition, UINode, UIPage } from '../../schema/types';
 import {
   collectHotspots,
   durationOf,
@@ -58,6 +58,18 @@ export interface PresentOverlayProps {
 
 interface NavEntry {
   nodeId: string;
+  /** 进入本条目时应用的过渡（FR-41；来源=触发交互的 transition，缺省 INSTANT） */
+  tr?: PrototypeTransition | null;
+}
+
+/** MOVE/PUSH/SLIDE 入场位移（与 runtime.js offsetOf 同口径：从 direction 侧推入） */
+function enterOffset(dir?: PrototypeTransition['direction']): string {
+  switch (dir) {
+    case 'LEFT': return 'translateX(-100%)';
+    case 'RIGHT': return 'translateX(100%)';
+    case 'TOP': return 'translateY(-100%)';
+    default: return 'translateY(100%)';
+  }
 }
 
 export function PresentOverlay({ page, startId, onExit, pages, inline = false, onGoFullscreen }: PresentOverlayProps) {
@@ -79,10 +91,30 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
   const [scale, setScale] = useState(1);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const hotspotTimer = useRef<number | null>(null);
 
   const current = stack[pointer] ?? null;
   const currentFrame = current ? findById(root, current.nodeId)?.node ?? null : null;
+
+  // FR-41：换帧入场动画（WAAPI——PresentOverlay 是编辑器内运行时，允许动画计算，与出码 runtime 的零布局约束无关）
+  useEffect(() => {
+    const el = frameRef.current;
+    const tr = current?.tr;
+    if (!el || !tr || tr.kind === 'INSTANT' || typeof el.animate !== 'function') return;
+    const d = durationOf(tr);
+    if (d <= 0) return;
+    const ease = easingCss(tr);
+    const frames: Keyframe[] =
+      tr.kind === 'DISSOLVE'
+        ? [{ opacity: 0 }, { opacity: 1 }]
+        : [{ transform: enterOffset(tr.direction) }, { transform: 'translate(0px, 0px)' }];
+    try {
+      el.animate(frames, { duration: d, easing: ease });
+    } catch {
+      /* WAAPI 异常=无动画（报备） */
+    }
+  }, [current]);
 
   // 页面尺寸（设备容器）
   const vw = activePage.viewport?.width ?? 375;
@@ -109,9 +141,9 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
     return () => document.body.removeAttribute(PRESENT_ATTR);
   }, []);
 
-  const navigate = useCallback((nodeId: string) => {
+  const navigate = useCallback((nodeId: string, tr?: PrototypeTransition | null) => {
     setStack((prev) => {
-      const next = [...prev.slice(0, pointer + 1), { nodeId }];
+      const next = [...prev.slice(0, pointer + 1), { nodeId, tr: tr ?? null }];
       setPointer(next.length - 1);
       return next;
     });
@@ -188,7 +220,7 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
       for (const it of usableInteractions(n)) {
         if (it.trigger === 'KEYDOWN' && it.key && it.key === key) {
           hit = true;
-          execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, n.id);
+          execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, n.id, it.transition);
         }
       }
       if ('children' in n) n.children.forEach(walk);
@@ -205,10 +237,11 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
     overlayPosition?: string,
     overlayCloseOnOutside?: boolean,
     selfId?: string,
+    tr?: PrototypeTransition | null,
   ): void {
     switch (action) {
       case 'NAVIGATE':
-        if (targetId && findById(root, targetId)) navigate(targetId);
+        if (targetId && findById(root, targetId)) navigate(targetId, tr);
         else console.warn('[uic-present] NAVIGATE 目标缺失（broken link），已忽略:', targetId);
         return;
       case 'BACK':
@@ -247,13 +280,13 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
         if (it.trigger === 'AFTER_TIMEOUT') {
           timers.push(
             window.setTimeout(() => {
-              execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, n.id);
+              execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, n.id, it.transition);
             }, Math.max(0, it.timeoutMs ?? 300)),
           );
         } else if (it.trigger === 'ON_LOAD') {
           timers.push(
             window.setTimeout(() => {
-              execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, n.id);
+              execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, n.id, it.transition);
             }, 0),
           );
         }
@@ -311,7 +344,7 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
               )
             ) {
               e.stopPropagation();
-              execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, found.id);
+              execute(it.action, it.targetId, it.url, it.scrollBehavior, it.overlayPosition, it.overlayCloseOnOutside, found.id, it.transition);
               return;
             }
           }
@@ -411,6 +444,7 @@ export function PresentOverlay({ page, startId, onExit, pages, inline = false, o
       <div className="present-stage" ref={stageRef}>
         <div
           className="present-frame"
+          ref={frameRef}
           style={{
             width: vw,
             height: vh,

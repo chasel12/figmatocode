@@ -1038,3 +1038,26 @@
 - dist/ci-local 报告过期（10-15，test 2 failed 已修复）——主线空闲时重跑刷新；无 remote，GitHub Actions 实跑待环境。
 - 每页历史完整形态、FR-27 Effect/Grid、样片逐卡收敛（沿前条）；M5 段矩阵（代理 B）执行中。
 
+---
+
+### [2026-10-16] M6 第四步：M5 段矩阵入册 + ★GA 阻断四项修复（runtime Navigate/Present 过渡/九宫/Flow 起点）
+
+**目标**：代理 B（M5 段 13 行）回报并入册；其发现的 ★ 核心缺口当日修复复验（P0-41/42/43/48 四行 FAIL→PASS），★GA 阻断清零。
+
+**修改内容**：
+- **入册**：checklist M5 段 13 行结果列（首跑 6P/7F）+ 差异与结论 #9-#13 + 修订历史矩阵 5；`scripts/m5-matrix.mjs` 落库（第八跑 16/16 记录、28 截图+15 DSL 样本+proto 导出站证据）。
+- **修复①（#9，最重）runtime Navigate 双引擎语义分叉**：UI 唯一可配目标=同页 Frame（FR-45 口径），但 runtime 只查 `data-uic-page` → 导出页点击永不生效。`runtime.ts` navigate 加锚点回退：findPage miss → `findAnchor + pageOf`（祖先链找 section）→ `switchPage(node, tr, focus)` → `scrollIntoView({block:'start'})`（与既有 SCROLL 同豁免口径，不破「零布局读写」不变量——新增单测锁定）；同页 Frame 导航不入 BACK 栈（页切换才入，报备）。**探针：导出页点击 scrollY 0→1108、零告警**。
+- **修复②（#10）Present 换帧过渡接线**：`PresentOverlay.tsx` NavEntry 携带 `tr`（execute/navigate 全链传 it.transition）；换帧后对 `.present-frame` 跑 WAAPI 入场动画（DISSOLVE=opacity，MOVE/PUSH/SLIDE=方向 translate，`enterOffset` 与 runtime offsetOf 同口径；duration/easing 复用 presentRuntime 导入）。**探针：点击后 getAnimations≥1、1400ms 完成切帧**。
+- **修复③（#11）九宫补全**：PrototypePanel OVERLAY_POSITIONS 7→9 键（CENTER 行=居中/手动/预设）；MANUAL 可选（出码/Present 按居中，label 注明），PRESET disabled 置灰——计划书 §2.2 口径落地。
+- **修复④（#12）Flow 起点入口**：Canvas 右键菜单 FRAME 节点加「设为流程起点/移除流程起点」（dispatch SET_FLOW_START）；NodeView 对 `flowStart` Frame 画 ▶ 蓝标（listening=false，Figma 语义）。**探针：菜单条目+标签翻转+Present 下拉「▶」前缀全验**。
+- **测试**：fr39-50 新增 2 例（水合 describe 5 例上批已计——本批 runtime 锚点回退断言 1 例 + 复用）；vitest 434/434。
+- 残余登记（不阻断 ★）：#11 拖拽定位/遮罩透明度（P1 体验）、#13 矢量三件（P1-04 二次编辑/P1-05 布尔形状口径/P1-14 形状 SVG 化——P1 必交付，待排 M6 矢量专项）、P0-44 残余（project.flows 多流分组/设备外框/独立刷新）已写入行 note。
+
+**结果**：完成。**矩阵进度：M3 15 行 PASS + M4 段 6P/5F（待修 #4-#7）+ M5 段 10P/3F→修复后 10P/3F 中 ★ 全过（P1-04/05/14 三 F=P1 挂账）**+ m12 段 12/19 待甄别。★核心（16 类创建+右栏+原型基础+样片）中「原型基础」达成。
+
+**验证方式**：tsc 0 错；vitest **434/434**；一次性探针 9/9（导出页双语义 + 编辑器 4 修复，证据已归档 `dist/m5-matrix/fix-*.png`，探针脚本按惯例删除）；全量门禁复跑全绿——build OK、e2e 16/16、viewport 64/64、walkthrough 9/9、m1 22/22、m2 27/27、**present-smoke 18/18（跑在 hook 重建后）**。
+
+**遗留问题**：
+- M6 修复队列（按优先级）：①P1-03 imageAdjustments 双端（#5）②P1-08/09 面板入口（#6）③样片 FR-57 五区扩展+04/13 逐卡收敛（#P0-55）④m12 七行甄别复跑 ⑤FR-60 帧预算专项（#4，最重不确定）⑥P1 矢量三件（#13）⑦FR-27 Effect/Grid ⑧每页历史完整形态 ⑨ci-local 报告刷新。
+- runtime「同页 Frame 导航=滚动定位」双语义已出码——Present 侧仍是换帧语义；两端一致性如需严格对齐（Frame 视口容器化）为大型工程，登记差异待 PM 评审口径。
+

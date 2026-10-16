@@ -373,6 +373,15 @@ describe('FR-46 runtime.js 边界（无布局计算）', () => {
   it('确定性：两次构建字节一致', () => {
     expect(buildRuntimeJs()).toBe(buildRuntimeJs());
   });
+
+  it('P0-48 修复：Navigate 目标解析支持同页 Frame 锚点回退', () => {
+    // UI 唯一可配目标=同页 Frame（FR-45 口径）——runtime 必须能吃 data-node 锚点：
+    // findPage miss → findAnchor + pageOf（祖先链找 section）→ switchPage(focus) 滚动定位
+    expect(js).toContain('pageOf');
+    expect(js).toContain('focusAnchor');
+    expect(js).toContain('NAVIGATE 目标不存在'); // 新告警文案（页/锚都查不到才 broken）
+    expect(js).not.toContain('NAVIGATE 目标页不存在');
+  });
 });
 
 describe('FR-39/59 §1.3/§1.4 工程水合接线（autosave v2 / LOAD_PROJECT）', () => {
