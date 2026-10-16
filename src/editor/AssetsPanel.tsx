@@ -2,11 +2,27 @@ import { useMemo, useState } from 'react';
 import { useEditor } from './store';
 import { currentVariantProps, variantGroupOf, variantPropertyNames, variantValueNames, variantsInGroup } from './variants';
 import type { ComponentDef } from '../schema/types';
+import type { StyleTokenKind } from '../schema/types';
 
 /**
  * FR-26 Assets 面板：本地组件列表 + 搜索 + 插入。
  * FR-25 入口：选区→创建组件、选中实例→回写主组件（PUSH_TO_COMPONENT，超出任务书枚举的报备项）。
  */
+/** FR-27 四类样式的图标与样式类（单一映射，避免散落三元判断） */
+const TOKEN_KIND_ICON: Record<StyleTokenKind, string> = {
+  PAINT: '◐',
+  TEXT: 'T',
+  EFFECT: '✦',
+  GRID: '▦',
+};
+
+const TOKEN_KIND_CLASS: Record<StyleTokenKind, string> = {
+  PAINT: 'is-paint',
+  TEXT: 'is-text',
+  EFFECT: 'is-effect',
+  GRID: 'is-grid',
+};
+
 /**
  * P1-09：`<input type="color">` 只接受 `#rrggbb`，而样式值可能是缩写 hex / rgb() / 颜色名。
  * 归一化到合法 hex；无法解析时回退 #000000（避免输入框空白）。
@@ -224,6 +240,40 @@ export function AssetsPanel() {
             >
               ＋ 文本样式
             </button>
+            {/* FR-27 四类补全：Effect / Grid（M6 主线单点扩 kind 后接入） */}
+            <button
+              className="mini-btn"
+              title="从选中节点的效果创建效果样式"
+              disabled={!selected?.style?.effects?.length}
+              onClick={() =>
+                dispatch({
+                  type: 'CREATE_TOKEN',
+                  kind: 'EFFECT',
+                  style: { effects: selected?.style?.effects },
+                  nodeId: isRoot ? undefined : primaryId,
+                })
+              }
+            >
+              ＋ 效果样式
+            </button>
+            <button
+              className="mini-btn"
+              title="为选中节点创建 Layout grid 样式"
+              disabled={isRoot}
+              onClick={() =>
+                dispatch({
+                  type: 'CREATE_TOKEN',
+                  kind: 'GRID',
+                  style: {},
+                  grids: selected?.style?.layoutGrids ?? [
+                    { pattern: 'COLUMNS', count: 12, gutter: 16, offset: 0, alignment: 'STRETCH', color: 'rgba(255,0,0,0.1)', visible: true },
+                  ],
+                  nodeId: isRoot ? undefined : primaryId,
+                })
+              }
+            >
+              ＋ 网格样式
+            </button>
           </div>
 
           {state.tokens.length === 0 ? (
@@ -233,10 +283,8 @@ export function AssetsPanel() {
               {state.tokens
                 .filter((t) => (query.trim() ? t.name.toLowerCase().includes(query.trim().toLowerCase()) : true))
                 .map((t) => (
-                  <div key={t.id} className="assets-token-row" title={t.cssVar}>
-                    <span className={`assets-token-kind ${t.kind === 'PAINT' ? 'is-paint' : 'is-text'}`}>
-                      {t.kind === 'PAINT' ? '◐' : 'T'}
-                    </span>
+                  <div key={t.id} className="assets-token-row" title={`${t.cssVar ?? ''}${t.kind === 'GRID' ? ` · ${(t.grids ?? []).length} 网格` : ''}`}>
+                    <span className={`assets-token-kind ${TOKEN_KIND_CLASS[t.kind]}`}>{TOKEN_KIND_ICON[t.kind]}</span>
                     {/* P1-09：样式行内编辑（差异 #6②）——改值即 dispatch UPDATE_TOKEN，引用者同步已实现 */}
                     <input
                       className="assets-token-name-input"
@@ -244,7 +292,7 @@ export function AssetsPanel() {
                       title="样式名（改名）"
                       onChange={(e) => dispatch({ type: 'UPDATE_TOKEN', id: t.id, name: e.target.value })}
                     />
-                    {t.kind === 'PAINT' ? (
+                    {t.kind === 'PAINT' && (
                       <input
                         className="assets-token-color"
                         type="color"
@@ -260,7 +308,8 @@ export function AssetsPanel() {
                           })
                         }
                       />
-                    ) : (
+                    )}
+                    {t.kind === 'TEXT' && (
                       <input
                         className="assets-token-num"
                         type="number"
@@ -270,6 +319,25 @@ export function AssetsPanel() {
                         onChange={(e) =>
                           dispatch({ type: 'UPDATE_TOKEN', id: t.id, style: { fontSize: Math.max(1, Number(e.target.value) || 1) } })
                         }
+                      />
+                    )}
+                    {t.kind === 'EFFECT' && (
+                      <span className="assets-token-meta" title="效果条数（改值请用右栏 Effects 分区）">
+                        {(t.style.effects ?? []).length} 项
+                      </span>
+                    )}
+                    {t.kind === 'GRID' && (
+                      <input
+                        className="assets-token-num"
+                        type="number"
+                        min={1}
+                        title="Grid 小格边长（px）"
+                        value={(t.grids ?? [])[0]?.sectionSize ?? (t.grids ?? [])[0]?.gutter ?? 16}
+                        onChange={(e) => {
+                          const size = Math.max(1, Number(e.target.value) || 1);
+                          // GRID 承载在 token.grids（非 style），故 UPDATE_TOKEN 走 grids 分支
+                          dispatch({ type: 'UPDATE_TOKEN', id: t.id, grids: (t.grids ?? []).map((g, i) => (i === 0 ? { ...g, sectionSize: size, gutter: size } : g)) });
+                        }}
                       />
                     )}
                     <button

@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import type { NodeKind, UINode, UIPage, UIProject, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, VectorData } from '../schema/types';
+import type { NodeKind, UINode, UIPage, UIProject, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, VectorData, LayoutGridSchema } from '../schema/types';
+import type { StyleTokenKind } from '../schema/types';
 import { isContainer } from '../schema/types';
 import { clonePage, createNode, findById, nextId, walk } from '../schema/factory';
 import { findVariant, variantGroupOf, variantsInGroup } from './variants';
@@ -111,9 +112,9 @@ export type EditorAction =
   /** FR-25 改主组件→实例跟随（选中实例子树回写 components[id].root，清 overrides） */
   | { type: 'PUSH_TO_COMPONENT'; id: string }
   /** FR-27 建样式（PAINT/TEXT；自动派生 cssVar 自增序号） */
-  | { type: 'CREATE_TOKEN'; kind: 'PAINT' | 'TEXT'; name?: string; style: Partial<StyleSchema>; nodeId?: string }
+  | { type: 'CREATE_TOKEN'; kind: StyleTokenKind; name?: string; style: Partial<StyleSchema>; nodeId?: string; grids?: LayoutGridSchema[] }
   /** FR-27 改样式→全部引用者同步 */
-  | { type: 'UPDATE_TOKEN'; id: string; style?: Partial<StyleSchema>; name?: string }
+  | { type: 'UPDATE_TOKEN'; id: string; style?: Partial<StyleSchema>; name?: string; grids?: LayoutGridSchema[] }
   /** FR-27 删样式（清引用） */
   | { type: 'DELETE_TOKEN'; id: string }
   /** FR-27 应用样式（style 浅合并进节点；记 styleTokenId） */
@@ -806,20 +807,28 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
     case 'CREATE_TOKEN': {
       const tokenId = nextId('tok');
       const seq = state.styleSeq + 1;
+      const prefix =
+        action.kind === 'PAINT' ? '--uic-paint' : action.kind === 'TEXT' ? '--uic-text' : action.kind === 'EFFECT' ? '--uic-effect' : '--uic-grid';
+      const labelCn = action.kind === 'PAINT' ? 'Paint' : action.kind === 'TEXT' ? 'Text' : action.kind === 'EFFECT' ? 'Effect' : 'Grid';
       const token: StyleToken = {
         id: tokenId,
-        name: action.name ?? `${action.kind === 'PAINT' ? 'Paint' : 'Text'} ${seq}`,
+        name: action.name ?? `${labelCn} ${seq}`,
         kind: action.kind,
         style: action.style,
-        cssVar: action.kind === 'PAINT' ? `--uic-paint-${seq}` : `--uic-text-${seq}`,
+        cssVar: `${prefix}-${seq}`,
+        ...(action.kind === 'GRID' && action.grids ? { grids: action.grids } : {}),
       };
-      // 若指定节点：创建即应用（style 浅合并 + 记引用）
+      // 若指定节点：创建即应用（style 浅合并 + 记引用；GRID 类额外写 layoutGrids）
       let base = { ...state, tokens: [...state.tokens, token], styleSeq: seq };
       if (action.nodeId) {
         const nextPage = clonePage(state.page);
         const found = findById(nextPage.root, action.nodeId);
         if (found) {
-          found.node.style = { ...found.node.style, ...action.style };
+          found.node.style = {
+            ...found.node.style,
+            ...action.style,
+            ...(action.kind === 'GRID' && action.grids ? { layoutGrids: action.grids } : {}),
+          };
           found.node.styleTokenId = tokenId;
           base = { ...base, ...pushHistory(base, nextPage) };
         }
@@ -830,16 +839,23 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
     case 'UPDATE_TOKEN': {
       const token = state.tokens.find((t) => t.id === action.id);
       if (!token) return state;
-      const nextStyle = action.style ? { ...token.style, ...action.style } : token.style;
+      const nextStyle = action.style && Object.keys(action.style).length ? { ...token.style, ...action.style } : token.style;
+      const nextGrids = action.grids ?? token.grids;
       const nextTokens = state.tokens.map((t) =>
-        t.id === action.id ? { ...t, style: nextStyle, name: action.name ?? t.name } : t,
+        t.id === action.id
+          ? { ...t, style: nextStyle, name: action.name ?? t.name, ...(nextGrids ? { grids: nextGrids } : {}) }
+          : t,
       );
-      // FR-27：引用者同步（浅合新样式）
+      // FR-27：引用者同步（浅合新样式；GRID 类额外同步 layoutGrids）
       const nextPage = clonePage(state.page);
       let touched = false;
       walk(nextPage.root, (n) => {
         if (n.styleTokenId === action.id) {
-          n.style = { ...n.style, ...nextStyle };
+          n.style = {
+            ...n.style,
+            ...nextStyle,
+            ...(action.grids && token.kind === 'GRID' ? { layoutGrids: action.grids } : {}),
+          };
           touched = true;
         }
       });

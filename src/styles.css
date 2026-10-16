@@ -1608,6 +1608,24 @@ body {
   color: #e0a8ff;
 }
 
+/* FR-27 四类：Effect / Grid 图标底色 */
+.assets-token-kind.is-effect {
+  background: #2b4038;
+  color: #7fe0bd;
+}
+
+.assets-token-kind.is-grid {
+  background: #403a2b;
+  color: #e0cf7f;
+}
+
+.assets-token-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex: none;
+  padding: 0 2px;
+}
+
 .assets-token-name {
   flex: 1;
   font-size: 11px;

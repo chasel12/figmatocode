@@ -1130,3 +1130,34 @@
 
 **遗留问题**：
 - HANDOFF 队列 #2 已完成，下一项为 #3（FR-57 样片五区扩展，★最后一块 P0-55）。
+
+---
+
+### [2026-10-16] M6 第七步：FR-27 样式四类补全（HANDOFF 队列 #7）——types.ts 主线单点扩 kind
+
+**目标**：FR-27 要求 Color/Text/Effect/Grid **四类**样式，但 `StyleToken.kind` 仅 `'PAINT' | 'TEXT'` 两值（types.ts 冻结），Effect/Grid 一直无承载——M4 第三步已报备为阻塞项。本步按铁律 3「扩字段必须主线单点合入」执行。
+
+**修改内容**：
+- **`src/schema/types.ts`（主线单点合入）**：
+  - 新 `StyleTokenKind = 'PAINT' | 'TEXT' | 'EFFECT' | 'GRID'`（单一事实源 type alias，供面板/编辑器等处复用，避免字面量散落）。
+  - `StyleToken.kind` 改用 `StyleTokenKind`；新增 `grids?: LayoutGridSchema[]`（GRID 类承载——网格是数组，`style` 字段装不下）。
+  - 新 `LayoutGridSchema`（FR-34 ⑧ 分区一直缺类型承载）：`pattern: COLUMNS|ROWS|GRID` + `visible/count/gutter/offset/alignment/color/sectionSize`。
+  - `StyleSchema` 新增 `layoutGrids?: LayoutGridSchema[]`（GRID 样式的应用目标）。
+  - **兼容性**：全部新增字段可选、kind 为**扩枚举**（旧两值仍合法）——既有 468 例零回归，旧 JSON 零迁移。
+- **`src/compiler/tokens.ts`**：`tokenDecls` 支持四类——新增 `effectDecls()`（effects→`box-shadow`/`filter`/`backdrop-filter` 复合变量，因效果非单值不能塞一个变量）与 GRID 分支（COLUMNS/ROWS→`repeating-linear-gradient` 占位表达式、GRID→`size` 变量）；`defaultVarName` 四类前缀（`--uic-effect-N` / `--uic-grid-N`）。
+- **`store.ts`**：`CREATE_TOKEN` 接受四类 kind（cssVar/默认名按 kind 派生、GRID 带 `grids`、创建即应用时额外写节点 `layoutGrids`）；`UPDATE_TOKEN` 增 `grids?` 参数并在 GRID 类同步引用者 `layoutGrids`（且修正 `style: {}` 空对象不再误触发引用者同步）。
+- **`AssetsPanel.tsx`**：样式 tab 增「＋ 效果样式」「＋ 网格样式」两个入口（效果按钮按 `effects` 有无禁用）；`TOKEN_KIND_ICON`/`TOKEN_KIND_CLASS` 映射替掉原二元三元式（四类图标：◐/T/✦/▦）；行内编辑按 kind 分派（PAINT→色值、TEXT→字号、EFFECT→条数只读、GRID→小格边长）。
+- **`styles.css`**：`.assets-token-kind.is-effect` / `.is-grid` / `.assets-token-meta` 三段。
+
+**结果**：完成。FR-27 四类样式全集落地，阻塞项（types.ts 未扩 kind）解除。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **486/486**（34 文件，468→486，净增 18）；`npm run build` OK；`npm run e2e` **16/16 ≥98%**（schema 扩字段零回归）；`viewport` **64/64**；`walkthrough` **9/9**；`smoke-m1` **22/22**；`smoke-m2` **27/27**。
+另做**真实浏览器探针**（`scripts/fr27-check.mjs`，按铁律验后删除）**9/9**：四个创建按钮齐全、效果按钮按 effects 有无禁用、颜色+网格两类入库、GRID 图标类渲染、出码 Modal 可用、零页面错误；截图 `dist/fr27-check/`。
+
+**报备（口径与近似）**：
+- **Grid 出码为 `repeating-linear-gradient` 占位表达式**：CSS 无原生「设计网格」概念——Figma 的 Layout grid 是**编辑器辅助线、不参与出码**。故此处产出的是「可用 CSS 表达的等价网格视觉」，并非 Figma 语义的 1:1 移植；若后续要求「网格仅编辑器可见、不进产物」，需按 `visible`/导出策略另定（登记）。
+- **EFFECT/GRID 复合变量形态**：效果与网格均为多值（`box-shadow` 串 / 网格数组），无法压进单个 CSS 变量，故按 `--uic-effect-1-box-shadow` / `--uic-grid-1-columns` 等**逐项展开**。与 PAINT/TEXT 的单值形态不同，属必要差异。
+- **GRID 行内编辑仅暴露小格边长**（最常用）；count/gutter/alignment/color 等全字段编辑未入 AssetsPanel（避免面板过载），可经 tokens 数据面直接写入。
+
+**遗留问题**：
+- HANDOFF 队列 #7 已完成。剩余：#3（FR-57 样片五区，★最后一块）、#4（m12 矩阵 7 行甄别）、#5（FR-60 帧预算专项，开口最大）、#6（P1 矢量三件）、#8（每页历史完整形态）、#9（收口）。

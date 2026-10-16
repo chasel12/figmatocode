@@ -65,19 +65,80 @@ export function fillLayerCss(f: FillLayer): string {
   }
 }
 
+/** FR-19 效果列表 → CSS 声明（box-shadow 多层 / filter / backdrop-filter），供 EFFECT 样式复用 */
+function effectDecls(effects: import('../schema/types').Effect[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const shadows: string[] = [];
+  const filters: string[] = [];
+  const backdrop: string[] = [];
+  for (const e of effects.filter((x) => x.visible !== false)) {
+    if (e.kind === 'DROP_SHADOW') {
+      shadows.push(`${e.x ?? 0}px ${e.y ?? 4}px ${e.blur ?? 4}px ${e.spread ?? 0}px ${e.color ?? 'rgba(0,0,0,0.2)'}`);
+    } else if (e.kind === 'INNER_SHADOW') {
+      shadows.push(`inset ${e.x ?? 0}px ${e.y ?? 4}px ${e.blur ?? 4}px ${e.spread ?? 0}px ${e.color ?? 'rgba(0,0,0,0.2)'}`);
+    } else if (e.kind === 'LAYER_BLUR') {
+      filters.push(`blur(${e.radius ?? 4}px)`);
+    } else if (e.kind === 'BACKGROUND_BLUR') {
+      backdrop.push(`blur(${e.radius ?? 4}px)`);
+    }
+  }
+  if (shadows.length) out['box-shadow'] = shadows.join(', ');
+  if (filters.length) out.filter = filters.join(' ');
+  if (backdrop.length) out['backdrop-filter'] = backdrop.join(' ');
+  return out;
+}
+
+/** FR-34 Layout grids → CSS（Columns/Rows 走 repeating-linear-gradient 占位；GRID 走 background-size 网格） */
+function gridCss(g: import('../schema/types').LayoutGridSchema): string | null {
+  const color = g.color ?? 'rgba(255, 0, 0, 0.1)';
+  const gutter = g.gutter ?? 0;
+  if (g.pattern === 'GRID') return null; // GRID 型需两条轴叠加，交由调用方合成（见下）
+  const size = `${gutter}px`;
+  return `repeating-linear-gradient(to ${g.pattern === 'COLUMNS' ? 'right' : 'bottom'}, ${color} 0 1px, transparent 1px ${size})`;
+}
+
 /**
  * FR-27：token.style（Partial<StyleSchema>）→ CSS 声明表。
- * PAINT 取 fills/background 表达；TEXT 取排版字段（复合变量逐项展开）。
+ * PAINT 取 fills/background；TEXT 取排版字段；EFFECT 取 effects；GRID 取 grids（FR-27 四类全集）。
  */
 export function tokenDecls(token: StyleToken, varName: string): Record<string, string> {
   const s = token.style;
   const out: Record<string, string> = {};
+
   if (token.kind === 'PAINT') {
     const fills = (s.fills ?? []).filter((f) => f.visible !== false);
     if (fills.length) out[varName] = fills.map(fillLayerCss).join(', ');
     else if (s.background) out[varName] = s.background;
     return out;
   }
+
+  if (token.kind === 'EFFECT') {
+    // 效果为复合声明（box-shadow/filter 非单值），无法塞进单一变量 →
+    // 以多变量表达：--uic-effect-1-box-shadow / -filter / -backdrop-filter
+    const decls = effectDecls(s.effects ?? []);
+    for (const [k, v] of Object.entries(decls)) out[`${varName}-${k}`] = v;
+    return out;
+  }
+
+  if (token.kind === 'GRID') {
+    // 网格同样为复合表达：--uic-grid-1-columns / -rows / -size
+    const grids = token.grids ?? s.layoutGrids ?? [];
+    if (!grids.length) return out;
+    const cols = grids.find((g) => g.pattern === 'COLUMNS');
+    const rows = grids.find((g) => g.pattern === 'ROWS');
+    const grid = grids.find((g) => g.pattern === 'GRID');
+    if (cols) {
+      const c = gridCss(cols);
+      if (c) out[`${varName}-columns`] = c;
+    }
+    if (rows) {
+      const r = gridCss(rows);
+      if (r) out[`${varName}-rows`] = r;
+    }
+    if (grid) out[`${varName}-size`] = `${grid.sectionSize ?? 8}px`;
+    return out;
+  }
+
   // TEXT：复合变量逐项（--uic-text-1-font-size 形态）
   if (s.fontSize != null) out[`${varName}-font-size`] = `${round2(s.fontSize)}px`;
   if (s.fontWeight != null) out[`${varName}-font-weight`] = String(s.fontWeight);
@@ -91,7 +152,14 @@ export function tokenDecls(token: StyleToken, varName: string): Record<string, s
 
 /** token 默认变量名（未显式给 cssVar 时按 kind+序号派生） */
 export function defaultVarName(token: StyleToken, index: number): string {
-  const prefix = token.kind === 'PAINT' ? '--uic-paint' : '--uic-text';
+  const prefix =
+    token.kind === 'PAINT'
+      ? '--uic-paint'
+      : token.kind === 'TEXT'
+        ? '--uic-text'
+        : token.kind === 'EFFECT'
+          ? '--uic-effect'
+          : '--uic-grid';
   return `${prefix}-${index + 1}`;
 }
 

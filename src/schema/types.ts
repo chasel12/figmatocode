@@ -172,6 +172,8 @@ export interface StyleSchema {
   effects?: Effect[];
   /** FR-34 Layer 混合模式（缺省 NORMAL=不输出） */
   blendMode?: BlendMode;
+  /** FR-34 ⑧ Layout grids（FR-27 GRID 样式应用目标；缺省无网格） */
+  layoutGrids?: LayoutGridSchema[];
   /** 旧字段：自由串阴影（无 effects 时兼容路径） */
   boxShadow?: string;
   fontFamily?: string;
@@ -250,16 +252,43 @@ export interface InstanceOverride {
   value: unknown;
 }
 
-/** FR-27 样式（Paint/Text Style）：命名样式，节点引用 tokenId；样式改 → 引用者同步。
- *  引用表达：节点 style 内 styleTokenId 字段（下增）；Detach 即删该字段。 */
+/** FR-27 样式四类（面板/编辑器/导出共用单一事实源） */
+export type StyleTokenKind = 'PAINT' | 'TEXT' | 'EFFECT' | 'GRID';
+
+/** FR-27 样式（Paint/Text/Effect/Grid Style）：命名样式，节点引用 tokenId；样式改 → 引用者同步。
+ *  引用表达：节点 style 内 styleTokenId 字段；Detach 即删该字段。
+ *  FR-27 四类 = PAINT/TEXT/EFFECT/GRID（M6 主线单点合入：扩 kind 枚举 + GRID 承载 layoutGrids）。 */
 export interface StyleToken {
   id: string;
   name: string;
-  kind: 'PAINT' | 'TEXT';
+  kind: StyleTokenKind;
   /** 应用到节点的 style 片段（浅合并进节点 style） */
   style: Partial<StyleSchema>;
   /** FR-28 tokens.css 变量名（--color-primary 形态；导出用） */
   cssVar?: string;
+  /** FR-27 GRID 类专用：Layout grid 定义（style 字段无法承载网格数组，故独立挂此） */
+  grids?: LayoutGridSchema[];
+}
+
+/** FR-34 Layout grids 分区（FR-27 GRID 样式复用）：三型 Columns/Rows/Grid。
+ *  M6 主线单点合入（Wave 期 types.ts 未含此类型，FR-34 ⑧ 分区一直缺承载）。 */
+export interface LayoutGridSchema {
+  /** Columns=列 / Rows=行 / Grid=网格 */
+  pattern: 'COLUMNS' | 'ROWS' | 'GRID';
+  /** 可见性（缺省 true） */
+  visible?: boolean;
+  /** Columns/Rows：数量；GRID：不适用 */
+  count?: number;
+  /** 间距 px */
+  gutter?: number;
+  /** 外边距 px（GRID 型为 sectionSize） */
+  offset?: number;
+  /** 对齐：STRETCH/CENTER/MIN/MAX（缺省 STRETCH） */
+  alignment?: 'STRETCH' | 'CENTER' | 'MIN' | 'MAX';
+  /** 网格线颜色 */
+  color?: string;
+  /** GRID 型：小格边长 px */
+  sectionSize?: number;
 }
 
 /** FR-40 原型动作七类 P0（CHANGE_TO 随 FR-29 变体后并） */
