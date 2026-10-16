@@ -978,3 +978,38 @@
 - 矩阵 M4 段 11 行 / M5 段 13 行未执行（验证轨并行中）
 - 样片逐卡线：04/13 两卡 <99%（P0-55 ★ 收口项）；每页历史完整形态；FR-27 Effect/Grid（types.ts 单点前置）
 
+---
+
+### [2026-10-16] M6 第二步：FR-44 P0-44★ 缺口补齐——连接线可视化 + Shift+Space 内联预览 + Present 多页切页
+
+**目标**：清账步登记的三大缺口一次合龙——连接线无画布呈现、Shift+Space 内联预览未做（实现自降为 Ctrl+Alt+P）、Present 不能切页（P0-39★ 附带项）。计划书 §R3 的「P0 降级」是当时排期决策，非 PRD 验收口径，本步按 FR-44 字面补真实现。
+
+**修改内容**：
+- **新 `src/editor/tools/connections.ts`**（纯函数单源，确定性两位小数沿 penCore 纪律）：`edgeAnchors`（四边中点锚）/ `pickAnchors`（最近点对，等距偏好的水平 e→w=Figma 并排语义）/ `connectorPathD`（贝塞尔，控制点沿外法线外推 max(40, 0.4×直线距)）/ `arrowHeadPoints`（入端箭头三角）/ `nearestFrameAncestor`（落点→最近 FRAME 祖先）/ `nextInteractionId`（自 PrototypePanel 移入，pi-N 规格不变）/ `makeNavigateInteraction`（ON_CLICK+NAVIGATE+INSTANT=Figma 拖线默认）。
+- **Canvas 连接线层**（新 Layer，handles 层之上）：单选 FRAME（select 工具、非平移）→ 右边中点蓝色连接点；该 Frame 的 NAVIGATE/OPEN_OVERLAY 交互且目标在本页 → 实线贝塞尔+箭头；hover 线→目标 frame 蓝色高亮、点线→选中目标；拖连接点→虚线 ghost + 落点候选高亮、松手 dispatch `UPDATE_INTERACTIONS` 创建；Escape/选区变化/工具切换作废拖线态。
+- **PresentOverlay 双升级**：① `inline` 模式——同一播放引擎（导航栈/过渡/热区/KEYDOWN 全共享）装进右下角小窗（`.present-inline` chrome：标题/Page 下拉/重启/热区/全屏演示/✕），fit 缩放由 ResizeObserver 驱动天然适配小窗；② `pages` prop 多页切页（P0-39★「Present 可切」；切页重置栈并按新页重解析起点，startId 不跨页沿用）。
+- **Editor**：Shift+Space → 内联预览（起点=选中 Frame，否则 flowStart/首 Frame；输入框聚焦让位）；「全屏演示」从小窗升级链路；Present 传 `state.pages`。**快捷键对齐 PRD 字面**：Shift+Space=内联预览；Ctrl+Alt+P 保留（钢笔 P 键规避历史决策，兼容报备）。Canvas 空格守卫 `!shiftKey`（平移不收 Shift 组合）。
+- **e2e 通道扩展**：Canvas 挂 `__UIC_VIEW__()`（舞台 scale/x/y 只读；仅 hook 构建、零行为差异，FR-51② 同款口径）——验证轨拖线/像素断言需要 page→screen 换算。
+- **新 `tests/fr44-connections.test.ts` 9 例**：锚点枚举/水平与垂直偏好/路径确定性与两位小数/箭头几何/FRAME 祖先（子→框、自身、PAGE→null）/pi-N 防撞/追加不改原表/UPDATE_INTERACTIONS 写回+清空落 undefined。
+
+**顺带修真缺陷 3 个**：
+- **KPath `fill="none"`**：CSS 语法在 Konva 是非法颜色 → 连接线渲染成黑色粗块（截图证据取证时发现）。Konva 不接受 'none'，去掉 fill prop 即默认无填充。
+- **Stage onMouseUp 与 window mouseup 双触发 endInteraction**：conn 分支改 **ref 即速 null**（对齐 pen 分支既有纪律）——防重复创建/竞态。
+- **present-smoke 走查脚本拓扑 bug（自创建起未真正跑绿，本步曝光）**：资产面板「添加 Frame」产出 **0×0** 节点且第二次**嵌进选中容器**（ADD_NODE 落 effectiveParentId）→ 「点击跳转」等 5 步此前恒 FAIL 或被 vacuous true 掩盖；`.layer-row` 按 `hasText('Frame')` 子串命中错位。修法：F 工具拖画两平行 Frame（m3-matrix 同款坐标）+ 图层行按 `data-node-id` 定位（名称后缀跟随 idSeq，跨会话不稳定——snapshot 通道取 id）。**修后原 13 步全真绿。**
+
+**结果**：完成。present-smoke **18/18**（原 13 步真绿 + 新 5 步：e2e 通道/拖线 1→2 行/预览窗挂载/全屏入口/Esc 关闭），FR-44 数据链路+视觉呈现+预览运行闭环。
+
+**验证方式**：`npx tsc --noEmit` 0 错；vitest **428/428**（31 文件）；present-smoke 18/18；全量门禁复跑全绿——build OK、e2e **16/16 ≥98%**、viewport **64/64**、walkthrough **9/9**、smoke-m1 **22/22**、smoke-m2 **27/27**；hook 重建（dist/app 含连接线/内联预览/`__UIC_VIEW__`，供验证轨代理复用）。
+
+**报备（口径与边界）**：
+- 连接线显示条件=**选中源 Frame**（Figma 同语义）；hover 线高亮目标、点线选中目标；跨页/broken link 不画线（面板已显「已断开」，画布静默）。
+- 落点=命中最深节点的最近 FRAME 祖先；同源落点拒绝；**非 Frame 目标（文本热区）不入 P0**（与面板 FR-45 口径一致）。
+- 拖线与面板可各自添加同目标交互（不去重——Figma 允许多触发器；面板编辑既有行为准）。
+- 内联预览小窗不可拖动/改尺寸（P1 体验）；预览窗打开期间编辑器键盘整体让路（沿用 PRESENT_ATTR gate）。
+- `nextInteractionId` 移入 connections.ts 为单源小重构，PrototypePanel 行为零变化。
+
+**遗留**：
+- **[视觉待查]** 拖线松手且鼠标停在目标 Frame 上时，画布出现浅蓝矩形描边残留（证据 `dist/present-smoke/08-拖线后.png`、探针 `C:/tmp/g2-moved.png`）——疑似 hover 指示与本层交互残留，**数据链路无恙**，归体验项。
+- **autosave v2 / File 保存打开 v2 未接线（重要，M5 第一步记录夸口）**：`src/editor/project.ts` 五函数**零消费者**——Editor autosave 仍 v1 单页形状，**重载丢多页/组件/tokens/flows**。下一步单点修（消费 upgradeProjectV1/serializeProject/parseProject，§1.3/§1.4 方案现成）。
+- 每页历史完整形态、FR-27 Effect/Grid、样片 04/13 逐卡收敛（沿前条）。
+

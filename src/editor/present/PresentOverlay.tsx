@@ -48,17 +48,29 @@ export interface PresentOverlayProps {
   /** 初始起点（选中 Frame 有 flowStart 时由 Editor 传入） */
   startId?: string | null;
   onExit: () => void;
+  /** FR-39/44：多页浏览——传入后可在顶栏切 Page（切页即重置导航栈到新页首 Frame/flowStart）；缺省单页 */
+  pages?: UIPage[];
+  /** FR-44：Shift+Space 内联预览小窗模式（同一播放引擎，非全屏容器 + 精简 chrome） */
+  inline?: boolean;
+  /** inline 模式「进入全屏演示」回调 */
+  onGoFullscreen?: () => void;
 }
 
 interface NavEntry {
   nodeId: string;
 }
 
-export function PresentOverlay({ page, startId, onExit }: PresentOverlayProps) {
-  const root = page.root;
+export function PresentOverlay({ page, startId, onExit, pages, inline = false, onGoFullscreen }: PresentOverlayProps) {
+  const pagesList = pages && pages.length ? pages : [page];
+  const [activePageId, setActivePageId] = useState(page.id);
+  const activePage = pagesList.find((p) => p.id === activePageId) ?? page;
+  const root = activePage.root;
 
-  // 起点解析（§3.2-3）
-  const initialStart = useMemo(() => resolveStartNode(root, startId), [root, startId]);
+  // 起点解析（§3.2-3）；startId 仅对初始页生效（切页后按新页重新解析）
+  const initialStart = useMemo(
+    () => resolveStartNode(root, activePageId === page.id ? startId : null),
+    [root, startId, activePageId, page.id],
+  );
 
   const [stack, setStack] = useState<NavEntry[]>(() => (initialStart ? [{ nodeId: initialStart.id }] : []));
   const [pointer, setPointer] = useState(0); // 当前在 stack 中的位置（← → 导航）
@@ -73,8 +85,8 @@ export function PresentOverlay({ page, startId, onExit }: PresentOverlayProps) {
   const currentFrame = current ? findById(root, current.nodeId)?.node ?? null : null;
 
   // 页面尺寸（设备容器）
-  const vw = page.viewport?.width ?? 375;
-  const vh = page.viewport?.height ?? 812;
+  const vw = activePage.viewport?.width ?? 375;
+  const vh = activePage.viewport?.height ?? 812;
 
   // fit 缩放：容器高度不足时按比例缩小（只缩不放大）
   useEffect(() => {
@@ -258,25 +270,25 @@ export function PresentOverlay({ page, startId, onExit }: PresentOverlayProps) {
     if (!currentFrame) return { html: '', css: '' };
     // 以该 Frame 为临时 root 编译，隔离渲染（Present 只显示当前 Frame）
     const mini: UIPage = {
-      ...page,
+      ...activePage,
       root: { ...currentFrame, layout: { ...currentFrame.layout, x: 0, y: 0 } } as ContainerNode,
     };
     const compiled = compilePage(mini);
     const { bodyHtml, css } = buildPreviewDom(mini, compiled);
     return { html: bodyHtml, css };
-  }, [currentFrame, page]);
+  }, [currentFrame, activePage]);
 
   const overlayFrame = overlay ? findById(root, overlay.nodeId)?.node ?? null : null;
   const overlayHtml = useMemo(() => {
     if (!overlayFrame) return { html: '', css: '' };
     const mini: UIPage = {
-      ...page,
+      ...activePage,
       root: { ...overlayFrame, layout: { ...overlayFrame.layout, x: 0, y: 0 } } as ContainerNode,
     };
     const compiled = compilePage(mini);
     const { bodyHtml, css } = buildPreviewDom(mini, compiled);
     return { html: bodyHtml, css };
-  }, [overlayFrame, page]);
+  }, [overlayFrame, activePage]);
 
   // 事件委托：按触发器查交互并执行。
   // 注意：`.present-frame` 自身带 data-present-node（根 Frame 可挂交互），
@@ -315,17 +327,28 @@ export function PresentOverlay({ page, startId, onExit }: PresentOverlayProps) {
   const hotspots = useMemo(() => (currentFrame ? collectHotspots(currentFrame) : []), [currentFrame]);
   const frames = useMemo(() => framesOf(root), [root]);
 
+  // FR-39 多页浏览：切页即按新页重新解析起点并重置导航栈（startId 不跨页沿用）
+  const switchPage = (pid: string) => {
+    const np = pagesList.find((p) => p.id === pid);
+    if (!np) return;
+    setActivePageId(pid);
+    const s = resolveStartNode(np.root, null);
+    setStack(s ? [{ nodeId: s.id }] : []);
+    setPointer(0);
+    setOverlay(null);
+  };
+
   // 空状态：无 Frame 可演示（FR-44）
   if (!initialStart) {
     return (
-      <div className="present-overlay" role="dialog" aria-label="演示模式">
+      <div className={inline ? 'present-inline' : 'present-overlay'} role="dialog" aria-label={inline ? '原型预览' : '演示模式'}>
         <div className="present-empty">
           <div className="present-empty-title">无可演示的 Frame</div>
           <div className="present-empty-note">
             当前页面尚无 Frame，或未配置流程起点。请在画布创建 Frame，或用 Prototype 面板设置 Flow 起点。
           </div>
           <button className="btn" onClick={onExit}>
-            退出演示（Esc）
+            {inline ? '关闭预览（Esc）' : '退出演示（Esc）'}
           </button>
         </div>
       </div>
@@ -333,9 +356,25 @@ export function PresentOverlay({ page, startId, onExit }: PresentOverlayProps) {
   }
 
   return (
-    <div className="present-overlay" role="dialog" aria-label="演示模式">
+    <div className={inline ? 'present-inline' : 'present-overlay'} role="dialog" aria-label={inline ? '原型预览' : '演示模式'}>
       <div className="present-bar">
-        <span className="present-title">{page.name} · 演示</span>
+        <span className="present-title">
+          {activePage.name} · {inline ? '预览' : '演示'}
+        </span>
+        {pagesList.length > 1 && (
+          <select
+            className="present-page-select"
+            value={activePage.id}
+            onChange={(e) => switchPage(e.target.value)}
+            title="切换 Page（FR-39 演示可浏览各页）"
+          >
+            {pagesList.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           className="present-flow-select"
           value={current?.nodeId ?? ''}
@@ -352,13 +391,18 @@ export function PresentOverlay({ page, startId, onExit }: PresentOverlayProps) {
             </option>
           ))}
         </select>
-        <span className="present-hint">← → 历史 · R 重启 · H 热区 · Esc 退出</span>
+        <span className="present-hint">{inline ? '小窗内点击交互生效 · Esc 关闭' : '← → 历史 · R 重启 · H 热区 · Esc 退出'}</span>
         <button className="btn btn-ghost" onClick={restart} disabled={!initialStart}>
           重启
         </button>
         <button className="btn btn-ghost" onClick={() => setShowHotspots((v) => !v)}>
           热区
         </button>
+        {inline && onGoFullscreen && (
+          <button className="btn btn-ghost present-to-full" onClick={onGoFullscreen} title="进入全屏演示">
+            全屏演示
+          </button>
+        )}
         <button className="btn btn-ghost present-close" onClick={onExit} title="退出（Esc）">
           ✕
         </button>

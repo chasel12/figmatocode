@@ -1906,6 +1906,45 @@ body {
   z-index: 4;
 }
 
+/* FR-44：Shift+Space 内联预览小窗——同一播放引擎的 inline 容器（浮于画布右下，Esc/✕ 关闭） */
+.present-inline {
+  position: fixed;
+  right: 24px;
+  bottom: 56px;
+  z-index: 9500;
+  width: 420px;
+  height: min(720px, 78vh);
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.present-inline .present-bar {
+  padding: 6px 10px;
+}
+
+.present-inline .present-hint {
+  display: none;
+}
+
+.present-inline .present-stage {
+  padding: 12px;
+}
+
+.present-page-select {
+  padding: 3px 6px;
+  font-size: 11px;
+  background: #2c2c2c;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #e6e9ef;
+  max-width: 140px;
+}
+
 .present-empty {
   margin: auto;
   text-align: center;

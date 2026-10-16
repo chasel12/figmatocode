@@ -2,13 +2,14 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import KonvaLib from 'konva';
 import { Arc, Arrow, Circle, Ellipse, Group, Image as KImage, Layer, Line, Path as KPath, Rect, Stage, Text as KText } from 'react-konva';
 import type Konva from 'konva';
-import type { ContainerNode, FillLayer, LayoutSchema, StyleSchema, UINode } from '../schema/types';
+import type { ContainerNode, FillLayer, LayoutSchema, PrototypeInteraction, StyleSchema, UINode } from '../schema/types';
 import { hasText, isContainer } from '../schema/types';
 import { FONT_STACK } from '../font';
 import { createNode, findById } from '../schema/factory';
 import { recomputeChildren, type ChildStart } from './constraints';
 import { applyTextCase, arcSpec, createCanvasMeasure, effectiveLetterSpacingPx, effectiveLineHeight, flattenPx, polygonUnitPoints, starUnitPoints, type GeometryMap } from '../compiler';
 import { pointsToPathD, draftBounds, toLocalPoints, type PenDraftPoint } from './tools/penCore';
+import { arrowHeadPoints, connectorPathD, makeNavigateInteraction, nearestFrameAncestor, pickAnchors, type ConnAnchor, type ConnGeom } from './tools/connections';
 import { useEditor, type Tool } from './store';
 import { computeSnap, type GuideLine, type Rect as SnapRect } from './snapping';
 import { useCanvasGeometry } from './canvasContext';
@@ -838,11 +839,17 @@ export function Canvas() {
   const [penDraft, setPenDraft] = useState<PenDraftPoint[]>([]);
   // FR-21：光标 page 坐标（供钢笔橡皮筋预览；仅 pen 工具下更新）
   const [penCursor, setPenCursor] = useState<{ x: number; y: number } | null>(null);
+  // FR-44 连接线：拖连接点的当前出线端点（page 坐标）；hover 中的交互 id（目标高亮）
+  const [connDraft, setConnDraft] = useState<{ x: number; y: number } | null>(null);
+  const [connHover, setConnHover] = useState<string | null>(null);
 
   const stageRef = useRef<Konva.Stage | null>(null);
   // FR-21：键盘 effect 内读草稿最新值（state 闭包陷阱规避）
   const penDraftRef = useRef<PenDraftPoint[]>([]);
   penDraftRef.current = penDraft;
+  // FR-44：window mouseup（endInteraction）读连接草稿最新值
+  const connDraftRef = useRef<{ x: number; y: number } | null>(null);
+  connDraftRef.current = connDraft;
   // FR-21：钢笔锚点拖拽起点（拖动拉手柄；page 坐标）
   const penDragRef = useRef<{ x: number; y: number } | null>(null);
   const resizing = useRef<{
@@ -1208,6 +1215,23 @@ export function Canvas() {
   };
 
   const endInteraction = () => {
+    // FR-44 连接线：从连接点起手拖线，mouseup 落点=最近 FRAME 祖先 → 创建 ON_CLICK/Navigate/Instant
+    if (connDraftRef.current) {
+      const at = connDraftRef.current;
+      connDraftRef.current = null; // ref 即速 null（对齐 pen 分支：Stage+window 双 mouseup 不重复创建）
+      setConnDraft(null);
+      if (conn) {
+        const hit = deepestAtPoint(geometry, state.page.root, at);
+        const drop = hit ? nearestFrameAncestor(state.page.root, hit.id) : null;
+        if (drop && drop.id !== conn.id) {
+          const found = findById(state.page.root, conn.id);
+          const existing = found?.node.interactions ?? [];
+          const { list } = makeNavigateInteraction(existing, drop.id);
+          dispatch({ type: 'UPDATE_INTERACTIONS', id: conn.id, interactions: list });
+        }
+      }
+      return;
+    }
     // FR-21 钢笔：mousedown 起点即落锚；拖动位移作为出锚手柄（对称贝塞尔，不拖=直线段）
     if (penDragRef.current) {
       const start = penDragRef.current;
@@ -1353,6 +1377,16 @@ export function Canvas() {
   // 顶栏缩放% 实时回显
   useEffect(() => canvasBus.publishScale(scale), [scale]);
 
+  // FR-51② 同款口径：e2e 通道读舞台变换（连接线拖线/像素断言需要 page→screen 换算）。
+  // 仅 VITE_E2E_HOOK=1 构建挂载；只读，不新增任何编辑行为。
+  useEffect(() => {
+    if ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_E2E_HOOK !== '1') return;
+    (window as unknown as Record<string, unknown>).__UIC_VIEW__ = () => ({ scale, x: stagePos.x, y: stagePos.y });
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__UIC_VIEW__;
+    };
+  }, [scale, stagePos]);
+
   // 全局键：空格平移、Shift+1/0 缩放、Ctrl+G 成组、Esc 取消（编辑框选/菜单时阻断外层反选）
   useEffect(() => {
     const isTyping = (t: EventTarget | null) => {
@@ -1361,7 +1395,8 @@ export function Canvas() {
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return;
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && !e.shiftKey) {
+        // FR-44：Shift+Space 归内联预览（Editor 消费），空格平移不收 shift 组合
         e.preventDefault();
         if (!spaceRef.current) {
           spaceRef.current = true;
@@ -1400,6 +1435,12 @@ export function Canvas() {
         if (penDraftRef.current.length) {
           // FR-21：钢笔 Escape 作废草稿（先删末点、再按一次全清——Figma 语义近似为直接全清）
           setPenDraft([]);
+          handled = true;
+        }
+        if (connDraftRef.current) {
+          // FR-44：Escape 作废拖线（只清拖线态，不动选区）
+          setConnDraft(null);
+          setConnHover(null);
           handled = true;
         }
         if (handled) e.stopImmediatePropagation();
@@ -1473,6 +1514,45 @@ export function Canvas() {
     }
     return list;
   }, [state.selectedIds, geometry, state.page]);
+
+  // FR-44 连接线：单选 FRAME（select 工具、非平移）时给出连接点 + 已有交互的目标箭头线。
+  // 目标不在当前页几何（跨页/已删=broken link）的交互不画线——面板已显「已断开」，画布静默（报备口径）。
+  const conn = useMemo(() => {
+    if (isPan || state.tool !== 'select' || state.selectedIds.length !== 1) return null;
+    const id = state.selectedIds[0];
+    if (id === state.page.root.id) return null;
+    const found = findById(state.page.root, id);
+    if (!found || found.node.type !== 'FRAME') return null;
+    const g = geometry[id];
+    if (!g) return null;
+    const knob: ConnAnchor = { x: g.x + g.width, y: g.y + g.height / 2, side: 'e' };
+    const items: { it: PrototypeInteraction; d: string; head: number[]; targetId: string; tg: ConnGeom }[] = [];
+    for (const it of found.node.interactions ?? []) {
+      if (!it.targetId) continue;
+      if (it.action !== 'NAVIGATE' && it.action !== 'OPEN_OVERLAY') continue;
+      const tg = geometry[it.targetId];
+      if (!tg) continue;
+      const pair = pickAnchors(g, tg);
+      items.push({ it, d: connectorPathD(pair.from, pair.to), head: arrowHeadPoints(pair.to), targetId: it.targetId, tg });
+    }
+    return { id, g, knob, items };
+  }, [isPan, state.tool, state.selectedIds, state.page, geometry]);
+
+  // 拖线中的落点候选：命中节点→最近 FRAME 祖先（排除源自身），供高亮与 mouseup 创建判定
+  const connDrop = useMemo(() => {
+    if (!connDraft || !conn) return null;
+    const hit = deepestAtPoint(geometry, state.page.root, connDraft);
+    const f = hit ? nearestFrameAncestor(state.page.root, hit.id) : null;
+    return f && f.id !== conn.id ? geometry[f.id] ?? null : null;
+  }, [connDraft, conn, geometry, state.page]);
+  const connGhostD = conn && connDraft ? connectorPathD(conn.knob, { ...connDraft, side: 'w' }) : '';
+  const connHoverGeom = conn && connHover ? conn.items.find((i) => i.it.id === connHover)?.tg ?? null : null;
+
+  // 选区/工具变化即中止拖线与 hover 态（防残影）
+  useEffect(() => {
+    setConnDraft(null);
+    setConnHover(null);
+  }, [state.selectedIds, state.tool]);
 
   const onWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -1556,6 +1636,16 @@ export function Canvas() {
   };
 
   const stageMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // FR-44：拖线期间只需光标位置（mode 恒 idle，与钢笔草稿同挂载点）
+    if (connDraftRef.current) {
+      const stage = stageRef.current;
+      const pointer = stage?.getPointerPosition();
+      if (stage && pointer) {
+        const at = pagePoint(stage, pointer);
+        setConnDraft((prev) => (prev && prev.x === at.x && prev.y === at.y ? prev : { x: at.x, y: at.y }));
+      }
+      return;
+    }
     if (resizing.current) {
       if (e.evt.ctrlKey) resizing.current.ignoreConstraints = true; // FR-35 Ctrl 拖忽略约束（按下过即忽略全程）
       const stage = stageRef.current;
@@ -2056,6 +2146,79 @@ export function Canvas() {
               />
             ))}
           </Layer>
+          {/* FR-44 连接线层：连接点（拖出创建 Navigate）+ 既有交互的目标箭头线 + hover/落点高亮 */}
+          {conn && (
+            <Layer>
+              {connHoverGeom && (
+                <Rect
+                  x={connHoverGeom.x}
+                  y={connHoverGeom.y}
+                  width={connHoverGeom.width}
+                  height={connHoverGeom.height}
+                  stroke={SEL_COLOR}
+                  strokeWidth={2 / scale}
+                  fill="rgba(22,119,255,0.06)"
+                  listening={false}
+                />
+              )}
+              {conn.items.map((ln) => (
+                <Group key={ln.it.id}>
+                  <KPath
+                    data={ln.d}
+                    stroke={SEL_COLOR}
+                    strokeWidth={1.6 / scale}
+                    hitStrokeWidth={14 / scale}
+                    onMouseEnter={() => setConnHover(ln.it.id)}
+                    onMouseLeave={() => setConnHover((h) => (h === ln.it.id ? null : h))}
+                    onClick={(ev) => {
+                      ev.cancelBubble = true;
+                      dispatch({ type: 'SELECT', id: ln.targetId });
+                    }}
+                  />
+                  <Line points={ln.head} closed fill={SEL_COLOR} listening={false} />
+                </Group>
+              ))}
+              {connGhostD && (
+                <KPath data={connGhostD} stroke={SEL_COLOR} strokeWidth={1.4 / scale} dash={[6 / scale, 4 / scale]} listening={false} />
+              )}
+              {connDrop && (
+                <Rect
+                  x={connDrop.x}
+                  y={connDrop.y}
+                  width={connDrop.width}
+                  height={connDrop.height}
+                  stroke={SEL_COLOR}
+                  strokeWidth={2.5 / scale}
+                  fill="rgba(22,119,255,0.10)"
+                  listening={false}
+                />
+              )}
+              <Circle
+                x={conn.knob.x}
+                y={conn.knob.y}
+                radius={7 / scale}
+                fill={SEL_COLOR}
+                stroke="#FFFFFF"
+                strokeWidth={1.5 / scale}
+                onMouseDown={(ev) => {
+                  ev.cancelBubble = true;
+                  suppressClickRef.current = true; // 拖线收尾合成的 click 不得反选（Figma 拖线保持选中）
+                  const stage = stageRef.current;
+                  const pointer = stage?.getPointerPosition();
+                  const at = stage && pointer ? pagePoint(stage, pointer) : { x: conn.knob.x, y: conn.knob.y };
+                  setConnDraft(at);
+                }}
+                onMouseEnter={() => {
+                  const stage = stageRef.current;
+                  if (stage) stage.container().style.cursor = 'crosshair';
+                }}
+                onMouseLeave={() => {
+                  const stage = stageRef.current;
+                  if (stage) stage.container().style.cursor = 'default';
+                }}
+              />
+            </Layer>
+          )}
         </Stage>
 
         {editingNode && editingGeom && hasText(editingNode.node) && (

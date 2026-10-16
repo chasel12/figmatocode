@@ -40,6 +40,9 @@ export function Editor() {
   // FR-44 Present 演示模式（视图态，不进 store 历史）；startId 为选中 Frame 有 flowStart 时的起点
   const [presenting, setPresenting] = useState(false);
   const [presentStartId, setPresentStartId] = useState<string | null>(null);
+  // FR-44：Shift+Space 内联预览（画布内小窗运行，同一播放引擎的 inline 模式）
+  const [previewing, setPreviewing] = useState(false);
+  const [previewStartId, setPreviewStartId] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -130,6 +133,16 @@ export function Editor() {
         return;
       }
       if (typing) return;
+      // FR-44：Shift+Space 内联预览——起点=选中 Frame（含非 Frame 时忽略，由 resolveStartNode 兜底首 Frame）
+      if (e.code === 'Space' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        const st = stateRef.current;
+        const primary = st.selectedIds[st.selectedIds.length - 1];
+        const sel = primary ? findById(st.page.root, primary)?.node : null;
+        setPreviewStartId(sel && sel.type === 'FRAME' ? sel.id : null);
+        setPreviewing(true);
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         dispatch({ type: 'DELETE' });
@@ -300,14 +313,33 @@ export function Editor() {
           </div>
         </div>
       </CanvasGeometryContext.Provider>
-      {/* FR-44：Present 全屏遮罩（视图态，不进 store 历史） */}
+      {/* FR-44：Present 全屏遮罩（视图态，不进 store 历史）；pages 传入以支持演示中切页（FR-39） */}
       {presenting && (
         <PresentOverlay
           page={state.page}
+          pages={state.pages}
           startId={presentStartId}
           onExit={() => {
             setPresenting(false);
             setPresentStartId(null);
+          }}
+        />
+      )}
+      {/* FR-44：Shift+Space 内联预览小窗（同引擎 inline 模式；Esc/✕ 关闭，可升级全屏） */}
+      {previewing && (
+        <PresentOverlay
+          inline
+          page={state.page}
+          pages={state.pages}
+          startId={previewStartId}
+          onExit={() => {
+            setPreviewing(false);
+            setPreviewStartId(null);
+          }}
+          onGoFullscreen={() => {
+            setPreviewing(false);
+            setPresentStartId(previewStartId);
+            setPresenting(true);
           }}
         />
       )}

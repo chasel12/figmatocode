@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useEditor } from './store';
 import { findById } from '../schema/factory';
+import { nextInteractionId } from './tools/connections';
 import type {
   PrototypeActionKind,
   PrototypeInteraction,
@@ -86,12 +87,7 @@ const OVERLAY_LABEL: Record<string, string> = {
 
 const NEEDS_TARGET: PrototypeActionKind[] = ['NAVIGATE', 'OPEN_OVERLAY'];
 
-function nextInteractionId(existing: PrototypeInteraction[]): string {
-  let n = existing.length + 1;
-  const ids = new Set(existing.map((i) => i.id));
-  while (ids.has(`pi-${n}`)) n += 1;
-  return `pi-${n}`;
-}
+// FR-44：id 生成移入 tools/connections.ts 单源（画布拖线创建与面板共用同规格）
 
 export function PrototypePanel() {
   const { state, dispatch } = useEditor();
