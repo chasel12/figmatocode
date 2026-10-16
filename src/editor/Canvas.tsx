@@ -2193,8 +2193,9 @@ export function Canvas() {
                   listening={false}
                 />
               )}
+              {/* 旋钮外偏 14/scale（page 单位=屏幕恒定 14px）：避让 'e' 把手外沿 4/scale + 半径 7/scale（验证轨回归） */}
               <Circle
-                x={conn.knob.x}
+                x={conn.knob.x + 14 / scale}
                 y={conn.knob.y}
                 radius={7 / scale}
                 fill={SEL_COLOR}

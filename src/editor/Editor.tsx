@@ -2,6 +2,8 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createPage, findById } from '../schema/factory';
 import { createCanvasMeasure, resolveLayout } from '../compiler';
 import { EditorContext, editorReducer, initialState, type Tool } from './store';
+import { parseProject, projectFromEditorState, serializeProject, stateFromProject } from './project';
+import type { UIProject } from '../schema/types';
 import { CanvasGeometryContext } from './canvasContext';
 import { canvasBus } from './canvasBus';
 import { Toolbar } from './Toolbar';
@@ -15,15 +17,36 @@ import { PrototypePanel } from './PrototypePanel';
 import { PresentOverlay, isPresenting } from './present/PresentOverlay';
 import { presentBus } from './present/presentBus';
 
-const STORAGE_KEY = 'ui-compiler.autosave.v1';
+const STORAGE_KEY = 'ui-compiler.autosave.v2';
+/** §1.3：v1 键只读不删（降级/双开无害）；命中 v1 即升级并回写 v2 */
+const STORAGE_KEY_V1 = 'ui-compiler.autosave.v1';
+
+interface AutosaveEnvelope {
+  version?: number;
+  currentPageId?: string;
+  project?: UIProject;
+  page?: unknown;
+  projectName?: string;
+}
 
 function loadAutosave(): ReturnType<typeof initialState> | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as { page: import('../schema/types').UIPage; projectName: string };
-    if (!data.page?.root) return null;
-    return initialState(data.page, data.projectName);
+    const raw2 = localStorage.getItem(STORAGE_KEY);
+    if (raw2) {
+      const env = JSON.parse(raw2) as AutosaveEnvelope;
+      return stateFromProject(parseProject(env).project, env.currentPageId);
+    }
+    const raw1 = localStorage.getItem(STORAGE_KEY_V1);
+    if (raw1) {
+      const { project } = parseProject(raw1);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeProject(project)));
+      } catch {
+        /* 回写失败不阻塞恢复 */
+      }
+      return stateFromProject(project);
+    }
+    return null;
   } catch {
     return null;
   }
@@ -77,16 +100,21 @@ export function Editor() {
     };
   }, [state.page, geometry]);
 
+  // §1.3 autosave v2：pages 为权威整工程落盘（多页/组件/样式随编辑持久）；v1 键不再写
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ page: state.page, projectName: state.projectName }));
+        const project = projectFromEditorState(state);
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ ...serializeProject(project), currentPageId: state.currentPageId }),
+        );
       } catch {
         // 忽略存储配额错误
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [state.page, state.projectName]);
+  }, [state.pages, state.currentPageId, state.projectName, state.components, state.tokens]);
 
   // FR-44：Toolbar 经 presentBus 请求开始演示（起点由 Toolbar 依选中 Frame 的 flowStart 解析）
   useEffect(

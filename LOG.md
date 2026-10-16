@@ -1013,3 +1013,28 @@
 - **autosave v2 / File 保存打开 v2 未接线（重要，M5 第一步记录夸口）**：`src/editor/project.ts` 五函数**零消费者**——Editor autosave 仍 v1 单页形状，**重载丢多页/组件/tokens/flows**。下一步单点修（消费 upgradeProjectV1/serializeProject/parseProject，§1.3/§1.4 方案现成）。
 - 每页历史完整形态、FR-27 Effect/Grid、样片 04/13 逐卡收敛（沿前条）。
 
+---
+
+### [2026-10-16] M6 第三步：autosave v2 / File 工程链路接线（§1.3/§1.4 补全）+ 旋钮-e把手重叠回归修复 + M4 段矩阵入册
+
+**目标**：清账/第二步两次登记的「project.ts 零消费者」真实缺口（M5 第一步记录夸口项）——多页/组件/样式 reload 即丢；同批处理验证轨代理回报的 FR-44 旋钮回归。
+
+**修改内容**：
+- **`src/editor/project.ts`**：新增 `projectFromEditorState`（EditorState→UIProject 单源，flows 不持久——Flow 以节点 flowStart 随 pages 往返）与 `stateFromProject`（水合：pages 权威、currentPageId 缺省回落首页、空 pages 兜底新建页、styleSeq=表长+1 防撞、历史清空）。
+- **`src/editor/store.ts`**：新 action **`LOAD_PROJECT`**（File→打开 v2 工程整体载入；加入 PAGE_ACTIONS 白名单绕出口回写；组件/样式表随工程装载，与 LOAD_PAGE 的「空表重置」口径区分——工程本体携带）。
+- **`src/editor/Editor.tsx`**：autosave 写侧 v2 键 `{version:2, project, currentPageId}`（依赖 pages/currentPageId/components/tokens）；读侧先 v2、miss 读 v1 键→parseProject 升级→回写 v2 **不删 v1**（§1.3 降级/双开无害）。v1 键从此只读。
+- **`src/editor/Toolbar.tsx`**：保存→`serializeProject(projectFromEditorState(state))`（`.uicproj.json`）；打开→`parseProject`（v1/v2 双兼容）→`LOAD_PROJECT`。删 `serializePage`（v1 写路径绝迹，兼容只留读侧——PRD「单页 JSON 继续兼容」=打开路径口径）。
+- **旋钮重叠回归修复（`Canvas.tsx`）**：m4-matrix 验证轨发现「单选 FRAME 右中拖被连接旋钮劫持成拖线、'e' 把手失效」——knob Circle 与 'e' 把手同点位、后绘层先命中。修法：**旋钮外偏 14/scale**（page 单位=屏幕恒定 14px；'e' 把手外沿 4/scale + 旋钮半径 7/scale 让位有余）。`present-smoke` 拖线坐标同步 +14。**教训入册：连接点类 UI 不得与把手点位重合**。
+- **对照矩阵 M4 段入册（`docs/figma-parity-checklist.md`）**：代理 A 实测 11 行（6 PASS/5 FAIL）填结果列 + 汇总/阻断项/状态头更新 + **差异与结论新增 #4-#8**（FR-60 帧预算 59.7% 待整改、imageAdjustments 双端未接、组件/样式面板入口缺口、约束档位口径待 PM、旋钮重叠已修复）+ 修订历史矩阵 4。
+- 测试：`tests/fr39-50-prototype.test.ts` 新增「工程水合接线」describe 5 例（多页装载/兜底页/往返保真/LOAD_PROJECT reducer/v1 升级水合），vitest **433/433**。
+
+**结果**：完成。持久化闭环浏览器取证 6/6（独立 `dist/app-probe` 构建 + 4198 端口探针，验后已删）：①'e' 把手 resize 复权（w 170→210）②旋钮 +14 仍可拖线 ③v2 键含 2 页+currentPageId ④reload 保多页与页内节点 ⑤v1 自动升级回写（v1 保留、页名还原）⑥零页面错误。
+
+**验证方式**：tsc 0 错；vitest 433/438→**433/433**（31 文件）；全量门禁全绿——build OK、e2e 16/16、viewport 64/64、walkthrough 9/9、m1 22/22、m2 27/27；present-smoke **18/18**（**须跑在 hook 重建之后**——本轮一度 14/16 因 smoke 用旧 dist/app，链序修正后复绿）；探针证据 `dist/present-smoke/`。
+
+**遗留问题**：
+- 差异 #4-#7 四项修复排 M6（帧预算专项/图片调整双端接线/面板入口补齐/PM 档位裁决）；#8 已闭环。
+- m12 段 7 行红灯甄别未做（孤儿进程 4173/4189 待清）。
+- dist/ci-local 报告过期（10-15，test 2 failed 已修复）——主线空闲时重跑刷新；无 remote，GitHub Actions 实跑待环境。
+- 每页历史完整形态、FR-27 Effect/Grid、样片逐卡收敛（沿前条）；M5 段矩阵（代理 B）执行中。
+

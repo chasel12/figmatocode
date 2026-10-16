@@ -1,7 +1,7 @@
 # Figma 全量对照矩阵（站点级）
 
 > PRD v1.1 **FR-56** 的验收凭据（由原 32 条 P0 清单升级为全量矩阵）。对应 PRD「Goals #1：对标项 ≥95% 通过」。
-> **状态：M3 段已实测填结果（2026-10-14），M4/M5 行与附 A/B/C 留里程碑/GA 全量** · 升级日期：2026-10-03 · 本轮实测：2026-10-14 · GA 前生效
+> **状态：M3 段（2026-10-14）+ M4 段（2026-10-16，6 PASS/5 FAIL）+ m12 段（2026-10-15，12/19 待甄别）已实测填结果；M5 行执行中、附 A/B/C 留 GA 全量** · 升级日期：2026-10-03 · 本轮实测：2026-10-16 · GA 前生效
 
 ## 使用说明
 
@@ -27,7 +27,7 @@
 | ☐ | P0-06 | 鼠标悬停画布元素（不点击） | 描边高亮 + 尺寸提示；光标移动态 | 悬停高亮 | FR-4 | M1 已交付 | |
 | ☐ | P0-07 ★ | 双击一段文本 | 就地编辑态：光标入位、可改字、**中文 IME 组字正常**、Esc/点外部提交、画布同步 | 双击编辑文本 | FR-7 | M2 已交付 | |
 | ☐ | P0-08 | 双击 Frame 内子元素 / 双击 Frame 本身 | 逐级下钻选中（双击=进入容器层） | 双击下钻 | FR-7 | M2 已交付 | |
-| ☐ | P1-01 | 打开 1000 节点 demo 页，拖动/缩放全程录帧 | ≥60fps、95% 帧 <16.7ms；1000 节点可编辑 | 性能基线 | FR-12 | M4 | |
+| ☑ | P1-01 | 打开 1000 节点 demo 页，拖动/缩放全程录帧 | ≥60fps、95% 帧 <16.7ms；1000 节点可编辑 | 性能基线 | FR-12 | M4 | FAIL（2026-10-16）1000 节点可编辑、idle 60.5fps；FR-60「95% 帧<16.7ms」实测 59.7%（435/729，avg 17.03ms）未达标——拖拽帧预算整改项；证据 dist/m4-matrix/ + dist/perf-1000/report.json |
 
 ## 二、拖拽、吸附与插入（FR-2、FR-5、FR-11）
 
@@ -67,21 +67,21 @@
 | ☑ | P0-34 | 切工具轨 Move/K/Frame/矩形/椭圆/直线/文本/手型；点选 contextual options 区 | 9 工具全集；选中 Frame 显示尺寸、形状显类型、文本显排版快捷项 | UI3 工具轨 + contextual | FR-13 | M3 已交付（轨底浮层；contextual 部分） | PASS（2026-10-14）13 工具全集+contextual 位置尺寸；证据 `dist/m3-matrix/p034-*.png` |
 | ☑ | P0-35 | 一个节点加 3 层填充（纯色+线性+径向），调层序/显隐/层透明度/渐变 stop | 层序=面板序=视觉叠层（首层在上）；四型渐变出码与画布一致 | Fill 系统 | FR-17 | M3 已交付（Diamond 画布近似） | PASS（2026-10-14）添加填充层+1；证据 `dist/m3-matrix/p035-填充多层.png`；多层渐变画布↔出码一致性另见 FR-51② |
 | ☑ | P0-36 | Stroke 设四边独立宽度+Center/Outside 对齐+dash+cap+join | 三对齐渲染正确（见映射列口径）；dash/gap 生效；默认 1px inside | Stroke 系统 | FR-18 | M3 已交付（画布对齐近似） | PASS（2026-10-14）三对齐/dash/cap/join 字段齐全；证据 `dist/m3-matrix/p036-描边.png`；渲染近似=映射列口径 |
-| ☐ | P1-02 | Effects 分区加 Drop/Inner shadow、Layer/Background blur 各一 | 8 类逐项生效；box-shadow 含 spread/inset；backdrop-filter 出码 | Effects 8 类 | FR-19 | M4 | |
-| ☐ | P1-03 | 图片 7 项调整滑杆（Exposure 等）各拉一次 | 对应 filter 映射实时生效；可复位 | 图片调整 | FR-20 | M4 | |
+| ☑ | P1-02 | Effects 分区加 Drop/Inner shadow、Layer/Background blur 各一 | 8 类逐项生效；box-shadow 含 spread/inset；backdrop-filter 出码 | Effects 8 类 | FR-19 | M4 | PASS（2026-10-16）8 类下拉+逐类字段齐；出码 box-shadow 含 spread/inset、filter blur、backdrop-filter blur+saturate（PB 近似/Glass 近似/Noise·Texture=SVG defs 口径沿 FR-19 报备）；证据 dist/m4-matrix/p102-*.png |
+| ☑ | P1-03 | 图片 7 项调整滑杆（Exposure 等）各拉一次 | 对应 filter 映射实时生效；可复位 | 图片调整 | FR-20 | M4 | FAIL（2026-10-16）7 滑杆+持久化+复位 OK；**filter 映射双端未接**：compiler/generator 零消费 imageAdjustments、画布像素预览未接入（M3 十六步「FR-20 余项」升级为实现缺口）；证据 dist/m4-matrix/p103-滑杆30.png |
 | ☐ | P1-04 | 钢笔画闭合路径，调 handle 锚点；切 SVG 出码 | 矢量可编辑、闭合、镜像 handle；出码为合法 `<svg>` | 矢量/路径 | FR-21 | M5 | |
 | ☐ | P1-05 | 两形状做 Union/Subtract 各一次 | 布尔结果为 VECTOR 节点、可见、可再编辑 | 布尔运算 | FR-22 | M5 | |
 | ☐ | P1-06 | Ctrl+Alt+M 设遮罩并移动被遮层 | 遮罩生效；出码 `overflow:hidden`/clip-path 等价 | Use as mask | FR-23 | M5 | |
-| ☐ | P0-37 | 任一节点 Export 设 PNG@2x 下载；再设 SVG | 格式/scale/suffix 生效；SVG/PDF 限 1x（按 Figma）；ZIP 打包 | 节点 Export | FR-24 | M4 | |
+| ☑ | P0-37 | 任一节点 Export 设 PNG@2x 下载；再设 SVG | 格式/scale/suffix 生效；SVG/PDF 限 1x（按 Figma）；ZIP 打包 | 节点 Export | FR-24 | M4 | PASS（2026-10-16）ZIP=PNG@2x（IHDR 2×宽）+SVG（恒 1x、2x/3x 禁用+提示）+后缀生效；证据 dist/m4-matrix/p037-export.zip |
 
 ## 六、组件与样式（FR-25~30，P1/P2 范围）
 
 | 状态 | # | 操作步骤 | 期望结果 | Figma 参照 | FR | 里程碑 | 结果 |
 |------|-----|---------|---------|------------|-----|------|------|
-| ☐ | P1-07 | 创建组件、放置实例、改实例、Detach | 紫色描边+图标；实例继承；Detach 还原（非持久） | 组件/实例 | FR-25 | M4 | |
-| ☐ | P1-08 | Assets tab 浏览/搜索/拖入实例 | 本地组件列表、搜索过滤、同名同步 | Assets 面板 | FR-26 | M4 | |
-| ☐ | P1-09 | 建颜色样式并应用到 2 节点，再改样式 | 同步更新；Detach style 可断开 | 样式系统 | FR-27 | M4 | |
-| ☐ | P1-10 | 导出检查 `tokens.css` | CSS variables、语义化色/字号层、结构与清单 | Design Tokens | FR-28 | M4 | |
+| ☑ | P1-07 | 创建组件、放置实例、改实例、Detach | 紫色描边+图标；实例继承；Detach 还原（非持久） | 组件/实例 | FR-25 | M4 | PASS（2026-10-16，带偏差注记）创建/实例/快照式继承（push 回写后新实例继承）/Detach 全绿；紫菱形#9747ff+▣ 徽标在，**画布紫色描边未实现**（checklist 文案 vs FR-25「图标+徽标」口径待 PM）；证据 dist/m4-matrix/p107-组件实例.png |
+| ☑ | P1-08 | Assets tab 浏览/搜索/拖入实例 | 本地组件列表、搜索过滤、同名同步 | Assets 面板 | FR-26 | M4 | FAIL（2026-10-16）列表/搜索/点击插入 OK；**同名同步未实现**（改名不回流 components[].name）；拖入未实现（按钮替代）；证据 dist/m4-matrix/p108-assets面板.png |
+| ☑ | P1-09 | 建颜色样式并应用到 2 节点，再改样式 | 同步更新；Detach style 可断开 | 样式系统 | FR-27 | M4 | FAIL（2026-10-16）创建/应用 2 节点/Detach 保值 OK；**改样式批量同步无 UI 入口**（UPDATE_TOKEN 仅 store+单测，面板无色值编辑控件——修复成本低）；Effect/Grid 类缺（kind 枚举，M4 第三步已报备）；证据 dist/m4-matrix/p109-颜色样式.png |
+| ☑ | P1-10 | 导出检查 `tokens.css` | CSS variables、语义化色/字号层、结构与清单 | Design Tokens | FR-28 | M4 | PASS（2026-10-16）tokens.css：:root + --uic-paint-N + --uic-text-N-* 复合变量与样式清单一致；无重命名入口（归 P1-09 缺口）；证据 dist/m4-matrix/p110-tokens.zip |
 | ☐ | P1-11 | 3 属性变体组合切换 | 组合矩阵、默认态、新建/合并可执行 | Variants | FR-29 | M5 | |
 | ☐ | P2-01 | Variables 建 mode 并绑定 fill/圆角 | mode 切换 class 生效 | Variables | FR-30 | P2 Go/No-Go | |
 
@@ -96,7 +96,7 @@
 | ☐ | P0-28 ★ | 图层树拖拽改序/跨容器；双击重命名；点眼睛/锁 | 画布同步；重命名进 DSL；显隐/锁定生效、锁定不可点选 | 图层操作 | FR-37 | M2 已交付 | |
 | ☐ | P0-29 | 画布选中深层节点 ↔ 图层树双向点击 | 树自动展开父级并高亮；反向点击画布选中 | 双向同步 | FR-37 | M2 已交付 | |
 | ☐ | P0-38 | Pages 新建/重命名/删除（确认框）/切换 | 每 Page 独立根、切换保持各页选中、图层树联动 | Pages 全操作 | FR-37 | M2 已交付 | |
-| ☐ | P1-12 | 选中多节点点 Constraints 5 向 2 轴，Ctrl 拖父框 | 约束生效（与 Auto Layout 互斥正确） | Constraints | FR-35 | M4 | |
+| ☑ | P1-12 | 选中多节点点 Constraints 5 向 2 轴，Ctrl 拖父框 | 约束生效（与 Auto Layout 互斥正确） | Constraints | FR-35 | M4 | FAIL（2026-10-16）出码定位/拖父重算 Δx=[59,30,42,0]/Ctrl 忽略/Auto Layout 互斥占位全绿；FAIL 点=**档位 4×2 轴无 Left+Right stretch**（「5 向」文案 vs FR-35 枚举 4 档矛盾，需 PM 裁决）；**附带发现已修复**：FR-44 旋钮与 e 把手同点位劫持 resize→拖线（旋钮外偏 14px，9c325bf 后补）；证据 dist/m4-matrix/p112-*.png |
 | ☐ | P1-13 | 设 Auto Layout：gap/padding 9 点位/FILL·HUG·FIXED/wrap/baseline/space-between | 各模式出码与画布一致；方向自动识别；Ignore auto layout 可用 | Auto Layout 全量 | FR-36 | M2 部分（全量 M4） | |
 
 ## 八、原型（FR-39~45）——P0 行=GA 四模块之一，100% 必过
@@ -137,9 +137,9 @@
 
 | 状态 | # | 操作步骤 | 期望结果 | Figma 参照 | FR | 里程碑 | 结果 |
 |------|-----|-----|---------|------------|-----|------|------|
-| ☐ | P1-15 | 建仓 + 规范提交，接 CI（tsc/test/build/e2e） | CI 绿；失败产物归档 | git + CI | FR-58 | M4 | |
+| ☑ | P1-15 | 建仓 + 规范提交，接 CI（tsc/test/build/e2e） | CI 绿；失败产物归档 | git + CI | FR-58 | M4 | PASS（2026-10-16，FR-58 替代凭证口径）无 remote 环境——ci.yml 四门禁结构核证 + git 规范提交 6 条 + 本轨 HEAD=9c325bf 补跑 tsc 0 错/vitest 428 绿（p115-*.txt）；dist/ci-local 报告过期待刷；证据 dist/m4-matrix/p115-* |
 | ☑ | P1-16 | `npm run build` 后静态托管 dist，浏览器直开 | 全页面可用（含 /fonts 本地字体） | 部署验证 | FR-59 | M3 已交付（基线） | PASS（2026-10-14 基线）canvas-diff/m3-matrix 即静态托管验证（/fonts 200） |
-| ☐ | P1-17 | 1000 节点页录帧（同 P1-01） | 脚本化报告 `scripts/` | 性能脚本 | FR-60 | M4 | |
+| ☑ | P1-17 | 1000 节点页录帧（同 P1-01） | 脚本化报告 `scripts/` | 性能脚本 | FR-60 | M4 | PASS（2026-10-16）scripts/perf-1000.mjs+npm script 在库，量化报告（idle/drag/fr60/verdict）+证据三件套齐；证据 dist/m4-matrix/p117-拖拽后.png |
 | ☐ | P2-02 | 协作 MVP 走查（链接/双端同页/光标） | 上线前提条件全满足（账号/计费/隐私评审） | 协作 | FR-61 | P2 | |
 | ☐ | P2-03 | M6 Go/No-Go 评审会 | 记录 P2 项 GO/NO-GO；NO-GO 入 Future Considerations | 决策闸 | FR-62 | M6 | |
 
@@ -206,8 +206,8 @@
 |----|------|
 | 矩阵总条数 | **73** 走查行（P0 53 + P1 17 + P2 3）+ 附 A 16 页×9 要素 + 附 B 11 分区 + 附 C 7 菜单 |
 | GA 通过线 | 总 ≥95% **且** 四模块（附 A / 附 B / 第八节 P0 / FR-57 样片）100% |
-| 本轮结果 | **M3 段 15 行实测全 PASS（2026-10-14）** + 门禁回归（tsc 0 错/vitest 234/234/e2e 16/16≥98%/viewport 64/64/walkthrough 9/9/m1 22/m2 27/pages 224/224）+ FR-51② 首跑 avg 98.12%；全量 73 行+附 A/B/C 留 QA/M6 |
-| 阻断项 | 无（14 页画布↔出码 92.07%<95% 已按 PRD 归因豁免，待 M6 终验，见差异与结论 #1） |
+| 本轮结果 | **M4 段 11 行实测（2026-10-16，脚本 `scripts/m4-matrix.mjs`，证据 `dist/m4-matrix/`）：6 PASS / 5 FAIL（P1-01 帧预算、P1-03 图片调整双端未接、P1-08 同名同步+拖入、P1-09 样式编辑入口、P1-12 档位口径）+ m12 段 19 行（10-15，12 PASS/7 待甄别，脚本失配嫌疑大）+ 更早 M3 段 15 行实测全 PASS（2026-10-14）** + 门禁回归（tsc 0 错/vitest 234/234/e2e 16/16≥98%/viewport 64/64/walkthrough 9/9/m1 22/m2 27/pages 224/224）+ FR-51② 首跑 avg 98.12%；全量 73 行+附 A/B/C 留 QA/M6 |
+| 阻断项 | M6 待办：P1-01 帧预算 59.7%<95% 判据、P1-03 imageAdjustments 双端接线、P1-08/09 面板入口补齐、P1-12 档位口径（PM 裁决）、m12 七行甄别、样片逐卡 04/13<99%；（14 页画布↔出码 92.07% 豁免沿差异 #1） |
 
 ## 差异与结论
 
@@ -218,6 +218,11 @@
 | 1 | FR-51② 14-长文本页面 92.07%（<95%） | `dist/canvas-diff/14-长文本页面-diff.png`：两段混排长文本行内重影，无整体偏移（dy 探测归零）；其余 15 页 avg 98.12% | Konva 与浏览器换行引擎对「CJK+拉丁混排」断行点位不同（PRD 风险表预登记「Konva↔DOM 双渲染像素差」） | **接受差异记录（豁免）**：非几何/样式缺口，不硬改 `src/compiler/`；基线由 PM 确认终值，M6 三方终验复核；如需收敛可择机引入 DOM 文本测量缓存 | opencode / 2026-10-14 |
 | 2 | （本轮修复）画布多层渐变静默失效 | 07/13 页画布背景纯色黑块 vs 出码渐变：① DSL 遗留 CSS 渐变字符串简写迁移为 FR-17 结构化 fills（pages.ts 两处）② `fillLayerProps` Konva colorStops 5 元组→成对 [offset,color] 格式 ③ 补 `fillPriority: 'linear-gradient'/'radial-gradient'`（纯色 fill 默认覆盖渐变） | 三处独立缺陷叠加（画布渐变从未正确渲染过） | **已修复**：07 页 67.36%→98.47%、13 页 21.38%→97.30% | opencode / 2026-10-14 |
 | 3 | （本轮修复）Konva 文本基线比 DOM 高 ~1px | dy=+1 探测全页一致提升（14 页 93.2%、07 页 99.0%） | Konva 默认 MIDDLE 基线按 em-box 中点定位；DOM 为半行距+ascent 公式 | **已修复**：启用 `Konva._fixTextRendering`（fontBoundingBox 公式与 CSS line box 一致），avg +0.33pp | opencode / 2026-10-14 |
+| 4 | P1-01 FR-60 帧预算未达标 | 1000 节点拖拽 95% 帧<16.7ms 判据实测 59.7%（435/729，avg 17.03ms/p95 16.8ms）；idle 60.5fps 正常 | 拖拽期 dragMove 快照/约束重算开销（perf-1000 report `dist/perf-1000/`） | **待整改**：M6 性能专项（拖拽节流/几何缓存），或 PM 按 avg≈17ms 边缘证据调判据口径 | QA+主线 / 2026-10-16 |
+| 5 | P1-03 图片 7 项调整双端未接 | 面板滑杆+store 持久化 OK，但 compiler/generator 全文不消费 `imageAdjustments`（曝光 30 → 出码无 brightness），画布像素预览未接 | M3 十六步登记为「FR-20 余项」，M4 排期未覆盖 | **待修复**：出码 filter/brightness 映射 + 画布 filter 接入（P0 口径「filter 映射实时生效」） | 主线 / 2026-10-16 |
+| 6 | P1-08/P1-09 组件与样式面板缺口 | 组件改名不回流 components[].name、无拖入实例；样式「改值批量同步」无 UI 入口（UPDATE_TOKEN 仅 store/单测可达） | 面板实现只到「应用/分离/创建」，编辑与回流未做 | **待修复**：重命名 action 内按 componentId 回流一行 + 样式行色值/字号编辑控件（成本低） | C 轨 / 2026-10-16 |
+| 7 | P1-12 约束档位口径矛盾 | 实现=4 档（LEFT/RIGHT/CENTER/SCALE）×2 轴，功能断言全绿；checklist 行文案「5 向」含 Left+Right stretch | FR-35 枚举止于 4 档，行文案与 PRD 不一致 | **PM 裁决**：按 FR-35 枚举则 P1-12 改判 PASS；若要 stretch 档则列 M6 后增强 | PM / 2026-10-16 |
+| 8 | （本轮修复）FR-44 旋钮劫持 resize | 单选 FRAME 右中点拖拽起拖线而非改宽——knob Circle 与 `e` 把手同点位、上层先命中（m4-matrix P1-12 附带发现） | 旋钮锚点未避开把手占位 | **已修复**：旋钮外偏 14px（page 单位=屏幕恒定），探针验证把手 resize OK + 拖线 OK（present-smoke 同步更新） | opencode / 2026-10-16 |
 
 ## 修订历史
 
@@ -226,3 +231,4 @@
 | 草案 1 | 2026-10-02 | opencode | 依 PRD v1.0 FR-1~37 拆 32 条 P0 走查项，待 PM+QA 定稿 |
 | 矩阵 2 | 2026-10-03 | opencode | **FR-56 全量升级**：覆盖 v1.1 FR-1~62（十一节 73 行）；修正 v1.0→v1.1 FR 编号漂移（P0-23 图片→FR-20、P0-24→FR-31/32、P0-25→FR-33、P0-26→FR-34、P0-27→FR-38、P0-28/29→FR-37、P0-30→FR-46/52、原 P0-31→P0-51/FR-53、原 P0-32→P0-52~53/FR-54~55，原编号仅存于版本历史）；新增附 A 16 页×9 要素、附 B 11 分区、附 C 菜单能力表；GA 通过线改「≥95% + 四模块 100%」；加里程碑列标注 M1–M3 已交付回归项 |
 | 矩阵 3 | 2026-10-14 | AutoClaw | **M3 段实测填结果**：15 行 PASS（P0-21/21b/22/23/24/25/26/27/33/34/34b/35/36/46/47/49/50/51/52/53 + P1-16 基线回归，脚本 `scripts/m3-matrix.mjs` 15/15，证据 `dist/m3-matrix/`）；P0-49 补 FR-51② 首跑基线（avg 98.12%/15-16≥95%/min 92.07%，管线 `npm run canvasdiff` + `scripts/canvas-diff.mjs`，报告 `dist/canvas-diff/report.json`）；差异与结论登记 1 豁免 + 2 修复；M4/M5 行与附 A/B/C 留里程碑/GA 全量 |
+| 矩阵 4 | 2026-10-16 | opencode | **M4 段 11 行实测填结果**（脚本 `scripts/m4-matrix.mjs`，6 PASS/5 FAIL，证据 `dist/m4-matrix/`，HEAD=9c325bf）；差异与结论新增 #4-#7（FR-60 帧预算/图片调整双端/面板缺口/档位口径）+ #8（FR-44 旋钮重叠已修复）；同批主线提交：FR-44 连接线+Shift+Space 内联预览+Present 多页、BOOLEAN_OP 修复、autosave v2 接线（多页持久） |

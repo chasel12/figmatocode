@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { NodeKind, UINode, UIPage, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, VectorData } from '../schema/types';
+import type { NodeKind, UINode, UIPage, UIProject, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, VectorData } from '../schema/types';
 import { isContainer } from '../schema/types';
 import { clonePage, createNode, findById, nextId, walk } from '../schema/factory';
 import { findVariant, variantGroupOf, variantsInGroup } from './variants';
@@ -93,6 +93,8 @@ export type EditorAction =
   | { type: 'UNDO' }
   | { type: 'REDO' }
   | { type: 'LOAD_PAGE'; page: UIPage; projectName?: string }
+  /** FR-39/59：v2 工程整体载入（File→打开；pages/components/tokens 随工程重置） */
+  | { type: 'LOAD_PROJECT'; project: UIProject }
   | { type: 'NEW_PAGE' }
   | { type: 'RENAME_PAGE'; name: string }
   /* ---- Wave2 主线单点共享 action（D0 schema-decisions §二热点规则：P/C 轨道消费、不各自加）---- */
@@ -235,6 +237,7 @@ const PAGE_ACTIONS = new Set<EditorAction['type']>([
   'RENAME_PAGE_BY_ID',
   'REORDER_PAGE',
   'LOAD_PAGE',
+  'LOAD_PROJECT',
   'NEW_PAGE',
 ]);
 
@@ -629,6 +632,30 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
         currentPageId: action.page.id,
         history: {},
       };
+
+    case 'LOAD_PROJECT': {
+      // v2 工程载入：pages 为权威、当前页=首页；组件/样式表随工程装载（与 LOAD_PAGE 的「空表重置」不同——
+      // 工程本体就带着它们；styleSeq 抬高到表长+1 防撞）。历史/选区清零（跨工程不串味）。
+      const pages = action.project.pages.length ? action.project.pages : [createNewPage()];
+      const first = pages[0];
+      return {
+        ...state,
+        page: first,
+        projectName: action.project.name,
+        selectedIds: [first.root.id],
+        past: [],
+        future: [],
+        pendingBaseline: null,
+        clipboard: state.clipboard,
+        tool: state.tool,
+        components: action.project.components ?? {},
+        tokens: action.project.tokens ?? [],
+        styleSeq: (action.project.tokens?.length ?? 0) + 1,
+        pages,
+        currentPageId: first.id,
+        history: {},
+      };
+    }
 
     case 'NEW_PAGE': {
       const fresh = initialState(createNewPage(), state.projectName);

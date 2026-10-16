@@ -200,7 +200,7 @@ try {
     await page.locator(`.layer-row[data-node-id="${src.id}"]`).click();
     await sleep(300);
     const protoBefore = await page.locator('.proto-row').count().catch(() => 0);
-    const kx = stageBoxAfter.x + view.x + (src.x + src.width) * view.scale;
+    const kx = stageBoxAfter.x + view.x + (src.x + src.width) * view.scale + 14; // 旋钮外偏 14px 避让 'e' 把手
     const ky = stageBoxAfter.y + view.y + (src.y + src.height / 2) * view.scale;
     const tx = stageBoxAfter.x + view.x + (frame2.x + frame2.width / 2) * view.scale;
     const ty = stageBoxAfter.y + view.y + (frame2.y + frame2.height / 2) * view.scale;

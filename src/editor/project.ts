@@ -1,4 +1,6 @@
-import type { UIProject, UIPage } from '../schema/types';
+import type { ComponentDef, StyleToken, UIProject, UIPage } from '../schema/types';
+import { createPage } from '../schema/factory';
+import { initialState, type EditorState } from './store';
 
 /** 本模块承载 v1（单页 JSON）→ v2（UIProject）的**唯一**升级路径。
  *  消费方三处共用：autosave 读侧、File→打开、旧 fixture 单测（wave1-prototype-plan §1.3）。
@@ -100,6 +102,32 @@ export function parseProjectOnly(raw: unknown): UIProject {
 /** 当前工程里存在交互的页数（出码 / 走查用；纯声明，不参与编译） */
 export function pagesWithInteractions(project: UIProject): UIPage[] {
   return project.pages.filter((p) => hasInteractions(p.root));
+}
+
+/** EditorState → UIProject（autosave 写侧与 File→保存共用单源；flows 数组不持久——Flow 以节点 flowStart 为准，随 pages 往返） */
+export function projectFromEditorState(s: {
+  projectName: string;
+  pages: UIPage[];
+  components: Record<string, ComponentDef>;
+  tokens: StyleToken[];
+}): UIProject {
+  return { version: 2, name: s.projectName, pages: s.pages, components: s.components, tokens: s.tokens, flows: [] };
+}
+
+/** UIProject → EditorState 水合（§1.3：pages 为权威、currentPageId 缺省回首页；styleSeq 抬高到表长+1 防撞；历史清空） */
+export function stateFromProject(project: UIProject, currentPageId?: string): EditorState {
+  const pages = project.pages.length ? project.pages : [createPage('未命名页面')];
+  const first = pages.find((p) => p.id === currentPageId) ?? pages[0];
+  const base = initialState(first, project.name);
+  return {
+    ...base,
+    pages,
+    currentPageId: first.id,
+    components: project.components ?? {},
+    tokens: project.tokens ?? [],
+    styleSeq: (project.tokens?.length ?? 0) + 1,
+    history: {},
+  };
 }
 
 function hasInteractions(node: { interactions?: unknown[]; children?: unknown[] }): boolean {

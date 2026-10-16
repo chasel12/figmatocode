@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createNode, createPage, nextId, resetIdSeq } from '../src/schema/factory';
 import { editorReducer, initialState, type EditorState } from '../src/editor/store';
-import { parseProject, parseProjectOnly, serializeProject, upgradeProjectV1 } from '../src/editor/project';
+import { parseProject, parseProjectOnly, projectFromEditorState, serializeProject, stateFromProject, upgradeProjectV1 } from '../src/editor/project';
 import {
   decodeInteractions,
   encodeInteractions,
@@ -372,5 +372,73 @@ describe('FR-46 runtime.js 边界（无布局计算）', () => {
 
   it('确定性：两次构建字节一致', () => {
     expect(buildRuntimeJs()).toBe(buildRuntimeJs());
+  });
+});
+
+describe('FR-39/59 §1.3/§1.4 工程水合接线（autosave v2 / LOAD_PROJECT）', () => {
+  function twoPageProject(): UIProject {
+    const p1 = page('甲页');
+    const p2 = page('乙页');
+    p1.id = 'pg-a';
+    p2.id = 'pg-b';
+    return { version: 2, name: '双页工程', pages: [p1, p2], components: {}, tokens: [], flows: [] };
+  }
+
+  it('stateFromProject：多页装载 + 当前页选择 + 页缺省回落首页', () => {
+    const proj = twoPageProject();
+    const s2 = stateFromProject(proj, 'pg-b');
+    expect(s2.pages).toHaveLength(2);
+    expect(s2.currentPageId).toBe('pg-b');
+    expect(s2.page.id).toBe('pg-b');
+    const s1 = stateFromProject(proj, 'ghost');
+    expect(s1.currentPageId).toBe('pg-a');
+    expect(s1.page.id).toBe('pg-a');
+  });
+
+  it('stateFromProject：空 pages 兜底新建页（不产空工程）', () => {
+    const empty: UIProject = { version: 2, name: '空', pages: [], components: {}, tokens: [], flows: [] };
+    const s = stateFromProject(empty);
+    expect(s.pages).toHaveLength(1);
+    expect(s.page).toBe(s.pages[0]);
+  });
+
+  it('projectFromEditorState ↔ stateFromProject 往返：pages/名/组件/样式保真', () => {
+    const proj = twoPageProject();
+    proj.tokens = [{ id: 't1', kind: 'PAINT', name: '主色', value: '#1677FF' } as never];
+    proj.components = { c1: { id: 'c1', name: '按钮', root: createNode('FRAME') as ContainerNode } as never };
+    const s = stateFromProject(proj, 'pg-b');
+    const back = projectFromEditorState(s);
+    expect(back.pages.map((p) => p.id)).toEqual(['pg-a', 'pg-b']);
+    expect(back.name).toBe('双页工程');
+    expect(Object.keys(back.components)).toEqual(['c1']);
+    expect(back.tokens).toHaveLength(1);
+    const s2 = stateFromProject(back);
+    expect(s2.tokens).toHaveLength(1);
+    expect(s2.styleSeq).toBeGreaterThan(0);
+  });
+
+  it('reducer LOAD_PROJECT：page=首页、历史清空、组件样式表装载（PAGE_ACTIONS 白名单成员）', () => {
+    const s0 = initialState(page('旧页'), '旧');
+    const proj = twoPageProject();
+    const s = editorReducer(s0, { type: 'LOAD_PROJECT', project: proj });
+    expect(s.page.id).toBe('pg-a');
+    expect(s.currentPageId).toBe('pg-a');
+    expect(s.pages).toHaveLength(2);
+    expect(s.past).toHaveLength(0);
+    expect(s.future).toHaveLength(0);
+    expect(s.selectedIds).toEqual([s.page.root.id]);
+    expect(s.projectName).toBe('双页工程');
+  });
+
+  it('v1 autosave 包体经 parseProject 升级水合（读侧兼容，§1.3 不删 v1 键口径）', () => {
+    const legacy = JSON.stringify({ page: page('v1页'), projectName: '老项目' });
+    const { project, upgradedFromV1 } = parseProject(legacy);
+    expect(upgradedFromV1).toBe(true);
+    const s = stateFromProject(project);
+    expect(s.projectName).toBe('老项目');
+    expect(s.pages).toHaveLength(1);
+    // v2 写侧信封（含 currentPageId）可被读侧 parseProject 直取
+    const env = JSON.stringify({ ...serializeProject(projectFromEditorState(s)), currentPageId: s.currentPageId });
+    expect(parseProject(env).upgradedFromV1).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { UIPage } from '../schema/types';
 import { useEditor, type Tool } from './store';
+import { parseProject, projectFromEditorState, serializeProject } from './project';
 import { canvasBus } from './canvasBus';
 import { useCanvasGeometry } from './canvasContext';
 import { exportSelection } from './exporter';
@@ -10,10 +10,6 @@ import { ShortcutsDialog } from './ShortcutsDialog';
 import { downloadText } from '../utils/zip';
 import { findById } from '../schema/factory';
 import { presentBus } from './present/presentBus';
-
-function serializePage(page: UIPage): string {
-  return JSON.stringify({ version: 1, page }, null, 2);
-}
 
 interface MenuDef {
   id: string;
@@ -72,16 +68,19 @@ export function Toolbar() {
   const canMask = !!(maskTarget && maskTarget.layout.clipContent);
 
   const save = () => {
-    downloadText(serializePage(state.page), `${state.projectName || 'project'}.uipage.json`, 'application/json');
+    // FR-39/59 §1.4：v2 工程文件（多页/组件/样式一体）
+    downloadText(
+      JSON.stringify(serializeProject(projectFromEditorState(state)), null, 2),
+      `${state.projectName || 'project'}.uicproj.json`,
+      'application/json',
+    );
   };
 
   const open = async (file: File) => {
     try {
       const text = await file.text();
-      const data = JSON.parse(text) as { page?: UIPage };
-      const page = data.page ?? (data as unknown as UIPage);
-      if (!page || !page.root) throw new Error('无效的页面文件');
-      dispatch({ type: 'LOAD_PAGE', page, projectName: page.name });
+      const { project } = parseProject(text); // v1 单页与 v2 工程双兼容（project.ts 单源）
+      dispatch({ type: 'LOAD_PROJECT', project });
     } catch (e) {
       alert(`打开失败：${e instanceof Error ? e.message : e}`);
     }
