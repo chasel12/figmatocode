@@ -1000,18 +1000,26 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const idx = state.pages.findIndex((p) => p.id === targetId);
       if (idx < 0) return state;
       const pages = state.pages.filter((p) => p.id !== targetId);
-      // 删的是当前页 → 落到同位置的下一页（末页则取前一页）
-      if (targetId !== state.currentPageId) return { ...state, pages };
+      // 被删页的历史一并丢弃（避免 history 随删除无限累积）
+      const history = { ...state.history };
+      delete history[targetId];
+      // 删的是非当前页 → 当前视图与栈均不变
+      if (targetId !== state.currentPageId) return { ...state, pages, history };
+      // 删的是当前页 → 落到同位置的下一页（末页则取前一页），并恢复该页历史
       const next = pages[Math.min(idx, pages.length - 1)];
+      const restored = history[next.id] ?? { past: [], future: [], pendingBaseline: null };
+      const nextHistory = { ...history };
+      delete nextHistory[next.id];
       return {
         ...state,
         pages,
+        history: nextHistory,
         currentPageId: next.id,
         page: next,
         selectedIds: [next.root.id],
-        past: [],
-        future: [],
-        pendingBaseline: null,
+        past: restored.past,
+        future: restored.future,
+        pendingBaseline: restored.pendingBaseline,
       };
     }
 
@@ -1019,22 +1027,31 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       if (action.id === state.currentPageId) return state;
       const next = state.pages.find((p) => p.id === action.id);
       if (!next) return state;
+
       // 切页前先把当前页的 transient 微调落定，否则丢一步（§1.2-3）
       const settled = state.pendingBaseline
-        ? [
-            ...state.past,
-            state.pendingBaseline,
-          ].slice(-HISTORY_LIMIT)
+        ? [...state.past, state.pendingBaseline].slice(-HISTORY_LIMIT)
         : state.past;
+
+      // FR-39 每页独立历史（完整形态）：把**切出页**的栈存进 history，再取**切入页**的栈。
+      // 语义：切页不入任何 undo 栈；切回原页时其历史仍可用（§1.1 B 案）。
+      const history: EditorState['history'] = {
+        ...state.history,
+        [state.currentPageId]: { past: settled, future: state.future, pendingBaseline: null },
+      };
+      const restored = history[next.id] ?? { past: [], future: [], pendingBaseline: null };
+      const nextHistory = { ...history };
+      delete nextHistory[next.id]; // 当前页的栈回到顶层 past/future，不留副本
+
       return {
         ...state,
         page: next,
         currentPageId: next.id,
         selectedIds: [next.root.id],
-        // 每页独立历史：切页即换栈（本实现一次性切换，不跨页保留栈，见 LOG 报备）
-        past: settled,
-        future: state.future,
-        pendingBaseline: null,
+        past: restored.past,
+        future: restored.future,
+        pendingBaseline: restored.pendingBaseline,
+        history: nextHistory,
       };
     }
 
