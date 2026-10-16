@@ -9,9 +9,12 @@ import type {
   TextNode,
   UINode,
   UIPage,
+  VectorData,
   VectorNode,
 } from './types';
 import { isContainer } from './types';
+import { BOOLEAN_OP_NAME, booleanVectorOf, type BooleanOp } from '../compiler/boolean';
+import { maskIndexInGroup } from '../compiler/mask';
 
 let idSeq = 0;
 
@@ -227,6 +230,32 @@ export function createNode(kind: NodeKind, overrides: Partial<{ id: string; name
     children: [],
   };
   return node;
+}
+
+/**
+ * FR-22 布尔结果工厂：参集 → 结果 VECTOR 节点（type=VECTOR，可继续编辑参与集）。
+ * 几何口径：仅静态搬运参集尺寸（无参集则为 0，由调用方按需回填），不做布局推断。
+ */
+export function createBooleanNode(op: BooleanOp, operands: (VectorData | undefined)[]): VectorNode {
+  const vector = booleanVectorOf(operands, op);
+  const node = createNode('VECTOR', { name: BOOLEAN_OP_NAME[op] }) as VectorNode;
+  node.vector = vector;
+  if (vector.width != null) node.layout.width = vector.width;
+  if (vector.height != null) node.layout.height = vector.height;
+  return node;
+}
+
+/** FR-23 蒙版组工厂：把一组子项包成 Frame（末位子项 = 上方蒙版），返回组节点与蒙版下标。
+ *  **显式声明 clipContent**——编译侧据此认定「本容器裁切子项」，不做末位子即蒙版的隐式推断
+ *  （隐式推断会误伤普通 Frame，见 tests/fr23-mask-guard.test.ts）。 */
+export function createMaskGroup(
+  children: UINode[],
+  overrides: Partial<{ id: string; name: string }> = {},
+): { group: ContainerNode; maskIndex: number } {
+  const group = createNode('FRAME', overrides) as ContainerNode;
+  group.children = children;
+  group.layout.clipContent = true;
+  return { group, maskIndex: maskIndexInGroup(children) };
 }
 
 export function createPage(name = '未命名页面', width = 375, height = 812): UIPage {

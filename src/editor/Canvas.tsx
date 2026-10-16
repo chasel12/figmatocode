@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import KonvaLib from 'konva';
-import { Arc, Arrow, Circle, Ellipse, Group, Image as KImage, Layer, Line, Rect, Stage, Text as KText } from 'react-konva';
+import { Arc, Arrow, Circle, Ellipse, Group, Image as KImage, Layer, Line, Path as KPath, Rect, Stage, Text as KText } from 'react-konva';
 import type Konva from 'konva';
 import type { ContainerNode, FillLayer, LayoutSchema, StyleSchema, UINode } from '../schema/types';
 import { hasText, isContainer } from '../schema/types';
@@ -8,6 +8,7 @@ import { FONT_STACK } from '../font';
 import { createNode, findById } from '../schema/factory';
 import { recomputeChildren, type ChildStart } from './constraints';
 import { applyTextCase, arcSpec, createCanvasMeasure, effectiveLetterSpacingPx, effectiveLineHeight, flattenPx, polygonUnitPoints, starUnitPoints, type GeometryMap } from '../compiler';
+import { pointsToPathD, draftBounds, toLocalPoints, type PenDraftPoint } from './tools/penCore';
 import { useEditor, type Tool } from './store';
 import { computeSnap, type GuideLine, type Rect as SnapRect } from './snapping';
 import { useCanvasGeometry } from './canvasContext';
@@ -515,6 +516,36 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
         />
       );
     }
+  } else if (node.type === 'VECTOR') {
+    // FR-21/49 矢量：vector.d 为节点本地坐标（相对左上角），直接用 Konva.Path 描画。
+    // 出码侧由 svgOfVector 产出同形状内联 <svg>，两端共享同一 d（画布↔出码一致性）。
+    const d = node.vector?.d ?? '';
+    const b = style.border;
+    const lw = b?.width ?? 1;
+    const stroke = b?.color ?? '#111111';
+    const cap = b?.cap === 'ROUND' ? 'round' : b?.cap === 'SQUARE' ? 'square' : 'butt';
+    // fill：有 fills 取首层纯色（渐变在 path 上不表达，FR-17 口径外的近似）
+    const firstFill = (style.fills ?? []).find((f) => f.visible !== false && f.type === 'SOLID');
+    const fill = firstFill?.color ?? 'transparent';
+    shape = (
+      <KPath
+        {...common}
+        {...shadowProps(style)}
+        x={geom.x}
+        y={geom.y}
+        data={d}
+        stroke={stroke}
+        strokeWidth={lw}
+        lineCap={cap}
+        lineJoin={b?.join === 'ROUND' ? 'round' : b?.join === 'BEVEL' ? 'bevel' : 'miter'}
+        fill={fill}
+        fillRule={node.vector?.fillRule === 'evenodd' ? 'evenodd' : 'nonzero'}
+        {...(b?.dash && b.dash[0] > 0 ? { dash: [b.dash[0], b.dash[1]] } : {})}
+        opacity={style.opacity ?? 1}
+        hitStrokeWidth={Math.max(lw, 8)}
+        listening={!isRoot && !node.locked}
+      />
+    );
   } else if (node.type === 'LINE') {
     // LINE：两点连线（斜角由端点体现，与出码 rotate 同起点同角），描边取 border 配置
     const b = style.border;
@@ -803,8 +834,17 @@ export function Canvas() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [snapOn, setSnapOn] = useState(true);
+  // FR-21 钢笔草稿：page 坐标点集；tool==='pen' 时 stage 点击收点，Enter 收笔 / Escape 作废
+  const [penDraft, setPenDraft] = useState<PenDraftPoint[]>([]);
+  // FR-21：光标 page 坐标（供钢笔橡皮筋预览；仅 pen 工具下更新）
+  const [penCursor, setPenCursor] = useState<{ x: number; y: number } | null>(null);
 
   const stageRef = useRef<Konva.Stage | null>(null);
+  // FR-21：键盘 effect 内读草稿最新值（state 闭包陷阱规避）
+  const penDraftRef = useRef<PenDraftPoint[]>([]);
+  penDraftRef.current = penDraft;
+  // FR-21：钢笔锚点拖拽起点（拖动拉手柄；page 坐标）
+  const penDragRef = useRef<{ x: number; y: number } | null>(null);
   const resizing = useRef<{
     id: string;
     handle: string;
@@ -1110,6 +1150,42 @@ export function Canvas() {
     return node.id;
   };
 
+  /** FR-21 钢笔收笔：page 坐标点集 → 本地 d → VECTOR 节点（挂落点容器，同拖画语义） */
+  const commitPen = (points: PenDraftPoint[], closed: boolean): void => {
+    if (points.length < 2) {
+      setPenDraft([]);
+      return;
+    }
+    const b = draftBounds(points);
+    const local = toLocalPoints(points, b.x, b.y);
+    const d = pointsToPathD(local, closed);
+    const node = createNode('VECTOR');
+    node.vector = { d };
+    node.style = { border: { width: 2, color: '#1677FF', style: 'solid' } };
+    node.layout = {
+      ...node.layout,
+      mode: 'ABSOLUTE',
+      x: Math.round(b.x),
+      y: Math.round(b.y),
+      width: Math.max(Math.round(b.width), 1),
+      height: Math.max(Math.round(b.height), 1),
+      widthMode: 'FIXED',
+      heightMode: 'FIXED',
+    };
+    const dropContainer = findContainerAt(geometry, state.page.root, { x: b.x + b.width / 2, y: b.y + b.height / 2 }, new Set());
+    const parent = dropContainer && dropContainer.id !== state.page.root.id ? dropContainer : state.page.root;
+    const pg = geometry[parent.id];
+    let patch: Partial<LayoutSchema> | undefined;
+    if (parent.layout.mode === 'ABSOLUTE' && pg) {
+      const origin = contentOrigin(pg, parent.layout);
+      patch = { x: Math.round(b.x - origin.x), y: Math.round(b.y - origin.y) };
+    }
+    dispatch({ type: 'INSERT_NODE', node, parentId: parent.id, patch });
+    dispatch({ type: 'SELECT', id: node.id });
+    setPenDraft([]);
+    dispatch({ type: 'SET_TOOL', tool: 'select' });
+  };
+
   const applyMarquee = (m: SnapRect) => {
     const r: SnapRect = {
       x: Math.min(m.x, m.x + m.width),
@@ -1132,6 +1208,19 @@ export function Canvas() {
   };
 
   const endInteraction = () => {
+    // FR-21 钢笔：mousedown 起点即落锚；拖动位移作为出锚手柄（对称贝塞尔，不拖=直线段）
+    if (penDragRef.current) {
+      const start = penDragRef.current;
+      penDragRef.current = null;
+      const stage = stageRef.current;
+      const pointer = stage?.getPointerPosition();
+      const at = stage && pointer ? pagePoint(stage, pointer) : start;
+      const hx = Math.round((at.x - start.x) * 100) / 100;
+      const hy = Math.round((at.y - start.y) * 100) / 100;
+      const next: PenDraftPoint = Math.abs(hx) < 1 && Math.abs(hy) < 1 ? { x: start.x, y: start.y } : { x: start.x, y: start.y, hx, hy };
+      setPenDraft((prev) => [...prev, next]);
+      return;
+    }
     if (resizing.current) {
       resizing.current = null;
       dispatch({ type: 'COMMIT' });
@@ -1202,14 +1291,17 @@ export function Canvas() {
 
   const zoomIn = () => setScaleCentered(Math.min(4, scale * 1.1));
   const zoomOut = () => setScaleCentered(Math.max(0.2, scale / 1.1));
+  const commitPenOpen = () => {
+    if (penDraftRef.current.length >= 2) commitPen(penDraftRef.current, false);
+  };
   const createFrameCentered = (w: number, h: number, name?: string) => {
     const pageCx = (wrapSize.w / 2 - stagePos.x) / scale;
     const pageCy = (wrapSize.h / 2 - stagePos.y) / scale;
     createFrameAt(w, h, { x: pageCx - w / 2, y: pageCy - h / 2 }, name);
   };
 
-  const actionsRef = useRef({ endInteraction, fit, doGroup, setScaleCentered, zoomIn, zoomOut, createFrameCentered });
-  actionsRef.current = { endInteraction, fit, doGroup, setScaleCentered, zoomIn, zoomOut, createFrameCentered };
+  const actionsRef = useRef({ endInteraction, fit, doGroup, setScaleCentered, zoomIn, zoomOut, createFrameCentered, commitPenOpen });
+  actionsRef.current = { endInteraction, fit, doGroup, setScaleCentered, zoomIn, zoomOut, createFrameCentered, commitPenOpen };
 
   // 鼠标移出 stage 后松开也要收尾（框选/平移跨出画布区）
   useEffect(() => {
@@ -1305,7 +1397,17 @@ export function Canvas() {
           marqueeRef.current = null;
           handled = true;
         }
+        if (penDraftRef.current.length) {
+          // FR-21：钢笔 Escape 作废草稿（先删末点、再按一次全清——Figma 语义近似为直接全清）
+          setPenDraft([]);
+          handled = true;
+        }
         if (handled) e.stopImmediatePropagation();
+      }
+      if (e.key === 'Enter' && penDraftRef.current.length >= 2) {
+        // FR-21：Enter 开放收笔；Shift+Enter 已在 stageClick 闭合收笔
+        actionsRef.current.commitPenOpen();
+        e.preventDefault();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -1329,6 +1431,14 @@ export function Canvas() {
       window.removeEventListener('blur', onBlur);
     };
   }, []);
+
+  // FR-21：切出钢笔即作废草稿（半截路径不入库）
+  useEffect(() => {
+    if (state.tool !== 'pen') {
+      if (penDraftRef.current.length) setPenDraft([]);
+      setPenCursor(null);
+    }
+  }, [state.tool]);
 
   // 光标：空格/抓手=grab，选择工具悬停节点=move，其余工具十字
   useEffect(() => {
@@ -1418,6 +1528,17 @@ export function Canvas() {
       suppressClickRef.current = true;
       return;
     }
+    if (state.tool === 'pen') {
+      // FR-21：mousedown 起锚点，拖动拉出手柄（Figma 语义：拖出即贝塞尔，不拖=直线段）
+      const stage = stageRef.current;
+      const pointer = stage?.getPointerPosition();
+      if (stage && pointer) {
+        const at = pagePoint(stage, pointer);
+        penDragRef.current = { x: at.x, y: at.y };
+      }
+      suppressClickRef.current = false;
+      return;
+    }
     if (state.tool === 'text') {
       // 文本工具：无拖拽模式；清上一交互残留的 click 抑制（拖画后 suppress 滞留至下次消费）
       suppressClickRef.current = false;
@@ -1466,7 +1587,18 @@ export function Canvas() {
       setStagePos({ x: panStart.current.posX + dx, y: panStart.current.posY + dy });
       return;
     }
-    if (modeRef.current === 'idle' || modeRef.current === 'pan') return;
+    if (modeRef.current === 'idle' || modeRef.current === 'pan') {
+      // FR-21：钢笔草稿预览需实时光标位置（pen 无拖动模式，mode 恒 idle）
+      if (state.tool === 'pen') {
+        const st = stageRef.current;
+        const pt = st?.getPointerPosition();
+        if (st && pt) {
+          const at = pagePoint(st, pt);
+          setPenCursor((prev) => (prev && prev.x === at.x && prev.y === at.y ? prev : { x: at.x, y: at.y }));
+        }
+      }
+      return;
+    }
     const stage = stageRef.current;
     const pointer = stage?.getPointerPosition();
     if (!stage || !pointer || !marqueeOrigin.current) return;
@@ -1496,6 +1628,14 @@ export function Canvas() {
     const target = e.target as Konva.Node;
     const isStage = target === target.getStage();
     const isBg = isStage || target.name() === 'page-bg';
+    if (state.tool === 'pen') {
+      // FR-21：锚点落点在 mousedown/mouseup（endInteraction）——拖动即拉手柄。
+      // 此处只处理 Shift+点击=闭合收笔（Figma 语义）；单纯 click 不再重复落点。
+      if (e.evt.shiftKey && penDraft.length >= 2) {
+        commitPen(penDraft, true);
+      }
+      return;
+    }
     if (state.tool === 'text') {
       // FR-15/P0-21：文本工具随处可点——点文本/BUTTON 进入编辑，点容器内则在该容器创建（Figma 语义）
       const stage = stageRef.current;
@@ -1794,6 +1934,44 @@ export function Canvas() {
                 strokeWidth={1 / scale}
                 dash={[4 / scale, 4 / scale]}
               />
+            )}
+            {penDraft.length > 0 && (
+              <>
+                {/* FR-21 钢笔草稿：已落锚点连线（与收笔出码同一 d 口径） */}
+                <KPath
+                  data={pointsToPathD(penDraft, false)}
+                  x={0}
+                  y={0}
+                  stroke={SEL_COLOR}
+                  strokeWidth={1.5 / scale}
+                  listening={false}
+                />
+                {/* 橡皮筋：末锚点 → 当前光标（未落点提示） */}
+                {penCursor && (
+                  <Line
+                    points={[penDraft[penDraft.length - 1].x, penDraft[penDraft.length - 1].y, penCursor.x, penCursor.y]}
+                    stroke={SEL_COLOR}
+                    strokeWidth={1 / scale}
+                    dash={[4 / scale, 4 / scale]}
+                    opacity={0.6}
+                    listening={false}
+                  />
+                )}
+                {/* 锚点方块 + 首点闭合热区提示（Shift+点击首点附近即闭合，Figma 语义） */}
+                {penDraft.map((p, i) => (
+                  <Rect
+                    key={`pen-anchor-${i}`}
+                    x={p.x - 3.5 / scale}
+                    y={p.y - 3.5 / scale}
+                    width={7 / scale}
+                    height={7 / scale}
+                    fill={i === 0 ? SEL_COLOR : HANDLE_COLOR}
+                    stroke={SEL_COLOR}
+                    strokeWidth={1.5 / scale}
+                    listening={false}
+                  />
+                ))}
+              </>
             )}
             {selectedCount === 1 &&
               (() => {

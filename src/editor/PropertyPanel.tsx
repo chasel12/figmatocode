@@ -1292,6 +1292,95 @@ export function PropertyPanel() {
         })()}
       </div>
 
+      {/* FR-27 样式：样式引用 / 从选中创建 / 应用 */}
+      <div className="prop-section">
+        <div className="prop-heading">样式</div>
+        {(() => {
+          const refId = node.styleTokenId;
+          const refToken = refId ? state.tokens.find((t) => t.id === refId) : undefined;
+          const isRootNode = node.id === state.page.root.id;
+          return (
+            <>
+              {refToken ? (
+                <Row label="已引用">
+                  <span className="pad-grid">
+                    <span className="props-note" title={refToken.cssVar}>
+                      {refToken.name}
+                    </span>
+                    <button
+                      className="mini-btn"
+                      title="分离样式（保留当前值，仅解除联动）"
+                      onClick={() => dispatch({ type: 'DETACH_TOKEN', id: node.id })}
+                    >
+                      分离
+                    </button>
+                  </span>
+                </Row>
+              ) : (
+                <div className="props-note">未引用样式</div>
+              )}
+              <Row label="创建">
+                <span className="pad-grid">
+                  <button
+                    className="mini-btn"
+                    title="从当前填充创建颜色样式并应用"
+                    onClick={() =>
+                      dispatch({
+                        type: 'CREATE_TOKEN',
+                        kind: 'PAINT',
+                        style: { background: S.background, fills: S.fills },
+                        nodeId: isRootNode ? undefined : node.id,
+                      })
+                    }
+                  >
+                    ＋ 颜色
+                  </button>
+                  <button
+                    className="mini-btn"
+                    title="从当前排版创建文本样式并应用"
+                    onClick={() =>
+                      dispatch({
+                        type: 'CREATE_TOKEN',
+                        kind: 'TEXT',
+                        style: {
+                          fontFamily: S.fontFamily,
+                          fontSize: S.fontSize,
+                          fontWeight: S.fontWeight,
+                          color: S.color,
+                          lineHeight: S.lineHeight,
+                          letterSpacing: S.letterSpacing,
+                        },
+                        nodeId: isRootNode ? undefined : node.id,
+                      })
+                    }
+                  >
+                    ＋ 文本
+                  </button>
+                </span>
+              </Row>
+              {state.tokens.length > 0 && (
+                <Row label="应用">
+                  <SelectField
+                    value={refId ?? ''}
+                    options={[
+                      { value: '', label: '（不应用）' },
+                      ...state.tokens.map((t) => ({ value: t.id, label: t.name })),
+                    ]}
+                    onChange={(v) => {
+                      if (!v) {
+                        if (refId) dispatch({ type: 'DETACH_TOKEN', id: node.id });
+                        return;
+                      }
+                      dispatch({ type: 'APPLY_TOKEN', tokenId: v, nodeId: node.id });
+                    }}
+                  />
+                </Row>
+              )}
+            </>
+          );
+        })()}
+      </div>
+
       {/* Typography（FR-15 全字段） */}
       {hasText(node) && (
         <div className="prop-section">

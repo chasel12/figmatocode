@@ -791,3 +791,190 @@
 - dist/app 需 `VITE_E2E_HOOK=1` 构建方含 e2e 通道——已由 `precanvasdiff`（`scripts/build-e2e-hook.ts`，vite build 注入 define）自动解决，`npm run canvasdiff` 自含全流程；本日复跑验证基线复现（avg 98.12%/15-16/min 92.07%）
 - FR-56 矩阵 M4/M5 行与附 A/B/C 留 QA/M6 GA 全量；PRD v1.1 定稿三遍评审已过（1.1r1），无需再动
 - M3 至此可宣告收口，下一步进 M4（组件/样式/矢量，FR-21~23、25~29 + FR-49）
+
+---
+
+### M4 第一步（2026-10-14）：修复 Canvas 钢笔草稿作废 effect 误并导致的编译红灯（门禁恢复）
+
+**目标**：工作区未提交改动（V 矢量轨 FR-21 钢笔）使 `tsc --noEmit` 报错、门禁红灯，M4 无法在绿基线上推进。修复至全门禁复绿。
+
+**问题**：`src/editor/Canvas.tsx:1389` 处钢笔草稿作废逻辑被误并进「光标」effect 的开头，并向 `wrapRef.current` 取元素——但 `wrapRef` 来自 `useElementSize()`（:44-63），是**回调 ref**（类型 `(node: HTMLElement|null) => void`，内部自持 `ResizeObserver`，刻意不暴露 `.current`，见 :47 注释「ref 回调必须保持稳定引用」），故报 `TS2339: Property 'current' does not exist`。该段新逻辑还与光标 effect 语义无关，且 `const el = wrapRef.current; if (!el) return;` 使新逻辑变成「元素存在才执行」的隐式耦合。
+
+**修改内容**：
+- `src/editor/Canvas.tsx`：把 FR-21 草稿作废抽为**独立 effect**，依赖仅 `[state.tool]`（不再依赖 `wrapRef`）；光标 effect 恢复原样只读 `stageRef.current?.container()`。净改动 = 段落归位，无逻辑语义变更（撤回 draft 的唯一条件仍是「工具已非 pen 且草稿非空」）。
+- 语义自洽性核对：`commitPen` 收尾即 `dispatch({type:'SET_TOOL', tool:'select'})`（:1152），正是本 effect 的观测信号，闭合/Enter 收笔后草稿照常清空；切工具作废路径不受影响。
+
+**结果**：完成，全门禁复绿（数值与 M3 收口基线一致，零回归）。
+
+**验证方式**：`npx tsc --noEmit` 0 错；`vitest` **234/234**（21 文件）；`npm run build` OK（dist/app 613.97 kB / gzip 195.03 kB）；`npm run e2e` **16/16 ≥98%**；`npm run viewport` **64/64**；`npm run walkthrough` **9/9**；`npm run smoke-m1` **22/22**；`npm run smoke-m2` **27/27**。
+
+**遗留问题**：
+- 本轮为**编译修复**，非 FR-21 功能完成：V 轨钢笔仍缺手柄拖拽（`Canvas.tsx:1565` 自注「手柄暂用拖动后补（M4 体验项）」）——`PenDraftPoint.hx/hy` 与 `pointsToPathD` 的 C 段分支已在 `src/editor/tools/penCore.ts` 就位但画布未接线。
+- `src/editor/tools/penCore.ts` 仍为**未跟踪文件**，`src/editor/Canvas.tsx` 改动**未提交**；`penCore` 单测（注释所称 `tests/fr21-pen.test.ts`）**尚未创建**——FR-21 验收行「路径→SVG 序列化确定性单测」仍缺。
+- FR-21 出码侧（`svgOfNode`/compile VECTOR 段）与 BOOLEAN（FR-22）、MASK（FR-23）未动。
+- 沙箱提示：`vite`/`vitest` 在受限文件策略下因 esbuild 需 spawn 子进程（piped stdio）报 `spawn EPERM`，属沙箱边界非项目缺陷；本轮在 full-access 下取证。
+
+---
+
+### M4 第二步（2026-10-14）：FR-21 钢笔链路打通 + FR-49 矢量出码（VECTOR 从 schema 孤岛接进全链路）
+
+**目标**：FR-21 收口。上一步仅修好编译，VECTOR 只存在于 schema/factory——画布不渲染、无出码、无 DOM、无测试（`grep VECTOR` 在 Canvas/compile/generator 零命中）。本步把矢量接成可用闭环，并补 FR-49 矢量序列化。
+
+**修改内容**：
+
+- **新 `tests/fr21-pen.test.ts`（23 例）**：锁定 `penCore` 全部纯函数（空/单点/闭合门槛/直线段/C 段对称控制点/混排段/两位小数/闭合曲线/包围盒含 8px 余量与手柄外扩/本地坐标平移/端到端 d）+ 手柄拖拽语义 + `svgOfVector`（结构/空 d/描边属性/无 border 不产 stroke/确定性）+ `vectorClipPathFallback` + factory VECTOR 叶子语义 + compilePage 不塌陷。**首跑即暴露 1 个真缺陷**（见下）。
+- **新 `src/generator/vector.ts`（FR-49）**：`svgOfVector(data,w,h,opts)` 产内联 `<svg><path d/></svg>`（width/height/viewBox/fill/fill-rule + 可选 stroke 三件套）；`hasVectorPath`（空 d 不产物流，与 SLICE 跳过同口径）；`vectorClipPathFallback`（CSS `clip-path: path()` 回退注记，schema-decisions §四.1 口径）；cap/join/miterLimit/dash **仅 SVG 能表达**（CSS border 无此语义，此前 FR-18 该三字段无处落地）。
+- **画布渲染（`Canvas.tsx`）**：新增 `VECTOR` 分支——Konva `Path` 直接吃 `vector.d`（本地坐标），描边取 border（含 dash/lineJoin/cap），fill 取 fills 首个实色层；`hitStrokeWidth` 保证细路径可点选。
+- **钢笔草稿预览（`Canvas.tsx`）**：新增 `penCursor` 状态 + mousemove 跟踪（pen 无拖动模式、`modeRef` 恒 idle，故挂在 idle 分支首），渲染已落锚点连线（`KPath` 用**与出码同一个 `pointsToPathD`**）+ 光标橡皮筋虚线 + 锚点方块（首点蓝实心=闭合可视提示）；切出 pen 一并清 `penCursor`。
+- **手柄拖拽（`Canvas.tsx`，本步补上一步遗留项）**：落锚点从 `stageClick` 迁到 `stageMouseDown`/`endInteraction`（mousedown 记起点、mouseup 取位移）——**拖动即拉出对称贝塞尔手柄**（`hx/hy`），位移 <1px 判为未拖=直线段（Figma 语义）；`stageClick` 的 pen 分支收敛为**只处理 Shift+点击闭合**（否则每次 click 会重复落两个锚点）。
+- **出码（`compile.ts`）**：VECTOR 排除 `background-image`/`background` 出码（视觉全在 svg 内，否则画出矩形底破坏逐像素对比）；排除 `border` 出码（描边已由 svg `stroke` 表达，避免重复描一圈矩形）。
+- **DOM 渲染（`html.ts` / `reference.ts`）**：两侧均对 VECTOR 出内联 `<svg>`——**reference 侧同步**方能与 render 侧逐像素对比。reference 侧同时规避了 FR-14 那类坑（VECTOR 此前会落进容器分支读 `children` → undefined）。
+- **`generator/index.ts`** 导出 vector 模块；Taro 侧 VECTOR 沿 `View` 兜底（内联 svg 非 Taro 组件，归 FR-49 出码报备）。
+
+**结果**：完成。FR-21 钢笔「画得出、看得见、出得来、测得住」闭环打通，FR-49 矢量出码落地。
+
+**验证方式**：`npx tsc --noEmit` 0 错；`vitest` **257/257**（22 文件，234→257）；`npm run build` OK；`npm run e2e` **16/16 ≥98%**（矢量改动零回归）；`npm run viewport` **64/64**；`npm run walkthrough` **9/9**；`smoke-m1` **22/22**；`smoke-m2` **27/27**。
+另做**真实链路验证**（临时 playwright 脚本 `scripts/pen-check.mjs`，验后按项目惯例删除）：钢笔点三锚 + 拖一笔 → **9/9** —— VECTOR 节点入树（图层 1→2）且可选中；Taro tsx 含 `View`；`preview.html` 含内联 `<svg>`+`<path d=`；**拖动锚点确实产出 `C` 段**（`d="M 8 48 L 128 8 L 188 148 C 188 148 208 208 268 228"`）；`reference.html` 含 `<svg>`；VECTOR 不出矩形底 `background`；全程零页面错误。截图证据 `dist/pen-check/`。
+
+**报备（近似口径与后置）**：
+- 手柄为**对称贝塞尔**（一段两控制点由单侧手柄镜像推导）；Figma 支持断开手柄独立调（`penCore` 注释已留「后续可独立手柄」），归 M4 体验项。
+- 画布 VECTOR 的 **fill 取 fills 首个实色层**：Konva Path 不吃多层渐变（FR-17 多层填充在 path 上不表达），出码侧同口径。
+- 形状的描边/填充在 SVG 内保真，但**弧线 arcData（FR-16）与布尔结果（FR-22）尚未接入 vector.d**。
+- Taro 侧 VECTOR 为 `View` 兜底、非内联 svg（跨端组件限制）。
+
+**新发现并修复的真缺陷（测试首跑暴露）**：`svgOfVector` 的 `strokeAttrs` 原实现把「无 border → 返回 `fill="none"`」与「有 border → 返回 cap/join/dash 片段」两种语义混在一个函数里，且主串**未插值**该返回值——导致**有 border 时 stroke 三件套整段丢失**（颜色/宽度/dash 全不生效）。已拆分为纯属性片段函数 + 主串正确插值，并由新增 3 例锁定。
+
+**遗留问题**：
+- FR-22 布尔运算（Union/Intersect/Subtract/Exclude）与 FR-23 蒙版未动——FR-21 已于本步收口，M4 剩余为 FR-22/23、25~29（C 组件轨）。
+- 钢笔锚点/手柄的**二次编辑**（选中已有 VECTOR 后拖锚点改形）未做，仅支持绘制期手柄；归 M4 体验项。
+- C 组件轨（FR-25~29）仍只有设计笔记（`docs/wave1-components-notes.md` 自述「0 行代码写入」），未起步。
+
+---
+
+### M4 第三步（2026-10-14）：分轨推进——C 组件轨（FR-25~29）+ V 矢量轨收尾（FR-22/23）+ 蒙版隐式误判缺陷修复
+
+**目标**：M4 剩余全量（FR-22/23 布尔与蒙版、FR-25~29 组件/样式/tokens/变体）分轨推进。开工前先做**冲突面核实**：C 轨需 `EditorState.components/tokens/styleSeq`、P 轨需 `pages/currentPageId`，二者都改 reducer 入口，**真并行必冲突**——故先做一次「状态域单点合入」再并行。
+
+**修改内容**：
+
+- **① 状态域单点合入（前置，消除冲突）**：`store.ts` 的 `EditorState` 一次性加入 C 轨（`components`/`tokens`/`styleSeq`）与 P 轨（`pages`/`currentPageId`/`history`）两组字段；`initialState(page, name)` **签名不变**（既有 257 例零感知）；`LOAD_PAGE` 补 `...state` 展开 + 两域重置（原为对象字面量，会丢新字段——**这是合入时发现的真陷阱**）；`NEW_PAGE` 同改。合入后 257/257 保持全绿。
+- **② C 轨 FR-28/27 样式与 tokens**：新 `src/compiler/tokens.ts`（`withAlpha`/`fillLayerCss`/`tokenDecls`/`tokensToCss`/`defaultVarName`）——与 `compile.ts` 填充出码**同口径但独立实现**（刻意不 import compile 以免成环）；PAINT 走 fills 组合、TEXT 复合变量逐项展开（`--uic-text-1-font-size` 形态）；空表产 `:root {}`。
+- **③ C 轨 store action 段**：`CREATE_COMPONENT`（叶子包 FRAME root + 子树重排 id）、`INSERT_INSTANCE`（深拷贝快照 + componentId）、`DETACH_INSTANCE`、`PUSH_TO_COMPONENT`（**超出任务书枚举，按「store.ts 组件 action 段」授权实现，此处报备**）、`CREATE_TOKEN`/`UPDATE_TOKEN`（引用者同步）/`DELETE_TOKEN`/`APPLY_TOKEN`/`DETACH_TOKEN`。
+- **④ C 轨 FR-26 AssetsPanel**（新 `src/editor/AssetsPanel.tsx` + Editor 接线 + `styles.css` 追加）：组件/样式双 tab、搜索、创建组件、插入实例、更新主组件、分离、颜色/文本样式创建，`+ 颜色样式` 等入口。
+- **⑤ C 轨 FR-27 属性面板样式分区**（`PropertyPanel.tsx`）：样式引用显示 + 分离 + 从选中创建（颜色/文本）+ 应用下拉。**仅新增一个分区，未动其他分区**。
+- **⑥ C 轨 FR-28 导出接线**：`exporter.ts` 增第 5 参 `tokens?`，非空时 push `tokens.css`；`Toolbar.tsx` 调用点传 `state.tokens`（一行）。
+- **⑦ C 轨 FR-29 变体**：新 `src/editor/variants.ts` 纯函数（`variantGroupOf`/`isVariant`/`variantsInGroup`/`variantPropertyNames`/`variantValueNames`/`findVariant`/`currentVariantProps`）+ 三个 action（`CREATE_VARIANT`/`SET_VARIANT_PROPS`/`UPDATE_VARIANT_PROPS`）+ AssetsPanel 变体区（属性下拉 + 新建变体）。同组合重复创建/改名撞组合**均拒绝**（避免切换歧义）；`findVariant` 无匹配**回退首成员不返回 null**（保证实例始终可渲染）。
+- **⑧ V 轨 FR-22/23（并行 subagent 交付）**：新 `src/compiler/boolean.ts`（`booleanPathOf` 等）、`src/compiler/mask.ts`（`maskClipCss`/`maskDeclarations`/`maskIndexInGroup`）、`compile.ts` VECTOR 与蒙版出码段、`factory.ts` 新 `createBooleanNode`/`createMaskGroup`。
+
+**⑨ 修复 subagent 交付物中的真缺陷——蒙版隐式误判（本步最重要的发现）**：
+- subagent 按 Figma 口径实现「组内最上方可见图层即蒙版」的**位置隐式推断**，并**主动报备**该判定会在任意多子容器上生效。
+- 我未采信报告结论，写探针测试实测：普通 Frame（矩形 + 圆角矩形）的**第一个子节点被注入 `border-radius:12px` + `overflow:hidden`**；矩形+椭圆被注入 `border-radius:50%`；矩形+矢量被注入 `clip-path:path(...)`。即**任何真实页面都会被静默改写出码**——严重程度高于 subagent 自述（它以为只在特定情形退化）。16 个 demo 页未触发纯属巧合。
+- **修法**：蒙版判定改为**显式 opt-in**——容器 `layout.clipContent === true` 才认定蒙版组（该字段语义即「本容器裁切子项」，天然吻合，且是既有字段、**无需改已冻结的 types.ts**）；`createMaskGroup` 工厂同步置 `clipContent: true`。语义更干净：**「是否裁切」是显式意图，不该靠末位子元素类型反推**。
+- 新增 `tests/fr23-mask-guard.test.ts`（6 例）作为**永久回归防线**：未声明 clipContent 时绝不出任何裁切声明（圆角矩形/椭圆/矢量三种诱因各一例）+ 显式声明后各形态正常生效。
+
+**结果**：完成。M4 的 C 轨（FR-25~29）与 V 轨（FR-22/23）全部落地，蒙版缺陷已修并加防线。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **354/354**（27 文件，257 → 354，净增 97）；`npm run build` OK（632.93 kB / gzip 200.69 kB）；`npm run e2e` **16/16 ≥98%**（两轨改动零回归）；`viewport` **64/64**；`walkthrough` **9/9**；`smoke-m1` **22/22**；`smoke-m2` **27/27**。
+另做**真实浏览器验证**（临时 playwright 脚本，验后按项目惯例删除 `scripts/c-track-check.mjs`）：**6/6** —— AssetsPanel 渲染、创建组件→组件卡出现、插入实例→图层 2→3、创建颜色样式→样式行出现、生成代码 Modal 可用、全程零页面错误；截图 `dist/c-track-check/`。
+
+**报备（近似口径与越界项）**：
+- **`PUSH_TO_COMPONENT` 超出任务书 action 枚举**（`docs/wave1-components-notes.md` 第三节自述该 action 超范围）。按「store.ts 组件 action 段」授权实现，依 D0 §二共享热点规则**在此回报主线**。
+- **FR-22 布尔为填色规则近似、非几何求交**（subagent 实现）：Union = 子路径拼接 + `nonzero`；其余三操作 = 拼接 + `evenodd`（浏览器按 SVG 原生语义算）。**Intersect 不保真**（实际表达 A−B 而非 A∩B；真交集需 Martinez/Clipper 类裁剪）；Exclude 缺口边界不描绘；Union 未做拓扑消边。要严格拓扑须后续引入裁剪库。
+- **FR-23 蒙版只表达形状裁切**，不表达亮度/alpha 蒙版；OVAL 走 `border-radius:50%`，非正圆蒙版为近似；与 `clipContent` 互斥、`clip-path` 已被 POLYGON/STAR 占用时不覆写。
+- **FR-29 变体为「同组多 ComponentDef」快照口径**：切换组合 = 改 `componentId` 指向组内成员（FR-25 快照口径不变）；未做跨变体的属性增量合并（切换即整体替换内容，已清 overrides）。
+- **FR-27 Effect/Grid 两类样式未做**（PRD 列 Color/Text/Effect/Grid 四类）：schema 的 `StyleToken.kind` 仅 `'PAINT' | 'TEXT'` 两值（types.ts 已定稿禁改），Effect/Grid 需扩 kind 枚举——**须主线单点合入 types.ts 后方可补**，归 M4 余项。
+
+**遗留问题**：
+- FR-27 Effect/Grid 样式待 types.ts 扩 `kind` 后补（见上报备）。
+- FR-23 的 **Ctrl+Alt+M 快捷键与图层树蒙版标记未做**：store 侧现无 `TOGGLE_MASK` action、schema 无 `isMask` 字段；本步以 `layout.clipContent` 作显式开关完成了「出码等价」与工厂路径，UI 入口（快捷键/右键菜单）归 M4 体验项。
+- FR-22 布尔的 UI 入口（Object 菜单四操作）未做——纯函数与出码已就绪，接入点需 Canvas/菜单改动，归 M4 余项。
+- **环境提示**：`npm run build` 在系统 TEMP 下报 `[vite:esbuild-transpile] remove <tmp>: Access is denied`（esbuild 清理自身临时文件被拒）；已实测确认**非代码缺陷**（`264 modules transformed` 成功、e2e 内置构建通过、`tsc` 0 错），改 `TEMP`/`TMP` 指向工作区内目录后 build exit 0。若后续复现同样报错，按环境问题处理，勿误判为代码回归。
+- P 原型轨（FR-39~45 + FR-50）状态域已单点合入但**功能未起步**，`docs/wave1-prototype-plan.md` 八步方案可直接开工。
+
+---
+
+### M5 第一步（2026-10-14）：P 原型轨主体落地——多 Page（FR-39）+ Prototype 面板（FR-40~43）+ 原型出码（FR-46/50）
+
+**目标**：P 轨此前仅完成状态域单点合入、功能 0 行。本步按 `docs/wave1-prototype-plan.md` 落地核心链路，向 GA 推进。
+
+**修改内容**：
+
+- **① 多页内核（FR-39，`store.ts`）**：新 action `ADD_PAGE`/`DELETE_PAGE`/`SELECT_PAGE`/`DUPLICATE_PAGE`/`RENAME_PAGE_BY_ID`/`REORDER_PAGE`。
+  - **出口单点回写**：既有 ~60 个 case 全部读写 `state.page`，逐 case 改造风险极高。改为 reducer 出口 `syncPages()` 统一把 `pages[currentPageId]` 换成新的 `page` 引用；切页类 action 经 `PAGE_ACTIONS` 白名单跳过（它们自行维护 pages/currentPageId）。**全部既有 354 例零回归**，证明包装透明。
+  - `DELETE_PAGE` 至少保留 1 页；删当前页落到相邻页。`DUPLICATE_PAGE` 全树重排 id。
+- **② 修复真缺陷：`createNewPage()` 硬编码 `id:'page'`**——**所有新建页共用同一 id**，导致 `pages` 无法区分页面（`findIndex` 恒命中首页）、`currentPageId`/删除/排序全部错乱。改为 `nextId('page')`。**该缺陷由新写测试首跑暴露**（4 个用例同时失败）。
+- **③ Pages 面板重写（`Pages.tsx`）**：新建/复制/重命名（双击）/删除（确认框，<1 页禁用）/上下排序/切换；示例页区保留。移除原「切页丢弃历史」confirm 路径。
+- **④ 工程序列化（`src/editor/project.ts`）**：`upgradeProjectV1`（v1 单页→v2，空 components/tokens/flows）、`serializeProject`、`parseProject`（**同时解析 v1 `data.page` 与 v2 `data.project`**，含裸单页与缺字段补齐）、`pagesWithInteractions`。按 §1.3/§1.4 口径，供 autosave/File 打开/旧 fixture 三处共用。
+- **⑤ 原型出码（`src/generator/prototype.ts` + `runtime.ts`）**：§4.3「单 HTML 内嵌全部 Page 容器」；`data-interaction` 按 §4.1 白名单投影（`id` 不进投影、`transition` 二级投影）+ `'`→`\u0027`、`&`→`\u0026` + 单引号属性；每节点补 `data-node` 锚点；**有交互才产 `runtime.js`**（FR-50 无 JS 模式）。
+  - `runtime.ts`（subagent 交付、我复核）：已实现 8 触发器 / 6 动作，**零布局计算**（仅注释提及 `offsetWidth` 等，无实际读写——已用测试锁定该不变量）。
+- **⑥ Prototype 面板（`PrototypePanel.tsx`，FR-40~43）**：三段选择器（触发器 5 类可选 + 5 类置灰／动作 6 类可选 + 2 类置灰／过渡 7 类 + SMART_ANIMATE 置灰）、条件字段联动（延时/按键/目标/URL/滚动/时长/缓动/自定义贝塞尔/方向）、Overlay 九宫定位 + 点外关闭、**broken link**（目标查不到 → 「已断开」+ 橙框 + 可删）、Flow 起点 toggle；非 Frame 选中显示空态。Editor 右栏 Prototype tab **由占位禁用改为可用**。
+- **⑦ 出码接线（`CodeModal.tsx`）**：新增 `prototype.html` tab（第 5 个）；ZIP 增 `prototype/` 目录（含 runtime.js）。
+
+**结果**：完成。P 轨主体（FR-39~43、FR-46/50）落地，M5 主要工作量已推进。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **392/392**（28 文件，354 → 392，净增 38）；`npm run build` OK；`npm run e2e` **16/16 ≥98%**；`viewport` **64/64**；`walkthrough` **9/9**；`smoke-m1` **22/22**；`smoke-m2` **27/27**。
+**真实浏览器验证**（临时脚本，验后按惯例删除）：
+- P 轨走查 `p-track-check.mjs` **12/12**：新建/复制/切换（唯一 current）/删除页面、Prototype 面板渲染、添加交互、AFTER_TIMEOUT→延时段、OPEN_LINK→URL 段、OPEN_OVERLAY→九宫 7 键、未选目标→「已断开」、Flow 起点勾选、零页面错误。
+- FR-50 出码 `proto-codegen-check.mjs` **9/9**：目标下拉含同页 Frame、选目标后 broken 消失、`prototype.html` 含 `data-uic-page`/`data-interaction`/`data-node`/引用 `runtime.js`、**导出页 `file://` 独立打开零控制台报错**、含页面容器、首屏仅一页可见。截图 `dist/p-track-check/`、`dist/proto-codegen-check/`。
+
+**断言报备（改先记录）**：`scripts/m2-smoke.mjs` 「占位禁用：分享 / Prototype」→ **「占位禁用：分享（Prototype 已启用）」**——FR-40 落地后 Prototype tab 不再禁用，原断言锁定的是占位态。改为「分享仍禁用 **且** Prototype 已启用」，语义随产品更新（步数 27 不变）。这是本步唯一被修改的既有测试。
+
+**报备（近似与边界）**：
+- **`SELECT_PAGE` 的每页独立历史为简化实现**：切页即换栈（`past` 保留当前页栈、不跨页缓存）。计划书 §1.1 B 案的完整形态是 `history: Record<pageId, {...}>`（schema 字段已就位、本步未写入）。当前行为：切回原页可见的历史不连续。**归 M5 余项**。
+- **`RENAME_PAGE`（旧 action）与 `RENAME_PAGE_BY_ID` 并存**：前者改名当前页且改 `projectName`（旧语义，未动），后者按 id 改名（新面板用）。未合并以免破坏既有测试。
+- **触发器/动作置灰项未实现**：MOUSE_ENTER/MOUSE_LEAVE/ON_DRAG/TOUCH/ON_LOAD（触发器）与 CLOSE/CHANGE_TO（动作）、SMART_ANIMATE（过渡）——面板置灰，出码不产（PRD P0 未列，schema-decisions §四.5）。
+- **Present 全屏演示模式（FR-44）与连接线未做**：Present 按钮仍禁用；FR-44 的 Shift+Space 内联预览亦未做。计划书 §3 已给完整设计（fixed overlay 方案），归下一步。
+- **FR-45 跨 Page Navigate 不实现**（PRD 明确要求写入矩阵「不支持项」）；broken link 已按 Consumption 端口径实现（面板显示 + 可清理），出码 runtime 对缺失锚点 no-op。
+- `runtime.js` 未做 `AFTER_TIMEOUT` 的「加载即计时」以外的复杂时序；`ON_PRESS` 按计划书简化（不含完整 down+up 周期）。
+
+**遗留问题**：
+- Present 演示模式（FR-44）+ 连接线可视化 + Shift+Space 内联预览。
+- 每页独立历史的完整缓存（`EditorState.history` 已留字段未用）。
+- FR-45 矩阵「不支持项」行登记、FR-40/41/42 矩阵行走查归档。
+- `docs/wave1-prototype-plan.md` §3.2 的 present-smoke 脚本未建。
+- 环境提示同前：`npm run build` 在系统 TEMP 下报 `[vite:esbuild-transpile] remove <tmp>: Access is denied`（esbuild 清理自身临时文件被拒）；已实测确认**非代码缺陷**（`264 modules transformed` 成功、e2e 内置构建通过、`tsc` 0 错），改 `TEMP`/`TMP` 指向工作区内目录后 build exit 0。若后续复现同样报错，按环境问题处理，勿误判为代码回归。
+- P 原型轨（FR-39~45 + FR-50）状态域已单点合入但**功能未起步**，`docs/wave1-prototype-plan.md` 八步方案可直接开工。
+
+---
+
+### [2026-10-16 补记] M4 余项 UI 入口 + FR-44 Present + M6 基建批次（实际发生于 2026-10-15 07:26–08:43，日志漏记）
+
+**目标**：本批次未写日志即进入 10-16；按 LOG 规则补记一条，使日志与代码状态对齐。补记内容由本步代理读代码/脚本/dist 证据逐项核实（文件 mtime 为时间证据），非当事人回忆录。
+
+**批次内容（补记）**：
+- **M4 余项收口——布尔/蒙版 UI 入口**：store 新 action `BOOLEAN_OP`/`TOGGLE_MASK`；Toolbar Object 菜单四则（Union/Intersect/Subtract/Exclude）+「用作蒙版」；Editor 快捷键 **Ctrl+Alt+M**（FR-23 遗留项收口）。M4 第三步所报「UI 入口未做」两项就此关闭。
+- **FR-44 Present 演示模式**：新 `src/editor/present/`（presentBus 起停总线 / PresentOverlay 全屏遮罩 / presentRuntime 播放内核）；Editor 接线（Present 期间键盘整体让路）；Toolbar 入口；启动快捷键实际取 **Ctrl+Alt+P**（代码注释：规避钢笔工具单键 P）——**PRD FR-44 字面为 Shift+Space 内联预览，快捷键差异 + 内联小窗预览未做**，本步登记为 P0-44 已知缺口。新 `scripts/present-smoke.mjs`（M5 第一步遗留「§3.2 present-smoke 未建」关闭）。
+- **原型出码与 ZIP 结构**：`src/generator/prototype.ts` + `runtime.ts` 实文件落位（M5 第一步记录所涉）；新 `tests/fr39-50-prototype.test.ts`、`tests/fr52-zip-structure.test.ts`、`scripts/zip-assert.mjs`（FR-52 ZIP 断言管线）。
+- **M6 生产化基建**：`.github/workflows/ci.yml`（FR-58 四门禁，本地无 remote 未实跑）+ `scripts/ci-local.mjs`（替代本地凭证，报告 `dist/ci-local/` 10-15T08:42）；`docs/deployment.md` + `scripts/deploy-check.mjs`（FR-59 实测 16 项，`dist/deploy-check/` 10-15T08:37）；`scripts/m12-matrix.mjs`（FR-56 矩阵 **M1/M2 段**定向实测：19 行，**12 PASS / 7 FAIL 未甄别**，`dist/m12-matrix/` 10-15T08:43）。
+- **showcase/perf 复跑**：`dist/showcase/`（avg 99.49%，但 **04-商品详情 98.79 / 13-绝对定位页 98.89 低于逐卡 0.99 线**）、`dist/perf-1000/` 均有 10-15 新报告——Wave1 收口记录所涉数字复现。
+- 新测试 `tests/fr22-23-ui.test.ts`（16 例）落盘时 **2 例红灯未修**（BOOLEAN_OP 真缺陷 + 断言写法错），10-16 本步修复（见下一步记录）。
+
+**结果**：功能已落地并有证据归档；遗留本步处理：2 红灯修复、LOG 补记、临时物清理、m12 七行待甄别（登记至下一步）。
+
+**验证方式**：逐项代码核对（Toolbar Object 菜单四则 / Editor :103-115 快捷键 / present 三文件 / ci.yml / deploy-check）+ dist 证据 mtime；vitest 417/419 红灯定位至本文件下一步。
+
+**遗留问题**：m12-matrix 7 行 FAIL 未甄别（线索指向验证脚本失配多 Page 重构，非产品回归——待专项）；P0-44 内联预览缺口；`.github/workflows/ci.yml` 未实跑（无 remote）。
+
+---
+
+### [2026-10-16] M6 清账第一步：vitest 红灯修复（BOOLEAN_OP 双缺陷）+ 补记 + 临时物清理
+
+**目标**：恢复 419 全绿基线，清 10-15 批次日志与临时物欠账，为矩阵全量执行（M4/M5 段 24 行）与样片五区开工铺路。
+
+**修改内容**：
+- **真缺陷①**（`src/editor/store.ts` `BOOLEAN_OP`，`tests/fr22-23-ui.test.ts`「混选」例暴露）：`removeIds = new Set(order)`，`order` 收集**全部选中项**——混选做布尔时未参与的 RECT 等被连带删除。修法：有效参集单独收 `vecIds`，删除集与 `first` 参照均改用 `vecIds`（非参集节点保留）。
+- **真缺陷②**（读码顺带发现，既有测试未覆盖）：插位 `findIndex((c) => removeIds.has(c.id))` 在 **prune 之后**取——参集已不在数组，恒 -1 → 结果节点恒插 index 0，「保持原位置」语义是坏的。修法：`insertIdx` 于 prune 前捕获，prune 后 `Math.min(insertIdx, len)` 钳制插入。
+- **测试断言修复**（`tests/fr22-23-ui.test.ts`「空 d」例）：`expect(out).toBe({ ...s, selectedIds: [...] })` 以引用比较对新建字面量——恒必挂；实现（返回入参原引用）本正确。改为捕获入参 `st` 后 `expect(out).toBe(st)`。
+- **LOG.md**：上一条补记 + 本条。
+- **临时物清理**：`scripts/_probe-recon.mjs` / `_probe-recon2.mjs`（自注「跑完删除」的侦察脚本，使命已完成）删除；`.esbuild-tmp/` 删除；环境恢复：杀 4173 端口孤儿 preview（昨夜遗留，致 walkthrough/smoke 起服务超时）。
+
+**结果**：完成（数字见验证）。
+
+**验证方式**：`npx tsc --noEmit` 0 错；`npx vitest run` **419/419**（29 文件）；`npm run build` OK（3.56s，工作区内 TEMP 旁路，首跑挂于已知 `[vite:esbuild-transpile] TEMP Access denied` 环境问题）；`npm run e2e` 16/16 ≥98%；`npm run viewport` 64/64；`npm run walkthrough` **9/9**；`npm run smoke-m1` **22/22**；`npm run smoke-m2` **27/27**；`precanvasdiff` hook 构建完成（dist/app 含 `__UIC_E2E__`，供验证轨代理复用）。旁注：walkthrough/smoke 首跑失败根因＝4173 端口被 10-15 会话遗留的孤儿 preview 进程占用（404 非就绪），已 `taskkill` 处置——**多会话共机的端口残留是门禁假红灯的一个来源**。
+
+**遗留问题**：
+- m12-matrix 7 行 FAIL 甄别（脚本失配假设，验证轨专项）
+- P0-44 缺口登记：连接线可视化未做 + 内联预览未做 + 快捷键 Ctrl+Alt+P ≠ PRD 字面 Shift+Space（★核心行，GA 前必补）
+- 矩阵 M4 段 11 行 / M5 段 13 行未执行（验证轨并行中）
+- 样片逐卡线：04/13 两卡 <99%（P0-55 ★ 收口项）；每页历史完整形态；FR-27 Effect/Grid（types.ts 单点前置）
+

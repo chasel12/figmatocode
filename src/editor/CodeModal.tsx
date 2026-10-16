@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react';
 import { compilePage, scssFromPage } from '../compiler';
-import { generateTaroProject, generateHtml, generateReferenceHtml } from '../generator';
+import { generateTaroProject, generateHtml, generateReferenceHtml, generatePrototypeProject } from '../generator';
+import type { UIProject } from '../schema/types';
 import { resolveLayout } from '../compiler/layout';
 import { createApproxMeasure } from '../compiler/measure';
 import { createZip, downloadBlob } from '../utils/zip';
 import { useEditor } from './store';
 
-type Tab = 'tsx' | 'scss' | 'html' | 'reference';
+type Tab = 'tsx' | 'scss' | 'html' | 'reference' | 'prototype';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'tsx', label: 'index.tsx' },
   { id: 'scss', label: 'index.scss' },
   { id: 'html', label: 'preview.html' },
   { id: 'reference', label: 'reference.html' },
+  { id: 'prototype', label: 'prototype.html' },
 ];
 
 export function CodeModal({ onClose }: { onClose: () => void }) {
@@ -27,16 +29,34 @@ export function CodeModal({ onClose }: { onClose: () => void }) {
     const scss = scssFromPage(compiled);
     const html = generateHtml(state.page, compiled);
     const reference = generateReferenceHtml(state.page, compiled, geometry);
-    return { tsx, scss, html, reference, taro, compiled };
-  }, [state.page]);
+    // FR-50：原型工程（多页 + 交互 + runtime.js）——工程侧形状由 UIProject 承载
+    const project: UIProject = {
+      version: 2,
+      name: state.projectName || 'UI 原型',
+      pages: state.pages,
+      components: state.components,
+      tokens: state.tokens,
+      flows: [],
+    };
+    const protoFiles = generatePrototypeProject(project);
+    const prototype = protoFiles.find((f) => f.path === 'index.html')?.content ?? '';
+    return { tsx, scss, html, reference, prototype, taro, compiled, protoFiles };
+  }, [state.page, state.pages, state.components, state.tokens, state.projectName]);
 
-  const current = files[tab === 'tsx' ? 'tsx' : tab === 'scss' ? 'scss' : tab === 'html' ? 'html' : 'reference'];
+  const current =
+    tab === 'tsx' ? files.tsx
+    : tab === 'scss' ? files.scss
+    : tab === 'html' ? files.html
+    : tab === 'reference' ? files.reference
+    : files.prototype;
 
   const exportZip = () => {
     const zip = createZip([
       ...files.taro,
       { path: 'preview/index.html', content: files.html },
       { path: 'preview/reference.html', content: files.reference },
+      // FR-50：原型工程进 ZIP 根（含 runtime.js，仅在有交互时产出）
+      ...files.protoFiles.map((f) => ({ path: `prototype/${f.path}`, content: f.content })),
     ]);
     downloadBlob(zip, `${state.projectName || 'ui-project'}.zip`);
   };

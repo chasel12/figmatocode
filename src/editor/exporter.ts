@@ -1,6 +1,6 @@
-import type { ContainerNode, ExportSetting, UINode, UIPage } from '../schema/types';
+import type { ContainerNode, ExportSetting, StyleToken, UINode, UIPage } from '../schema/types';
 import { findById } from '../schema/factory';
-import { compilePage, type GeometryMap } from '../compiler';
+import { compilePage, tokensToCss, type GeometryMap } from '../compiler';
 import { buildPreviewDom } from '../generator/html';
 import { canvasBus } from './canvasBus';
 import { createZip, downloadBlob, type ZipEntry } from '../utils/zip';
@@ -72,10 +72,17 @@ export async function exportSelection(
   geometry: GeometryMap,
   selectedIds: string[],
   projectName = 'export',
+  tokens?: StyleToken[],
 ): Promise<ExportOutcome> {
   const entries: ZipEntry[] = [];
   const files: string[] = [];
   const skipped: { file: string; reason: string }[] = [];
+
+  // FR-28：非空样式表随导出附 tokens.css（即使无带导出设置的节点也产出）
+  if (tokens && tokens.length) {
+    entries.push({ path: 'tokens.css', content: tokensToCss(tokens) });
+    files.push('tokens.css');
+  }
 
   const nodes: UINode[] = [];
   for (const id of selectedIds) {
@@ -83,6 +90,12 @@ export async function exportSelection(
     if (hit && hit.node.id !== page.root.id && hit.node.exportSettings?.length) nodes.push(hit.node);
   }
   if (!nodes.length) {
+    if (entries.length) {
+      // 只有 tokens.css：仍然打包（FR-28 独立导出路径）
+      const zipOnly = createZip(entries);
+      downloadBlob(zipOnly, `${(projectName || 'export').replace(/[\\/:*?"<>|]/g, '_')}.zip`);
+      return { files, skipped };
+    }
     throw new Error('选区无导出设置（在右栏 Export 区添加）');
   }
 

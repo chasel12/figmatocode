@@ -1455,3 +1455,490 @@ body {
   color: var(--text-dim);
   font-size: 10px;
 }
+
+/* ---- FR-26 Assets 面板（组件/样式） ---- */
+.assets-panel {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assets-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.assets-tab {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.assets-tab.is-active {
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.assets-count {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.assets-search {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.assets-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.assets-empty {
+  padding: 12px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.assets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.assets-card {
+  position: relative;
+  padding: 8px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.assets-card-icon {
+  color: #9747ff;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.assets-card-name {
+  font-size: 10px;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assets-card-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.assets-insert {
+  margin-top: 3px;
+  padding: 2px 8px;
+  font-size: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.assets-insert:hover {
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.assets-token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.assets-token-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.assets-token-kind {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-size: 10px;
+  flex: none;
+}
+
+.assets-token-kind.is-paint {
+  background: #2b3550;
+  color: #8fb4ff;
+}
+
+.assets-token-kind.is-text {
+  background: #3a2b40;
+  color: #e0a8ff;
+}
+
+.assets-token-name {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- FR-29 变体区 ---- */
+.assets-variant {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.assets-variant-head {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.assets-variant-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.assets-variant-label {
+  width: 52px;
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assets-variant-select {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+}
+
+/* ---- FR-39 多 Page 管理 ---- */
+.pages-actions {
+  padding: 0 8px 6px;
+}
+
+.page-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.page-row.is-current {
+  background: var(--panel-2);
+}
+
+.page-row-tools {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.page-row:hover .page-row-tools,
+.page-row.is-current .page-row-tools {
+  opacity: 1;
+}
+
+.page-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--primary);
+  border-radius: 3px;
+  color: var(--text);
+}
+
+/* ---- FR-40~43 Prototype 面板 ---- */
+.proto-panel {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.proto-add {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.proto-empty {
+  padding: 8px 0;
+}
+
+.proto-row {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-2);
+}
+
+.proto-row.is-broken {
+  border-color: #b4552d;
+}
+
+.proto-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proto-index {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10px;
+  flex: none;
+}
+
+.proto-broken-tag {
+  font-size: 10px;
+  color: #e08a5f;
+}
+
+.proto-del {
+  margin-left: auto;
+}
+
+.proto-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.proto-label {
+  width: 46px;
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.proto-field select,
+.proto-field input[type='text'],
+.proto-field input[type='number'] {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+}
+
+.proto-unit {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex: none;
+}
+
+.proto-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  flex: 1;
+}
+
+.proto-pos {
+  padding: 3px 2px;
+  font-size: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.proto-pos.is-active {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.proto-flow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+/* ---- FR-44 Present 演示模式 ---- */
+.present-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+}
+
+.present-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #242424;
+  border-bottom: 1px solid #333;
+  color: #e6e9ef;
+  flex: none;
+}
+
+.present-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.present-flow-select {
+  padding: 3px 6px;
+  font-size: 11px;
+  background: #2c2c2c;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #e6e9ef;
+  max-width: 220px;
+}
+
+.present-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8b93a5;
+}
+
+.present-close {
+  font-size: 13px;
+}
+
+.present-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+}
+
+.present-frame {
+  position: relative;
+  transform-origin: top center;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  flex: none;
+}
+
+.present-hotspot {
+  position: absolute;
+  border: 1px solid #0d99ff;
+  background: rgba(13, 153, 255, 0.12);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* 根 Frame 自身挂交互：整帧描边（子节点热区之上不再叠加） */
+.present-hotspot-root {
+  position: absolute;
+  inset: 0;
+  border: 2px solid #0d99ff;
+  background: rgba(13, 153, 255, 0.06);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.present-empty {
+  margin: auto;
+  text-align: center;
+  color: #e6e9ef;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.present-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.present-empty-note {
+  font-size: 12px;
+  color: #8b93a5;
+  max-width: 360px;
+  line-height: 1.6;
+}
+
+.present-overlay-panel {
+  position: relative;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+
+
+
+

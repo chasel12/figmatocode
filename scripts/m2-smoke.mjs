@@ -61,10 +61,12 @@ try {
     menubar === 7 && tools === 13 && leftTabs.join(',') === '页面,图层,资产' && rightTabs.join(',') === 'Design,Prototype',
     `menu=${menubar} tools=${tools} left=${leftTabs.join('/')} right=${rightTabs.join('/')}`,
   );
+  // 断言报备：FR-40 落地后 Prototype tab 已启用（原为占位禁用），故本步改为
+  // 「分享仍占位禁用 + Prototype 已启用且可切换」。步数不变（27）。
   step(
-    '占位禁用：分享 / Prototype',
+    '占位禁用：分享（Prototype 已启用）',
     (await page.locator('.toolbar button:has-text("分享")').isDisabled()) &&
-      (await page.locator('.sidebar-right .side-tab:has-text("Prototype")').isDisabled()),
+      !(await page.locator('.sidebar-right .side-tab:has-text("Prototype")').isDisabled()),
   );
 
   // 1b) 7 菜单全集 + Help 快捷键面板（FR-33 / FR-9）

@@ -25,6 +25,10 @@ const DRAGS = 30;
 const DRAG_STEPS = 8;
 // 流畅判定口径：拖拽窗口内平均帧耗时 < 32ms（≈30fps）记 1 次流畅（如实报告，非通过线）
 const DRAG_SMOOTH_MS = 32;
+// FR-60 硬判据：95% 帧 < 16.7ms（60fps 帧预算）
+const FRAME_BUDGET_MS = 16.7;
+// FR-60 通过线：95% 帧落在帧预算内
+const FRAME_UNDER_TARGET = 0.95;
 
 mkdirSync(outDir, { recursive: true });
 mkdirSync(PERF_DIR, { recursive: true });
@@ -121,6 +125,13 @@ let perDrag = [];
 let loadOk = false;
 let loadNote = '';
 const dragRows = [];
+// FR-60 拖拽窗口逐帧统计
+let dragFrameDeltas = [];
+let dragFramesCount = 0;
+let dragFramesUnder = 0;
+let dragUnderRatio = 0;
+let dragFramesP95 = 0;
+let dragFramesAvg = 0;
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1500, height: 950 }, deviceScaleFactor: 1 });
@@ -213,6 +224,19 @@ try {
     dragP95 = Number(dragDeltas[Math.min(dragDeltas.length - 1, Math.floor(dragDeltas.length * 0.95))].toFixed(2));
   }
 
+  // FR-60 判定口径：「拖拽/缩放采样 60fps（**95% 帧 <16.7ms**）」
+  // 拖拽窗口内逐帧采样（rAF 时间戳按窗口回放），统计 <16.7ms 的帧占比——
+  // 与 idle 同口径，但取样自**真实拖拽期间**，是 FR-60 的直接判据。
+  dragFrameDeltas = all.filter((f) => dragRows.some((d) => f.t > d.t0 && f.t <= d.t1)).map((f) => f.d);
+  if (dragFrameDeltas.length) {
+    const ds = [...dragFrameDeltas].sort((a, b) => a - b);
+    dragFramesCount = dragFrameDeltas.length;
+    dragFramesUnder = dragFrameDeltas.filter((d) => d < FRAME_BUDGET_MS).length;
+    dragUnderRatio = Number((dragFramesUnder / dragFrameDeltas.length).toFixed(4));
+    dragFramesP95 = Number(ds[Math.min(ds.length - 1, Math.floor(ds.length * 0.95))].toFixed(2));
+    dragFramesAvg = Number((dragFrameDeltas.reduce((s, d) => s + d, 0) / dragFrameDeltas.length).toFixed(2));
+  }
+
   await pg.screenshot({ path: join(outDir, 'after-drags.png') });
 } catch (e) {
   loadNote = e instanceof Error ? e.message : String(e);
@@ -224,7 +248,9 @@ try {
 
 // ---- 5) 报告（阈值仅分级，不阻塞） ----
 const fpsOk = avgFps >= 60;
-const p95Ok = p95FrameMs < 16.7;
+const p95Ok = p95FrameMs < FRAME_BUDGET_MS;
+// FR-60 直接判据：95% 帧 < 16.7ms（拖拽窗口实测）
+const frameUnderOk = dragUnderRatio >= FRAME_UNDER_TARGET;
 const report = {
   feature: 'FR-60 / FR-12 · 1000 节点性能采样',
   nodeCount: children.length,
@@ -246,10 +272,26 @@ const report = {
     p95FrameMs: dragP95,
     perDrag: perDrag,
   },
-  targets: { fps: '≥60', p95FrameMs: '<16.7', note: '阈值仅报告分级，未达不阻塞' },
+  // FR-60 判据区：拖拽窗口内逐帧采样（rAF 时间戳按窗口回放）
+  fr60: {
+    criterion: '拖拽采样 60fps 且 95% 帧 < 16.7ms',
+    frameBudgetMs: FRAME_BUDGET_MS,
+    targetUnderRatio: FRAME_UNDER_TARGET,
+    dragFrames: dragFramesCount,
+    framesUnder16_7: dragFramesUnder,
+    underRatio: dragUnderRatio,
+    avgFrameMs: dragFramesAvg,
+    p95FrameMs: dragFramesP95,
+    passed: frameUnderOk,
+    verdict: frameUnderOk
+      ? `达标（${(dragUnderRatio * 100).toFixed(1)}% 帧 <16.7ms ≥95%）`
+      : `未达标（${(dragUnderRatio * 100).toFixed(1)}% 帧 <16.7ms <95%）`,
+  },
+  targets: { fps: '≥60', p95FrameMs: '<16.7', underRatio: '≥0.95', note: 'FR-60 判据如实上报；本机未达标不阻塞（阈值分级口径）' },
   verdict: {
     fps: fpsOk ? '达标' : '未达标',
     p95: p95Ok ? '达标' : '未达标',
+    '95%帧<16.7ms': frameUnderOk ? '达标' : '未达标',
   },
   evidence: { loaded: 'dist/perf-1000/loaded.png', after: 'dist/perf-1000/after-drags.png', pageJson: 'dist/pages-perf/1000-节点/page.json' },
 };
@@ -257,5 +299,8 @@ writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2), 'utf
 
 console.log(`idle: avg=${avgFps}fps  p95=${p95FrameMs}ms  <16.7ms=${(underRatio * 100).toFixed(1)}% (${framesUnder}/${FRAMES})`);
 console.log(`drag: smooth=${dragSmooth}/${DRAGS}  avg=${dragAvgFps}fps  p95=${dragP95}ms`);
+console.log(
+  `FR-60 判据: 拖拽逐帧 ${dragFramesCount} 帧，<16.7ms ${(dragUnderRatio * 100).toFixed(1)}% (${dragFramesUnder}/${dragFramesCount}) avg=${dragFramesAvg}ms p95=${dragFramesP95}ms → ${report.fr60.verdict}`,
+);
 console.log(`perf-1000 done → dist/perf-1000/report.json  verdict: fps ${report.verdict.fps}, p95 ${report.verdict.p95}`);
 if (!loadOk) process.exitCode = 1;

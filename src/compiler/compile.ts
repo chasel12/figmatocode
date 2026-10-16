@@ -3,6 +3,7 @@ import { hasText, isContainer } from '../schema/types';
 import type { CompiledNode, CompiledPage, CSSDecl } from './css-model';
 import { FONT_STACK } from '../font';
 import { arcSpec, clipPathPolygon, polygonUnitPoints, starUnitPoints } from './shapes';
+import { maskClipCss, maskDeclarations, maskIndexInGroup } from './mask';
 
 const ROOT_FONT_FAMILY = FONT_STACK;
 
@@ -131,7 +132,14 @@ interface NodeContext {
   parentNegGap: number;
   /** FR-47：同父下的流式子序号（首个=0 不加负 margin） */
   childIndex: number;
+  /** FR-23：父组内的蒙版节点（组内最上方可见图层）；null = 本节点未被蒙版裁切 */
+  maskNode: UINode | null;
   viewport: { width: number; height: number };
+}
+
+/** FR-23 蒙版查取：ctx 里携带的兄弟蒙版；蒙版自身不裁切自己（compileNode 传 null） */
+function maskNodeOf(ctx: NodeContext): UINode | null {
+  return ctx.maskNode;
 }
 
 /**
@@ -160,6 +168,7 @@ export function compilePage(page: UIPage): CompiledPage {
     parentIsAbsoluteContainer: false,
     parentNegGap: 0,
     childIndex: 0,
+    maskNode: null,
     viewport: page.viewport,
   });
   void rootContentW;
@@ -195,6 +204,13 @@ function compileNode(
 
   // FR-47：负 gap→margin 修正（CSS gap 不收负值；WRAP 行列模型不适用——报备走 gap 原值口径）
   const negGap = L.mode !== 'ABSOLUTE' && L.wrap !== 'WRAP' && (L.gap ?? 0) < 0 ? L.gap! : 0;
+  // FR-23：蒙版组**显式声明**才生效。
+  // 显式条件：容器自身 `layout.clipContent = true`（=「本容器裁切子项」，语义天然吻合，
+  // 且是既有字段、无需改 types.ts）。**不做「末位子即蒙版」的隐式推断**——
+  // 那会把任何「矩形后跟圆角矩形/椭圆」的普通 Frame 误当蒙版组，给前位子注入
+  // border-radius/overflow/clip-path，静默改变正常页面出码（已由探针测试证实）。
+  const maskIdx = L.clipContent ? maskIndexInGroup(node.children) : -1;
+  const groupMask = maskIdx >= 0 ? node.children[maskIdx] : null;
   let childIndex = 0;
   for (const child of node.children) {
     compileNode(child, classNames, out, {
@@ -206,6 +222,7 @@ function compileNode(
       parentIsAbsoluteContainer: L.mode === 'ABSOLUTE' || child.layout.mode === 'ABSOLUTE',
       parentNegGap: negGap,
       childIndex: child.layout.mode === 'ABSOLUTE' ? 0 : childIndex,
+      maskNode: child === groupMask ? null : groupMask,
       viewport: ctx.viewport,
     });
     if (child.layout.mode !== 'ABSOLUTE') childIndex += 1;
@@ -417,6 +434,9 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       css['mask-image'] = mask;
       css['-webkit-mask-image'] = mask;
     }
+  } else if (node.type === 'VECTOR') {
+    // FR-49：矢量视觉全在 <svg> 内（fill/stroke 由 svgOfVector 表达）——
+    // 此处不出 background/border，否则会画出矩形底破坏逐像素对比。
   } else {
     if (S.fills && S.fills.length) {
       // FR-17 多层填充：数组序=面板序=CSS 层序（background-image 首项在上）；fills 接管旧 background
@@ -432,6 +452,15 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
   if (node.type === 'POLYGON') css['clip-path'] = clipPathPolygon(polygonUnitPoints(S.pointCount ?? 3));
   else if (node.type === 'STAR') css['clip-path'] = clipPathPolygon(starUnitPoints(S.pointCount ?? 5, S.innerRadius ?? 0.38));
   if (S.cornerSmoothing != null && S.cornerSmoothing > 0 && node.type !== 'OVAL') css['corner-shape'] = 'squircle';
+  // FR-23 蒙版出码：组内上方蒙版 → 下方图层裁切等价；与 clipContent 互斥（后者已出 overflow:hidden，不叠加 clip-path 以免双重裁切）
+  if (node.type !== 'VECTOR' && !L.clipContent) {
+    const maskDecls = maskDeclarations(maskClipCss(maskNodeOf(ctx)));
+    for (const [prop, value] of Object.entries(maskDecls)) {
+      // clip-path 已被 POLYGON/STAR 形状占用时不覆写（形状自身的轮廓优先）
+      if (prop === 'clip-path' && css['clip-path']) continue;
+      css[prop] = value;
+    }
+  }
   if (node.type === 'IMAGE') {
     // FR-20/FR-47 scaleMode→object-fit：Tile 走背景平铺（html 侧），Crop 近似 cover（裁切把手后续）
     const mode = S.imageScaleMode ?? 'FILL';
@@ -492,8 +521,9 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     }
     if (S.rotation) css['transform'] = `rotate(${S.rotation}deg)`;
     css['transform-origin'] = '0 50%';
-  } else if (!arcShaped && b && (b.width > 0 || hasWidths)) {
+  } else if (node.type !== 'VECTOR' && !arcShaped && b && (b.width > 0 || hasWidths)) {
     // FR-18/FR-47：INSIDE→border（box-sizing:border-box）；CENTER→border 半宽+outline 外半；OUTSIDE→box-shadow 外扩
+    // FR-49：VECTOR 排除——描边已由 <svg> 的 stroke 表达（避免 CSS border 重复描一圈矩形）
     const lineStyle = b.dash ? 'dashed' : b.style ?? 'solid';
     const color = withAlpha(b.color, b.opacity ?? 1);
     const align = b.align ?? 'INSIDE';

@@ -18,9 +18,13 @@
     "walkthrough": "node scripts/walkthrough.mjs",
     "showcase": "node scripts/showcase.mjs",
     "perf-1000": "node scripts/perf-1000.mjs",
+    "zip-assert": "vite-node scripts/zip-assert.mjs",
+    "deploy-check": "node scripts/deploy-check.mjs",
+    "ci-local": "node scripts/ci-local.mjs",
     "demo-report": "node scripts/demo-report.mjs",
     "smoke-m1": "node scripts/m1-smoke.mjs",
     "smoke-m2": "node scripts/m2-smoke.mjs",
+    "present-smoke": "node scripts/present-smoke.mjs",
     "e2e": "npm run pages && npm run shot && npm run diff"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ import { isContainer } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
 import { scssFromPage } from '../compiler/css-model';
 import { FONT_FACE_CSS, FONT_STACK } from '../font';
+import { svgOfVector } from './vector';
 
 export function escapeHtml(text: string): string {
   return text
@@ -40,6 +41,15 @@ function makeRenderer(classNames: Map<string, string>, indentUnit = '  ', startD
     }
     if (node.type === 'SLICE') {
       return ''; // FR-14：Slice 不生成出码 DOM（compileNode 同步跳过——classNames 缺失会出无样式 div）
+    }
+    if (node.type === 'VECTOR') {
+      // FR-49：矢量走内联 <svg>（唯一权威表达）；空 d 不产物流
+      const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
+        className: cls,
+        border: node.style?.border,
+        fill: node.style?.background,
+      });
+      return svg ? `${indent}${svg}` : '';
     }
     if (!isContainer(node) || node.type === 'RECTANGLE') {
       return `${indent}<div class="${cls}"></div>`;

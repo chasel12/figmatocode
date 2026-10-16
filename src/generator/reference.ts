@@ -2,6 +2,7 @@ import type { UIPage } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
 import type { GeometryMap } from '../compiler/layout';
 import { escapeHtml, collectFxDefs, type DomParts } from './html';
+import { svgOfVector } from './vector';
 import { FONT_FACE_CSS, FONT_STACK } from '../font';
 
 /**
@@ -89,6 +90,16 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
     }
     if (node.type === 'SLICE') {
       return; // FR-14：Slice 无视觉样式、不进 diff（与出码跳过同口径）
+    }
+    if (node.type === 'VECTOR') {
+      // FR-49：reference 侧同样出内联 <svg>，与 render 侧同形状方可逐像素对比
+      const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
+        className: cls,
+        border: node.style?.border,
+        fill: node.style?.background,
+      });
+      if (svg) out.push(`${indent}${svg}`);
+      return;
     }
     if (node.type === 'RECTANGLE' || node.type === 'OVAL' || node.type === 'LINE' || node.type === 'POLYGON' || node.type === 'STAR') {
       out.push(`${indent}<div class="${cls}"></div>`);

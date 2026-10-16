@@ -1,0 +1,66 @@
+name: CI
+
+# FR-58 门禁 CI：tsc + test + build + e2e（PRD「门禁 CI（tsc/test/build/e2e）绿」）。
+#
+# 本地等价凭证：`node scripts/ci-local.mjs`（串跑同一四道门禁并汇总，
+# 用于「CI 环境不可用」时按 FR-58 记录替代本地执行凭证）。
+#
+# e2e 依赖 Playwright 浏览器：下方 `playwright install --with-deps chromium` 为必需步骤
+# （缺浏览器时 screenshot.mjs / showcase.mjs 会启动失败）。
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    name: tsc / test / build / e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # e2e / showcase 需要 Playwright 的 Chromium（含系统依赖）
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # 门禁①：类型检查（零错）
+      - name: Gate 1 — tsc
+        run: npx tsc --noEmit
+
+      # 门禁②：单元测试（vitest run）
+      - name: Gate 2 — test
+        run: npx vitest run
+
+      # 门禁③：构建（tsc --noEmit && vite build → dist/app）
+      - name: Gate 3 — build
+        run: npm run build
+
+      # 门禁④：全链路 e2e（pages + assert-pages + shot + diff，16/16 ≥98%）
+      - name: Gate 4 — e2e
+        run: npm run e2e
+
+      # 产物归档：16 页截图 / diff 图 / 逐页报告 + showcase 像素报告
+      - name: Upload e2e artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-pages
+          path: |
+            dist/pages/**
+            dist/taro/**
+            dist/showcase/**
+          retention-days: 14

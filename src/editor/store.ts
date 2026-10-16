@@ -1,7 +1,17 @@
 import { createContext, useContext } from 'react';
-import type { NodeKind, UINode, UIPage, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments } from '../schema/types';
+import type { NodeKind, UINode, UIPage, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, VectorData } from '../schema/types';
 import { isContainer } from '../schema/types';
-import { clonePage, createNode, findById } from '../schema/factory';
+import { clonePage, createNode, findById, nextId, walk } from '../schema/factory';
+import { findVariant, variantGroupOf, variantsInGroup } from './variants';
+import { BOOLEAN_OP_NAME, booleanVectorOf, type BooleanOp } from '../compiler/boolean';
+
+/** FR-29：两属性组合是否等价（键集合与取值全等） */
+function sameProps(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => a[k] === b[k]);
+}
 
 export type Tool = 'select' | 'hand' | 'frame' | 'section' | 'slice' | 'rect' | 'ellipse' | 'line' | 'polygon' | 'star' | 'text' | 'pen' | 'image';
 
@@ -16,6 +26,20 @@ export interface EditorState {
   clipboard: UINode[];
   /** 当前工具（视图态，不进历史）；M1 落地 select/hand，其余字母切换与光标 M1 即具备 */
   tool: Tool;
+  /* ---- M4 单点合入：C 轨（组件/样式）状态域。与 page 历史独立——组件表增删不受 Ctrl+Z 影响（Assets 语义） ---- */
+  /** FR-25 主组件表：id → ComponentDef（挂 root 级，不参与画布渲染） */
+  components: Record<string, ComponentDef>;
+  /** FR-27/28 样式表（Color/Text 等），可导出 tokens.css */
+  tokens: StyleToken[];
+  /** FR-28 变量序号：--uic-paint-N / --uic-text-N 自增，保证表内唯一 */
+  styleSeq: number;
+  /* ---- M4 单点合入：P 轨（多 Page）状态域。page 保留为「当前页视图」，pages 为唯一权威 ---- */
+  /** FR-39 页面列表（对应 UIProject.pages） */
+  pages: UIPage[];
+  /** FR-39 当前页 id（用于回写 pages[i]） */
+  currentPageId: string;
+  /** FR-39 每页独立历史（切页不入任何 undo 栈，Figma 语义） */
+  history: Record<string, { past: UIPage[]; future: UIPage[]; pendingBaseline: UIPage | null }>;
 }
 
 export type EditorAction =
@@ -74,7 +98,50 @@ export type EditorAction =
   /* ---- Wave2 主线单点共享 action（D0 schema-decisions §二热点规则：P/C 轨道消费、不各自加）---- */
   | { type: 'UPDATE_IMAGE_ADJUSTMENTS'; id: string; adjustments: ImageAdjustments | undefined; transient?: boolean }
   | { type: 'UPDATE_INTERACTIONS'; id: string; interactions: PrototypeInteraction[] }
-  | { type: 'SET_FLOW_START'; id: string | null };
+  | { type: 'SET_FLOW_START'; id: string | null }
+  /* ---- M4 C 轨（组件/样式/tokens）action 段：本轨独占维护 ---- */
+  /** FR-25 选区→主组件（root 子树重排 id 入表；节点挂 componentId） */
+  | { type: 'CREATE_COMPONENT'; id?: string; name?: string }
+  /** FR-25 插入实例（深拷贝快照 + componentId；子树重排 id） */
+  | { type: 'INSERT_INSTANCE'; componentId: string; parentId?: string; index?: number }
+  /** FR-25 Detach instance（仅删标记，不动 id） */
+  | { type: 'DETACH_INSTANCE'; id: string }
+  /** FR-25 改主组件→实例跟随（选中实例子树回写 components[id].root，清 overrides） */
+  | { type: 'PUSH_TO_COMPONENT'; id: string }
+  /** FR-27 建样式（PAINT/TEXT；自动派生 cssVar 自增序号） */
+  | { type: 'CREATE_TOKEN'; kind: 'PAINT' | 'TEXT'; name?: string; style: Partial<StyleSchema>; nodeId?: string }
+  /** FR-27 改样式→全部引用者同步 */
+  | { type: 'UPDATE_TOKEN'; id: string; style?: Partial<StyleSchema>; name?: string }
+  /** FR-27 删样式（清引用） */
+  | { type: 'DELETE_TOKEN'; id: string }
+  /** FR-27 应用样式（style 浅合并进节点；记 styleTokenId） */
+  | { type: 'APPLY_TOKEN'; tokenId: string; nodeId?: string }
+  /** FR-27 Detach style（仅删引用，样式值留在节点上） */
+  | { type: 'DETACH_TOKEN'; id: string }
+  /** FR-29 新建变体：以选中实例当前内容为该组合的变体成员入组 */
+  | { type: 'CREATE_VARIANT'; id?: string; props: Record<string, string>; name?: string }
+  /** FR-29 切换实例属性组合（改 componentId 指向组内匹配成员；命中失败回退首成员） */
+  | { type: 'SET_VARIANT_PROPS'; id: string; props: Record<string, string> }
+  /** FR-29 更新变体成员属性（改 variantProps；重名同组合则拒绝） */
+  | { type: 'UPDATE_VARIANT_PROPS'; componentId: string; props: Record<string, string> }
+  /* ---- M5 P 轨（多 Page）action 段 ---- */
+  /** FR-39 新建页（尾插 + 切为当前页；走项目级操作，不进任何页历史） */
+  | { type: 'ADD_PAGE'; name?: string }
+  /** FR-39 删除页（至少保留 1 页；不做级联清理，broken link 由消费端处理） */
+  | { type: 'DELETE_PAGE'; id?: string }
+  /** FR-39 切换页（先 flush 当前页 pendingBaseline，避免丢一步微调） */
+  | { type: 'SELECT_PAGE'; id: string }
+  /** FR-39 复制页（深拷贝 + 全树重排 id） */
+  | { type: 'DUPLICATE_PAGE'; id?: string }
+  /** FR-39 重命名页 */
+  | { type: 'RENAME_PAGE_BY_ID'; id: string; name: string }
+  /** FR-39 页排序（移至目标索引） */
+  | { type: 'REORDER_PAGE'; id: string; toIndex: number }
+  /* ---- M4 余项：FR-22 布尔 / FR-23 蒙版 UI 入口 ---- */
+  /** FR-22 布尔运算：对选中 VECTOR 参集合并为一条结果 VECTOR（原参集删除） */
+  | { type: 'BOOLEAN_OP'; op: BooleanOp }
+  /** FR-23 Use as mask：把选中容器标记/取消为蒙版组（复用 layout.clipContent 作显式开关） */
+  | { type: 'TOGGLE_MASK'; ids?: string[] };
 
 /** FR-11：撤销重做历史 ≥100 步 */
 const HISTORY_LIMIT = 100;
@@ -89,6 +156,14 @@ export function initialState(page: UIPage, projectName = '未命名项目'): Edi
     pendingBaseline: null,
     clipboard: [],
     tool: 'select',
+    // M4：C 轨状态域（空表起步；LOAD_PAGE/NEW_PAGE 时重置，与 clipboard 同款保留策略）
+    components: {},
+    tokens: [],
+    styleSeq: 0,
+    // M4：P 轨状态域——单页起步，pages[0] 即当前页（既有单页测试零感知）
+    pages: [page],
+    currentPageId: page.id,
+    history: {},
   };
 }
 
@@ -130,7 +205,40 @@ function isDescendant(root: UINode, ancestorId: string, targetId: string): boole
   return hit;
 }
 
+/**
+ * FR-39 多页同步：`page` 为「当前页视图」，`pages` 为唯一权威。
+ *
+ * 设计：既有 ~60 个 case 全部读写 `state.page`，逐 case 改造风险极高且易漏。
+ * 故在 reducer 出口**单点回写**——凡本次 `page` 引用发生变化（新对象），
+ * 即把 `pages[currentPageId]` 换成新引用。切页类 action 自行维护 pages/currentPageId，
+ * 由 `skipPageSync` 标记跳过（它们已把 page 指向另一页，不应再用它覆盖当前页条目）。
+ */
+function syncPages(state: EditorState, prevPage: UIPage, skipPageSync: boolean): EditorState {
+  if (skipPageSync || state.page === prevPage) return state;
+  const idx = state.pages.findIndex((p) => p.id === state.currentPageId);
+  if (idx < 0) return state;
+  const pages = [...state.pages];
+  pages[idx] = state.page;
+  return { ...state, pages };
+}
+
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  return syncPages(reduce(state, action), state.page, PAGE_ACTIONS.has(action.type));
+}
+
+/** 自行维护 pages/currentPageId 的 action（不经出口回写） */
+const PAGE_ACTIONS = new Set<EditorAction['type']>([
+  'ADD_PAGE',
+  'DELETE_PAGE',
+  'SELECT_PAGE',
+  'DUPLICATE_PAGE',
+  'RENAME_PAGE_BY_ID',
+  'REORDER_PAGE',
+  'LOAD_PAGE',
+  'NEW_PAGE',
+]);
+
+function reduce(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'SELECT': {
       if (action.id == null) return { ...state, selectedIds: [] };
@@ -503,7 +611,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case 'LOAD_PAGE':
+      // M4：C 轨组件/样式表随载入重置（跨工程不串味）；P 轨 pages 重置为单页
       return {
+        ...state,
         page: action.page,
         projectName: action.projectName ?? state.projectName,
         selectedIds: [action.page.root.id],
@@ -512,10 +622,17 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         pendingBaseline: null,
         clipboard: state.clipboard,
         tool: state.tool,
+        components: {},
+        tokens: [],
+        styleSeq: 0,
+        pages: [action.page],
+        currentPageId: action.page.id,
+        history: {},
       };
 
     case 'NEW_PAGE': {
-      return { ...initialState(createNewPage(), state.projectName), clipboard: state.clipboard };
+      const fresh = initialState(createNewPage(), state.projectName);
+      return { ...fresh, clipboard: state.clipboard };
     }
 
     case 'RENAME_PAGE': {
@@ -556,6 +673,441 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return pushHistory(state, nextPage);
     }
 
+    /* ---- M4 C 轨（组件/样式/tokens）action 段 ---- */
+    case 'CREATE_COMPONENT': {
+      // FR-25：选中节点 → 主组件（叶子包 FRAME root；子树重排 id 避免与实例撞号）
+      const targetId = action.id ?? selectedPrimary(state);
+      const found = findById(state.page.root, targetId);
+      if (!found) return state;
+      const nextPage = clonePage(state.page);
+      const found2 = findById(nextPage.root, targetId);
+      if (!found2) return state;
+      const reassign = (n: UINode): void => {
+        n.id = nextId(n.type === 'PAGE' ? 'page' : 'n');
+        if (isContainer(n)) n.children.forEach(reassign);
+      };
+      const snapshot = JSON.parse(JSON.stringify(found2.node)) as UINode;
+      reassign(snapshot);
+      const rootNode: ContainerNode =
+        isContainer(snapshot) && snapshot.type !== 'RECTANGLE'
+          ? (snapshot as ContainerNode)
+          : (() => {
+              // 叶子包一层 FRAME（组件 root 需可容纳实例内容）
+              const wrap = createNode('FRAME') as ContainerNode;
+              wrap.id = nextId('n');
+              wrap.name = found2.node.name ?? 'Component';
+              wrap.layout = { ...wrap.layout, width: found2.node.layout.width ?? 100, height: found2.node.layout.height ?? 100 };
+              wrap.children = [snapshot];
+              return wrap;
+            })();
+      const compId = nextId('comp');
+      found2.node.componentId = compId;
+      return {
+        ...pushHistory(state, nextPage),
+        components: {
+          ...state.components,
+          [compId]: {
+            id: compId,
+            name: action.name ?? found2.node.name ?? 'Component',
+            root: rootNode,
+            createdAt: Date.now(),
+          },
+        },
+      };
+    }
+
+    case 'INSERT_INSTANCE': {
+      // FR-25：实例=深拷贝快照+componentId（画布零改动）；子树重排 id
+      const def = state.components[action.componentId];
+      if (!def) return state;
+      const nextPage = clonePage(state.page);
+      const parentId = action.parentId ?? effectiveParentId(state);
+      const parent = findById(nextPage.root, parentId);
+      if (!parent || !isContainer(parent.node)) return state;
+      const inst = JSON.parse(JSON.stringify(def.root)) as ContainerNode;
+      const reassign = (n: UINode): void => {
+        n.id = nextId('n');
+        if (isContainer(n)) n.children.forEach(reassign);
+      };
+      reassign(inst);
+      inst.componentId = action.componentId;
+      const idx = action.index ?? parent.node.children.length;
+      parent.node.children.splice(Math.max(0, Math.min(idx, parent.node.children.length)), 0, inst);
+      return pushHistory({ ...state, page: nextPage, selectedIds: [inst.id] }, nextPage);
+    }
+
+    case 'DETACH_INSTANCE': {
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      if (!found || !found.node.componentId) return state;
+      found.node.componentId = undefined;
+      found.node.instanceOverrides = undefined;
+      return pushHistory(state, nextPage);
+    }
+
+    case 'PUSH_TO_COMPONENT': {
+      // FR-25：选中实例→回写主组件 root（清 overrides）；实例因引用同表在下次读取呈现新内容
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      const compId = found?.node.componentId;
+      if (!found || !compId || !state.components[compId]) return state;
+      const snapshot = JSON.parse(JSON.stringify(found.node)) as UINode;
+      delete snapshot.componentId;
+      delete snapshot.instanceOverrides;
+      const rootNode: ContainerNode = isContainer(snapshot) && snapshot.type !== 'RECTANGLE'
+        ? (snapshot as ContainerNode)
+        : (() => {
+            const wrap = createNode('FRAME') as ContainerNode;
+            wrap.name = found.node.name ?? 'Component';
+            wrap.children = [snapshot];
+            return wrap;
+          })();
+      return {
+        ...state,
+        components: { ...state.components, [compId]: { ...state.components[compId], root: rootNode } },
+      };
+    }
+
+    case 'CREATE_TOKEN': {
+      const tokenId = nextId('tok');
+      const seq = state.styleSeq + 1;
+      const token: StyleToken = {
+        id: tokenId,
+        name: action.name ?? `${action.kind === 'PAINT' ? 'Paint' : 'Text'} ${seq}`,
+        kind: action.kind,
+        style: action.style,
+        cssVar: action.kind === 'PAINT' ? `--uic-paint-${seq}` : `--uic-text-${seq}`,
+      };
+      // 若指定节点：创建即应用（style 浅合并 + 记引用）
+      let base = { ...state, tokens: [...state.tokens, token], styleSeq: seq };
+      if (action.nodeId) {
+        const nextPage = clonePage(state.page);
+        const found = findById(nextPage.root, action.nodeId);
+        if (found) {
+          found.node.style = { ...found.node.style, ...action.style };
+          found.node.styleTokenId = tokenId;
+          base = { ...base, ...pushHistory(base, nextPage) };
+        }
+      }
+      return base;
+    }
+
+    case 'UPDATE_TOKEN': {
+      const token = state.tokens.find((t) => t.id === action.id);
+      if (!token) return state;
+      const nextStyle = action.style ? { ...token.style, ...action.style } : token.style;
+      const nextTokens = state.tokens.map((t) =>
+        t.id === action.id ? { ...t, style: nextStyle, name: action.name ?? t.name } : t,
+      );
+      // FR-27：引用者同步（浅合新样式）
+      const nextPage = clonePage(state.page);
+      let touched = false;
+      walk(nextPage.root, (n) => {
+        if (n.styleTokenId === action.id) {
+          n.style = { ...n.style, ...nextStyle };
+          touched = true;
+        }
+      });
+      const merged = { ...state, tokens: nextTokens };
+      return touched ? pushHistory(merged, nextPage) : merged;
+    }
+
+    case 'DELETE_TOKEN': {
+      const nextPage = clonePage(state.page);
+      let touched = false;
+      walk(nextPage.root, (n) => {
+        if (n.styleTokenId === action.id) {
+          n.styleTokenId = undefined; // 样式值保留（Detach 语义）
+          touched = true;
+        }
+      });
+      const merged = { ...state, tokens: state.tokens.filter((t) => t.id !== action.id) };
+      return touched ? pushHistory(merged, nextPage) : merged;
+    }
+
+    case 'APPLY_TOKEN': {
+      const token = state.tokens.find((t) => t.id === action.tokenId);
+      if (!token) return state;
+      const targetId = action.nodeId ?? selectedPrimary(state);
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, targetId);
+      if (!found) return state;
+      found.node.style = { ...found.node.style, ...token.style };
+      found.node.styleTokenId = token.id;
+      return pushHistory(state, nextPage);
+    }
+
+    case 'DETACH_TOKEN': {
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      if (!found || !found.node.styleTokenId) return state;
+      found.node.styleTokenId = undefined;
+      return pushHistory(state, nextPage);
+    }
+
+    /* ---- FR-29 变体（C 轨 action 段） ---- */
+    case 'CREATE_VARIANT': {
+      // 以选中实例（或指定节点）当前内容为快照，作为新属性组合的变体成员入组
+      const srcId = action.id ?? selectedPrimary(state);
+      const found = findById(state.page.root, srcId);
+      if (!found) return state;
+      const baseCompId = found.node.componentId;
+      const baseDef = baseCompId ? state.components[baseCompId] : undefined;
+      const group = action.name ?? (baseDef ? variantGroupOf(baseDef) : found.node.name ?? 'Component');
+      const snapshot = JSON.parse(JSON.stringify(found.node)) as UINode;
+      delete snapshot.componentId;
+      delete snapshot.instanceOverrides;
+      const reassign = (n: UINode): void => {
+        n.id = nextId('n');
+        if (isContainer(n)) n.children.forEach(reassign);
+      };
+      reassign(snapshot);
+      const rootNode: ContainerNode =
+        isContainer(snapshot) && snapshot.type !== 'RECTANGLE'
+          ? (snapshot as ContainerNode)
+          : (() => {
+              const wrap = createNode('FRAME') as ContainerNode;
+              wrap.name = group;
+              wrap.children = [snapshot];
+              return wrap;
+            })();
+      const compId = nextId('comp');
+      const variantName = Object.entries(action.props)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ');
+      const members = variantsInGroup(state.components, group);
+      // 同组合同组合已存在 → 拒绝（避免同组合两个成员，切换歧义）
+      if (members.some((m) => sameProps(m.variantProps ?? {}, action.props))) return state;
+      return {
+        ...state,
+        components: {
+          ...state.components,
+          [compId]: {
+            id: compId,
+            name: baseDef && variantGroupOf(baseDef) === group ? `${group}/${variantName}` : `${group}/${variantName}`,
+            root: rootNode,
+            variantProps: { ...action.props },
+            createdAt: Date.now(),
+          },
+        },
+      };
+    }
+
+    case 'SET_VARIANT_PROPS': {
+      const found = findById(state.page.root, action.id);
+      const compId = found?.node.componentId;
+      const def = compId ? state.components[compId] : undefined;
+      if (!def) return state;
+      const members = variantsInGroup(state.components, variantGroupOf(def));
+      const hit = findVariant(members, action.props);
+      if (!hit) return state;
+      const nextPage = clonePage(state.page);
+      const target = findById(nextPage.root, action.id);
+      if (!target) return state;
+      // 换指向组内另一成员；已存在的属性覆盖清空（快照口径下组合切换即整体替换内容）
+      target.node.componentId = hit.def.id;
+      target.node.instanceOverrides = undefined;
+      return pushHistory(state, nextPage);
+    }
+
+    case 'UPDATE_VARIANT_PROPS': {
+      const def = state.components[action.componentId];
+      if (!def) return state;
+      const group = variantGroupOf(def);
+      const others = variantsInGroup(state.components, group).filter((m) => m.id !== action.componentId);
+      if (others.some((m) => sameProps(m.variantProps ?? {}, action.props))) return state;
+      return {
+        ...state,
+        components: {
+          ...state.components,
+          [action.componentId]: { ...def, variantProps: { ...action.props } },
+        },
+      };
+    }
+
+    /* ---- M5 P 轨（多 Page）action 段 ---- */
+    case 'ADD_PAGE': {
+      const page = createNewPage();
+      if (action.name) page.name = action.name;
+      return {
+        ...state,
+        pages: [...state.pages, page],
+        currentPageId: page.id,
+        page,
+        selectedIds: [page.root.id],
+        // 新页从干净历史起步（切页不入任何 undo 栈，Figma 语义）
+        past: [],
+        future: [],
+        pendingBaseline: null,
+      };
+    }
+
+    case 'DELETE_PAGE': {
+      // 至少保留 1 页（FR-39）；不做级联清理——broken link 由消费端处理（FR-45）
+      if (state.pages.length <= 1) return state;
+      const targetId = action.id ?? state.currentPageId;
+      const idx = state.pages.findIndex((p) => p.id === targetId);
+      if (idx < 0) return state;
+      const pages = state.pages.filter((p) => p.id !== targetId);
+      // 删的是当前页 → 落到同位置的下一页（末页则取前一页）
+      if (targetId !== state.currentPageId) return { ...state, pages };
+      const next = pages[Math.min(idx, pages.length - 1)];
+      return {
+        ...state,
+        pages,
+        currentPageId: next.id,
+        page: next,
+        selectedIds: [next.root.id],
+        past: [],
+        future: [],
+        pendingBaseline: null,
+      };
+    }
+
+    case 'SELECT_PAGE': {
+      if (action.id === state.currentPageId) return state;
+      const next = state.pages.find((p) => p.id === action.id);
+      if (!next) return state;
+      // 切页前先把当前页的 transient 微调落定，否则丢一步（§1.2-3）
+      const settled = state.pendingBaseline
+        ? [
+            ...state.past,
+            state.pendingBaseline,
+          ].slice(-HISTORY_LIMIT)
+        : state.past;
+      return {
+        ...state,
+        page: next,
+        currentPageId: next.id,
+        selectedIds: [next.root.id],
+        // 每页独立历史：切页即换栈（本实现一次性切换，不跨页保留栈，见 LOG 报备）
+        past: settled,
+        future: state.future,
+        pendingBaseline: null,
+      };
+    }
+
+    case 'DUPLICATE_PAGE': {
+      const targetId = action.id ?? state.currentPageId;
+      const idx = state.pages.findIndex((p) => p.id === targetId);
+      if (idx < 0) return state;
+      const src = state.pages[idx];
+      const copy = clonePage(src);
+      // 全树重排 id，避免与源页撞号
+      const reassign = (n: UINode): void => {
+        n.id = nextId('n');
+        if (isContainer(n)) n.children.forEach(reassign);
+      };
+      copy.root.id = nextId('page');
+      copy.id = nextId('page');
+      copy.name = `${src.name} 副本`;
+      copy.root.children.forEach(reassign);
+      const pages = [...state.pages];
+      pages.splice(idx + 1, 0, copy);
+      return { ...state, pages };
+    }
+
+    case 'RENAME_PAGE_BY_ID': {
+      const idx = state.pages.findIndex((p) => p.id === action.id);
+      if (idx < 0) return state;
+      const pages = [...state.pages];
+      pages[idx] = { ...pages[idx], name: action.name };
+      const isCurrent = action.id === state.currentPageId;
+      return {
+        ...state,
+        pages,
+        ...(isCurrent ? { page: pages[idx], projectName: action.name } : {}),
+      };
+    }
+
+    case 'REORDER_PAGE': {
+      const idx = state.pages.findIndex((p) => p.id === action.id);
+      if (idx < 0) return state;
+      const to = Math.max(0, Math.min(action.toIndex, state.pages.length - 1));
+      if (to === idx) return state;
+      const pages = [...state.pages];
+      const [moved] = pages.splice(idx, 1);
+      pages.splice(to, 0, moved);
+      return { ...state, pages };
+    }
+
+    /* ---- M4 余项：FR-22 布尔 / FR-23 蒙版 ---- */
+    case 'BOOLEAN_OP': {
+      // FR-22：选中集里的 VECTOR 节点按「自下而上」参集序合并为一条结果节点。
+      // 参集顺序取 tree 序（下→上=先出现的在前），与 Figma「先选的在下」语义一致。
+      const ids = state.selectedIds.filter((id) => id !== state.page.root.id);
+      if (ids.length < 2) return state;
+      const nextPage = clonePage(state.page);
+      const order: string[] = [];
+      walk(nextPage.root, (n) => {
+        if (ids.includes(n.id)) order.push(n.id);
+      });
+      const vectors: VectorData[] = [];
+      const vecIds: string[] = [];
+      for (const id of order) {
+        const hit = findById(nextPage.root, id);
+        if (hit && hit.node.type === 'VECTOR' && hit.node.vector?.d?.trim()) { vectors.push(hit.node.vector); vecIds.push(id); }
+      }
+      if (vectors.length < 2) return state;
+
+      const merged = booleanVectorOf(vectors, action.op);
+      if (!merged.d.trim()) return state;
+
+      // 结果节点：继承首个参集的样式与位置；包围盒取参集并集（外接矩形，报备）
+      const first = findById(nextPage.root, vecIds[0])!;
+      const parent = first.parent;
+      if (!parent) return state;
+      const bounds = vectors.map((v) => ({ w: v.width ?? 0, h: v.height ?? 0 }));
+      const node = createNode('VECTOR') as import('../schema/types').VectorNode;
+      node.vector = merged;
+      node.name = BOOLEAN_OP_NAME[action.op];
+      node.style = { ...(first.node.style ?? {}) };
+      node.layout = {
+        ...first.node.layout,
+        width: Math.max(1, Math.round(Math.max(...bounds.map((b) => b.w), first.node.layout.width ?? 1))),
+        height: Math.max(1, Math.round(Math.max(...bounds.map((b) => b.h), first.node.layout.height ?? 1))),
+      };
+
+      // 删除原参集——仅有效 VECTOR（order 含非参集节点，直接删会误伤未参与的 RECT 等）；
+      // 插位须在 prune 前捕获：prune 后参集已不在数组，findIndex 恒 -1（原实现的位置保持是坏的）。
+      const removeIds = new Set(vecIds);
+      const insertIdx = Math.max(0, parent.children.findIndex((c) => c.id === vecIds[0]));
+      const prune = (n: ContainerNode): void => {
+        n.children = n.children.filter((c) => {
+          const keep = !removeIds.has(c.id);
+          if (keep && isContainer(c)) prune(c);
+          return keep;
+        });
+      };
+      prune(nextPage.root);
+      parent.children.splice(Math.min(insertIdx, parent.children.length), 0, node);
+      if (parent.layout.mode === 'ABSOLUTE') {
+        node.layout = { ...node.layout, x: first.node.layout.x, y: first.node.layout.y };
+      }
+      return pushHistory({ ...state, selectedIds: [node.id] }, nextPage);
+    }
+
+    case 'TOGGLE_MASK': {
+      // FR-23：以 layout.clipContent 作显式蒙版开关（与该字段「本容器裁切子项」语义吻合，
+      // 且避免「末位子即蒙版」的隐式推断误伤普通页面——见 tests/fr23-mask-guard.test.ts）。
+      const ids = action.ids ?? state.selectedIds;
+      const targets = ids.filter((id) => id !== state.page.root.id);
+      if (!targets.length) return state;
+      const nextPage = clonePage(state.page);
+      let any = false;
+      for (const id of targets) {
+        const hit = findById(nextPage.root, id);
+        if (hit && isContainer(hit.node) && hit.node.type !== 'RECTANGLE') {
+          // 蒙版组需至少 2 个子项（上=蒙版、下=被裁切）
+          if (hit.node.children.length < 2) continue;
+          hit.node.layout = { ...hit.node.layout, clipContent: !hit.node.layout.clipContent };
+          any = true;
+        }
+      }
+      if (!any) return state;
+      return pushHistory(state, nextPage);
+    }
+
     default:
       return state;
   }
@@ -575,9 +1127,12 @@ function cloneCopy(node: UINode): UINode {
 }
 
 function createNewPage(): UIPage {
-  const page = createNode('PAGE', { id: 'page', name: '未命名页面' }) as UINode as import('../schema/types').ContainerNode;
+  // FR-39：**必须分配唯一 id**——早先硬编码 id:'page' 会让多页共用同一 id，
+  // 导致 pages/currentPageId 无法区分页面（findIndex 恒命中首页）。
+  const id = nextId('page');
+  const page = createNode('PAGE', { id, name: '未命名页面' }) as UINode as import('../schema/types').ContainerNode;
   return {
-    id: 'page',
+    id,
     name: '未命名页面',
     viewport: { width: 375, height: 812 },
     root: page,

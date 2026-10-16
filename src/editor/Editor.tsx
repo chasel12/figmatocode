@@ -7,9 +7,13 @@ import { canvasBus } from './canvasBus';
 import { Toolbar } from './Toolbar';
 import { Canvas } from './Canvas';
 import { Palette } from './Palette';
+import { AssetsPanel } from './AssetsPanel';
 import { Pages } from './Pages';
 import { Layers } from './Layers';
 import { PropertyPanel } from './PropertyPanel';
+import { PrototypePanel } from './PrototypePanel';
+import { PresentOverlay, isPresenting } from './present/PresentOverlay';
+import { presentBus } from './present/presentBus';
 
 const STORAGE_KEY = 'ui-compiler.autosave.v1';
 
@@ -33,6 +37,9 @@ export function Editor() {
   );
   const [leftTab, setLeftTab] = useState<'pages' | 'layers' | 'assets'>('layers');
   const [rightTab, setRightTab] = useState<'design' | 'prototype'>('design');
+  // FR-44 Present 演示模式（视图态，不进 store 历史）；startId 为选中 Frame 有 flowStart 时的起点
+  const [presenting, setPresenting] = useState(false);
+  const [presentStartId, setPresentStartId] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -78,8 +85,35 @@ export function Editor() {
     return () => clearTimeout(timer);
   }, [state.page, state.projectName]);
 
+  // FR-44：Toolbar 经 presentBus 请求开始演示（起点由 Toolbar 依选中 Frame 的 flowStart 解析）
+  useEffect(
+    () =>
+      presentBus.onStart((req) => {
+        setPresentStartId(req.startId ?? null);
+        setPresenting(true);
+      }),
+    [],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // FR-44：Present 期间编辑器键盘整体让路（PresentOverlay 自行处理 Esc/←→/R/H）
+      if (isPresenting()) return;
+      // Ctrl+Alt+P 开始演示（组合键规避钢笔工具 'P'）
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        const st = stateRef.current;
+        const primary = st.selectedIds[st.selectedIds.length - 1];
+        const sel = primary ? findById(st.page.root, primary)?.node : null;
+        presentBus.requestStart({ startId: sel?.flowStart ? sel.id : null });
+        return;
+      }
+      // FR-23 Ctrl+Alt+M：用作蒙版 / 取消蒙版（对照 Figma）
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        dispatch({ type: 'TOGGLE_MASK' });
+        return;
+      }
       const target = e.target as HTMLElement;
       const typing =
         target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -236,7 +270,12 @@ export function Editor() {
               </div>
               {leftTab === 'pages' && <Pages />}
               {leftTab === 'layers' && <Layers />}
-              {leftTab === 'assets' && <Palette />}
+              {leftTab === 'assets' && (
+                <>
+                  <Palette />
+                  <AssetsPanel />
+                </>
+              )}
             </aside>
             <main className="canvas-area">
               <Canvas />
@@ -250,18 +289,28 @@ export function Editor() {
                   Design
                 </button>
                 <button
-                  className="side-tab"
-                  disabled
-                  title="Prototype 按 PRD v1.1 于 M5 实现（P0：触发器/动作/动画/演示）"
+                  className={`side-tab ${rightTab === 'prototype' ? 'is-active' : ''}`}
+                  onClick={() => setRightTab('prototype')}
                 >
                   Prototype
                 </button>
               </div>
-              {rightTab === 'design' ? <PropertyPanel /> : <div className="props-empty">Prototype 暂不支持</div>}
+              {rightTab === 'design' ? <PropertyPanel /> : <PrototypePanel />}
             </aside>
           </div>
         </div>
       </CanvasGeometryContext.Provider>
+      {/* FR-44：Present 全屏遮罩（视图态，不进 store 历史） */}
+      {presenting && (
+        <PresentOverlay
+          page={state.page}
+          startId={presentStartId}
+          onExit={() => {
+            setPresenting(false);
+            setPresentStartId(null);
+          }}
+        />
+      )}
     </EditorContext.Provider>
   );
 }

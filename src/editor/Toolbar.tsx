@@ -8,6 +8,8 @@ import { CodeModal } from './CodeModal';
 import { DiffModal } from './DiffModal';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { downloadText } from '../utils/zip';
+import { findById } from '../schema/factory';
+import { presentBus } from './present/presentBus';
 
 function serializePage(page: UIPage): string {
   return JSON.stringify({ version: 1, page }, null, 2);
@@ -57,6 +59,17 @@ export function Toolbar() {
   const [zoom, setZoom] = useState(1);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const menuBarRef = useRef<HTMLElement | null>(null);
+
+  // FR-22/23 菜单项可用性：布尔需 ≥2 个 VECTOR 参集；蒙版需容器且子项 ≥2
+  const selectedNodes = state.selectedIds
+    .map((id) => findById(state.page.root, id)?.node)
+    .filter((n): n is NonNullable<typeof n> => !!n);
+  const canBoolean = selectedNodes.filter((n) => n.type === 'VECTOR' && !!n.vector?.d?.trim()).length >= 2;
+  const maskTarget = selectedNodes.find(
+    (n) => n.id !== state.page.root.id && 'children' in n && n.children.length >= 2 && n.type !== 'RECTANGLE',
+  );
+  const canMaskTarget = !!maskTarget;
+  const canMask = !!(maskTarget && maskTarget.layout.clipContent);
 
   const save = () => {
     downloadText(serializePage(state.page), `${state.projectName || 'project'}.uipage.json`, 'application/json');
@@ -112,7 +125,7 @@ export function Toolbar() {
           label: '导出所选为图片 / SVG（ZIP）',
           onClick: () => {
             if (!geometry) return;
-            exportSelection(state.page, geometry, state.selectedIds, state.projectName).then((out) => {
+            exportSelection(state.page, geometry, state.selectedIds, state.projectName, state.tokens).then((out) => {
               if (out.skipped.length) alert(`已导出 ${out.files.length} 项；跳过 ${out.skipped.length} 项：\n${out.skipped.map((s) => `${s.file} — ${s.reason}`).join('\n')}`);
             }).catch((err: Error) => alert(err.message));
           },
@@ -183,8 +196,42 @@ export function Toolbar() {
         { label: '组合', shortcut: 'Ctrl+G', onClick: () => dispatch({ type: 'GROUP' }) },
         { label: '锁定 / 解锁', shortcut: 'Ctrl+Shift+L', onClick: () => dispatch({ type: 'TOGGLE_LOCK' }) },
         { divider: true },
-        { label: '布尔运算', disabled: true, note: '本版不支持（P1，M4 交付）' },
-        { label: '创建组件', disabled: true, note: '本版不支持（组件体系 M6 前不开放）' },
+        // FR-22 布尔运算：需选中 ≥2 个 VECTOR 参集（禁用态依选中数判定）
+        {
+          label: '布尔：合并',
+          disabled: !canBoolean,
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'UNION' }),
+        },
+        {
+          label: '布尔：交集',
+          disabled: !canBoolean,
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'INTERSECT' }),
+        },
+        {
+          label: '布尔：减去',
+          disabled: !canBoolean,
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'SUBTRACT' }),
+        },
+        {
+          label: '布尔：排除',
+          disabled: !canBoolean,
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'EXCLUDE' }),
+        },
+        { divider: true },
+        // FR-23 蒙版：复用 layout.clipContent 作显式开关
+        {
+          label: canMask ? '取消蒙版' : '用作蒙版',
+          shortcut: 'Ctrl+Alt+M',
+          disabled: !canMaskTarget,
+          note: canMaskTarget ? undefined : '需选中含 ≥2 个子项的容器',
+          onClick: () => dispatch({ type: 'TOGGLE_MASK' }),
+        },
+        { divider: true },
+        { label: '创建组件', disabled: true, note: '布局用资产面板「创建组件」（FR-25）' },
         { label: '轮廓描边', disabled: true, note: '本版不支持（P1，M4 交付）' },
       ],
     },
@@ -385,6 +432,17 @@ export function Toolbar() {
           <option value="4">400%</option>
           <option value="custom">{Math.round(zoom * 100)}%</option>
         </select>
+        <button
+          className="btn"
+          title="演示模式（Ctrl+Alt+P）"
+          onClick={() => {
+            const primary = state.selectedIds[state.selectedIds.length - 1];
+            const sel = primary ? findById(state.page.root, primary)?.node : null;
+            presentBus.requestStart({ startId: sel?.flowStart ? sel.id : null });
+          }}
+        >
+          演示
+        </button>
         <button className="btn" disabled title="分享暂不支持（P2 协作，M7 评审后启用）">
           分享
         </button>
