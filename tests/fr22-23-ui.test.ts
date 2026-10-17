@@ -70,17 +70,54 @@ describe('FR-22 布尔运算（store action）', () => {
     expect(d.indexOf('M 0 0')).toBeLessThan(d.indexOf('M 5 5'));
   });
 
-  it('非 VECTOR 选中不参与（混选时按实际 VECTOR 数判定）', () => {
+  it('混选（P1-05）：图形节点自动矢量化参与，非图形节点保留不参与', () => {
     const page = createPage('混选');
     const v1 = vec('M 0 0 L 10 0 L 10 10 Z');
     const v2 = vec('M 5 5 L 15 5 L 15 15 Z');
-    const rect = createNode('RECTANGLE');
-    page.root.children.push(v1, v2, rect);
+    const rect = createNode('RECTANGLE'); // 可路径化 → 参与自动矢量化
+    const text = createNode('TEXT'); // 不可路径化 → 保留
+    page.root.children.push(v1, v2, rect, text);
     const s = initialState(page, 'p');
-    const out = editorReducer({ ...s, selectedIds: [v1.id, v2.id, rect.id] }, { type: 'BOOLEAN_OP', op: 'UNION' });
-    // 结果 + 未参与的矩形
+    const out = editorReducer({ ...s, selectedIds: [v1.id, v2.id, rect.id, text.id] }, { type: 'BOOLEAN_OP', op: 'UNION' });
+    // 结果 + 未参与文本；RECT 被合并删除
     expect(out.page.root.children).toHaveLength(2);
-    expect(out.page.root.children.some((c) => c.id === rect.id)).toBe(true);
+    expect(out.page.root.children.some((c) => c.id === text.id)).toBe(true);
+    expect(out.page.root.children.some((c) => c.id === rect.id)).toBe(false);
+    const merged = out.page.root.children.find((c) => c.type === 'VECTOR') as VectorNode;
+    expect((merged.vector!.d.match(/[Mm]/g) ?? []).length).toBe(3); // 三参集子路径（v1+v2+rect 路径化）
+  });
+
+  it('P1-05 位移修复：不同画布位置的参集按绝对位置差 flatten（不再叠到原点）', () => {
+    const page = createPage('位移');
+    const a = vec('M 0 0 L 10 0 L 10 10 Z');
+    a.layout = { ...a.layout, x: 0, y: 0 };
+    const b = vec('M 0 0 L 10 0 L 10 10 Z');
+    b.layout = { ...b.layout, x: 40, y: 25 };
+    page.root.children.push(a, b);
+    const s = initialState(page, 'p');
+    const out = editorReducer({ ...s, selectedIds: [a.id, b.id] }, { type: 'BOOLEAN_OP', op: 'UNION' });
+    const merged = out.page.root.children[0] as VectorNode;
+    const parts = merged.vector!.d.split(/(?=[Mm])/).map((x) => x.trim());
+    expect(parts).toHaveLength(2);
+    expect(parts[1]).toMatch(/^M 40 25/); // 第二参集平移到首参集本地系的 (40,25)
+    expect(merged.layout.width).toBe(50); // 紧包围盒 10+40
+    expect(merged.layout.height).toBe(35);
+  });
+
+  it('P1-05 自动矢量化：矩形参集路径化参与（含矩形子路径，尺寸为紧包围盒）', () => {
+    const page = createPage('矢量化');
+    const rect = createNode('RECTANGLE');
+    rect.layout = { ...rect.layout, x: 0, y: 0, width: 30, height: 20 };
+    const v = vec('M 0 0 L 10 0 L 10 10 Z');
+    page.root.children.push(rect, v);
+    const s = initialState(page, 'p');
+    const out = editorReducer({ ...s, selectedIds: [rect.id, v.id] }, { type: 'BOOLEAN_OP', op: 'UNION' });
+    expect(out.page.root.children).toHaveLength(1);
+    const merged = out.page.root.children[0] as VectorNode;
+    expect(merged.type).toBe('VECTOR');
+    expect(merged.vector!.d).toContain('M 0 0 L 30 0 L 30 20 L 0 20 Z'); // rectPathD 路径化
+    expect(merged.layout.width).toBe(30);
+    expect(merged.layout.height).toBe(20);
   });
 
   it('空 d 的 VECTOR 不算有效参集', () => {

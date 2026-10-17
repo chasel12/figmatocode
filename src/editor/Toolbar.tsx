@@ -9,6 +9,7 @@ import { DiffModal } from './DiffModal';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { downloadText } from '../utils/zip';
 import { findById } from '../schema/factory';
+import { isBooleanConvertible } from '../compiler/shapePath';
 import { presentBus } from './present/presentBus';
 
 interface MenuDef {
@@ -56,11 +57,11 @@ export function Toolbar() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const menuBarRef = useRef<HTMLElement | null>(null);
 
-  // FR-22/23 菜单项可用性：布尔需 ≥2 个 VECTOR 参集；蒙版需容器且子项 ≥2
+  // FR-22/23 菜单项可用性：布尔需 ≥2 个可布尔节点（VECTOR 或可自动矢量化的图形，P1-05）；蒙版需容器且子项 ≥2
   const selectedNodes = state.selectedIds
     .map((id) => findById(state.page.root, id)?.node)
     .filter((n): n is NonNullable<typeof n> => !!n);
-  const canBoolean = selectedNodes.filter((n) => n.type === 'VECTOR' && !!n.vector?.d?.trim()).length >= 2;
+  const canBoolean = selectedNodes.filter((n) => isBooleanConvertible(n)).length >= 2;
   const maskTarget = selectedNodes.find(
     (n) => n.id !== state.page.root.id && 'children' in n && n.children.length >= 2 && n.type !== 'RECTANGLE',
   );
@@ -199,25 +200,25 @@ export function Toolbar() {
         {
           label: '布尔：合并',
           disabled: !canBoolean,
-          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量/图形节点',
           onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'UNION' }),
         },
         {
           label: '布尔：交集',
           disabled: !canBoolean,
-          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量/图形节点',
           onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'INTERSECT' }),
         },
         {
           label: '布尔：减去',
           disabled: !canBoolean,
-          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量/图形节点',
           onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'SUBTRACT' }),
         },
         {
           label: '布尔：排除',
           disabled: !canBoolean,
-          note: canBoolean ? undefined : '需选中 ≥2 个矢量节点',
+          note: canBoolean ? undefined : '需选中 ≥2 个矢量/图形节点',
           onClick: () => dispatch({ type: 'BOOLEAN_OP', op: 'EXCLUDE' }),
         },
         { divider: true },

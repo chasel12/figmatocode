@@ -31,13 +31,20 @@ describe('FR-16 OVAL/LINE 节点类型（schema 演进）', () => {
     expect(line.style?.border).toEqual({ width: 1, color: '#000000', style: 'solid' });
   });
 
-  it('OVAL 出码：border-radius 50%（覆盖显式 radius，不出 corner-shape）', () => {
+  it('OVAL 出码（P1-14）：SVG 通道（四段 C 贝塞尔），不出 border-radius/corner-shape', () => {
     const oval = shapeNode('OVAL');
     oval.style = { borderRadius: 12, cornerSmoothing: 100 };
-    const css = scssFromPage(compilePage(withNode(oval)));
-    expect(css).toContain('border-radius: 50%');
-    expect(css).not.toContain('border-radius: 12px');
+    const page = withNode(oval);
+    const compiled = compilePage(page);
+    const css = scssFromPage(compiled);
+    expect(css).not.toContain('border-radius');
     expect(css).not.toContain('corner-shape');
+    const html = generateHtml(page, compiled);
+    expect(html).toContain('<svg');
+    const d = /path d="([^"]+)"/.exec(html)![1];
+    expect((d.match(/C /g) ?? []).length).toBe(4); // 椭圆 = 四段三次贝塞尔
+    const ref = generateReferenceHtml(page, compiled, { page: { x: 0, y: 0, width: 375, height: 812 } });
+    expect(ref).toContain('<svg');
   });
 
   it('LINE 出码：height 0 + border-top + rotation rotate + origin（0=无 transform）', () => {
@@ -56,14 +63,14 @@ describe('FR-16 OVAL/LINE 节点类型（schema 演进）', () => {
     expect(css0).toContain('border-top: 1px solid #000000');
   });
 
-  it('reference/taro 出码：OVAL/LINE→div/View（不入容器递归）', () => {
+  it('reference/主出码：OVAL 走 SVG 通道（P1-14）、无 undefined 泄漏', () => {
     const page = withNode(shapeNode('OVAL'));
     const compiled = compilePage(page);
     const ref = generateReferenceHtml(page, compiled, { page: { x: 0, y: 0, width: 375, height: 812 } });
-    expect(ref).toContain('<div');
+    expect(ref).toContain('<svg');
     expect(ref).not.toContain('undefined');
     const html = generateHtml(page, compiled);
-    expect(html).toContain('<div');
+    expect(html).toContain('<svg');
     const taro = generateTaroProject(page, compiled);
     expect(JSON.stringify(taro)).not.toContain('undefined');
   });

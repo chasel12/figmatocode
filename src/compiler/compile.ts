@@ -2,7 +2,8 @@ import type { BoxPadding, FillLayer, LayoutSchema, UINode, UIPage } from '../sch
 import { hasText, isContainer } from '../schema/types';
 import type { CompiledNode, CompiledPage, CSSDecl } from './css-model';
 import { FONT_STACK } from '../font';
-import { arcSpec, clipPathPolygon, polygonUnitPoints, starUnitPoints } from './shapes';
+import { arcSpec } from './shapes';
+import { isShapeSvgNode } from './shapePath';
 import { maskClipCss, maskDeclarations, maskIndexInGroup } from './mask';
 import { imageAdjustFilter } from './imageAdjust';
 
@@ -412,6 +413,8 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
   const arcN = S.arcData ? arcSpec(S.arcData.startingAngle, S.arcData.endingAngle) : null;
   const arcShaped =
     node.type === 'OVAL' && !!S.arcData && !!arcN && (arcN.sweep < 360 || (S.arcData?.innerRadius ?? 0) > 0);
+  // P1-14：SVG 通道形状（OVAL 无弧参数 / POLYGON / STAR）——外观（fill/stroke）全部由 <svg> 表达，CSS 侧只保留布局
+  const shapeSvg = isShapeSvgNode(node);
   if (arcShaped && arcN && S.arcData) {
     // FR-16 弧形：conic-gradient 接管 fills（多层/渐变近似首色，LOG 报备），无内径=扇/环由 mask 打孔
     const a = S.arcData;
@@ -435,9 +438,9 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       css['mask-image'] = mask;
       css['-webkit-mask-image'] = mask;
     }
-  } else if (node.type === 'VECTOR') {
-    // FR-49：矢量视觉全在 <svg> 内（fill/stroke 由 svgOfVector 表达）——
-    // 此处不出 background/border，否则会画出矩形底破坏逐像素对比。
+  } else if (node.type === 'VECTOR' || shapeSvg) {
+    // FR-49 / P1-14：矢量与 SVG 通道形状的外观全在 <svg> 内（fill/stroke 由 svgOfVector 表达）——
+    // 此处不出 background/border，否则会画出矩形底/双重描边破坏逐像素对比。
   } else {
     if (S.fills && S.fills.length) {
       // FR-17 多层填充：数组序=面板序=CSS 层序（background-image 首项在上）；fills 接管旧 background
@@ -448,11 +451,11 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       else css['background-color'] = S.background;
     }
   }
-  if (node.type === 'OVAL') css['border-radius'] = '50%';
-  else if (S.borderRadius != null) css['border-radius'] = radiusValue(S.borderRadius);
-  if (node.type === 'POLYGON') css['clip-path'] = clipPathPolygon(polygonUnitPoints(S.pointCount ?? 3));
-  else if (node.type === 'STAR') css['clip-path'] = clipPathPolygon(starUnitPoints(S.pointCount ?? 5, S.innerRadius ?? 0.38));
-  if (S.cornerSmoothing != null && S.cornerSmoothing > 0 && node.type !== 'OVAL') css['corner-shape'] = 'squircle';
+  if (!shapeSvg) {
+    if (node.type === 'OVAL') css['border-radius'] = '50%';
+    else if (S.borderRadius != null) css['border-radius'] = radiusValue(S.borderRadius);
+    if (S.cornerSmoothing != null && S.cornerSmoothing > 0 && node.type !== 'OVAL') css['corner-shape'] = 'squircle';
+  }
   // FR-23 蒙版出码：组内上方蒙版 → 下方图层裁切等价；与 clipContent 互斥（后者已出 overflow:hidden，不叠加 clip-path 以免双重裁切）
   if (node.type !== 'VECTOR' && !L.clipContent) {
     const maskDecls = maskDeclarations(maskClipCss(maskNodeOf(ctx)));
@@ -525,9 +528,9 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     }
     if (S.rotation) css['transform'] = `rotate(${S.rotation}deg)`;
     css['transform-origin'] = '0 50%';
-  } else if (node.type !== 'VECTOR' && !arcShaped && b && (b.width > 0 || hasWidths)) {
+  } else if (node.type !== 'VECTOR' && !shapeSvg && !arcShaped && b && (b.width > 0 || hasWidths)) {
     // FR-18/FR-47：INSIDE→border（box-sizing:border-box）；CENTER→border 半宽+outline 外半；OUTSIDE→box-shadow 外扩
-    // FR-49：VECTOR 排除——描边已由 <svg> 的 stroke 表达（避免 CSS border 重复描一圈矩形）
+    // FR-49 / P1-14：VECTOR 与 SVG 通道形状排除——描边已由 <svg> 的 stroke 表达（避免 CSS border 重复描一圈）
     const lineStyle = b.dash ? 'dashed' : b.style ?? 'solid';
     const color = withAlpha(b.color, b.opacity ?? 1);
     const align = b.align ?? 'INSIDE';

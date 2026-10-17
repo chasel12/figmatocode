@@ -1,10 +1,11 @@
 import { createContext, useContext } from 'react';
-import type { NodeKind, UINode, UIPage, UIProject, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, VectorData, LayoutGridSchema } from '../schema/types';
+import type { NodeKind, UINode, UIPage, UIProject, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, LayoutGridSchema } from '../schema/types';
 import type { StyleTokenKind } from '../schema/types';
 import { isContainer } from '../schema/types';
 import { clonePage, createNode, findById, nextId, walk } from '../schema/factory';
 import { findVariant, variantGroupOf, variantsInGroup } from './variants';
-import { BOOLEAN_OP_NAME, booleanVectorOf, type BooleanOp } from '../compiler/boolean';
+import { BOOLEAN_OP_NAME, booleanPathOf, pathBounds, splitSubpaths, type BooleanOp } from '../compiler/boolean';
+import { isBooleanConvertible, shapePathData, translatePathD } from '../compiler/shapePath';
 
 /** FR-29：两属性组合是否等价（键集合与取值全等） */
 function sameProps(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -1103,8 +1104,9 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
 
     /* ---- M4 余项：FR-22 布尔 / FR-23 蒙版 ---- */
     case 'BOOLEAN_OP': {
-      // FR-22：选中集里的 VECTOR 节点按「自下而上」参集序合并为一条结果节点。
-      // 参集顺序取 tree 序（下→上=先出现的在前），与 Figma「先选的在下」语义一致。
+      // FR-22（P1-05 扩展）：选中集里的 VECTOR 与可路径化图形（矩形/椭圆/多边形/星形/直线）自动矢量化成 path 后，
+      // 按「自下而上」参集序合并为一条 VECTOR 结果节点（可继续编辑）。参集顺序取 tree 序（下→上=先出现的在前），
+      // 与 Figma「先选的在下」语义一致。
       const ids = state.selectedIds.filter((id) => id !== state.page.root.id);
       if (ids.length < 2) return state;
       const nextPage = clonePage(state.page);
@@ -1112,36 +1114,70 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       walk(nextPage.root, (n) => {
         if (ids.includes(n.id)) order.push(n.id);
       });
-      const vectors: VectorData[] = [];
-      const vecIds: string[] = [];
+      // 参集收集：VECTOR 直接用 d；图形节点自动路径化（P1-05 自动矢量化，形状→path 单一事实源 shapePathData）
+      const items: { id: string; node: UINode; d: string }[] = [];
       for (const id of order) {
         const hit = findById(nextPage.root, id);
-        if (hit && hit.node.type === 'VECTOR' && hit.node.vector?.d?.trim()) { vectors.push(hit.node.vector); vecIds.push(id); }
+        if (!hit) continue;
+        const n = hit.node;
+        let d = '';
+        if (n.type === 'VECTOR' && n.vector?.d?.trim()) d = n.vector.d;
+        else if (isBooleanConvertible(n)) {
+          const sp = shapePathData(n);
+          if (sp) d = sp.d;
+        }
+        if (d.trim()) items.push({ id, node: n, d });
       }
-      if (vectors.length < 2) return state;
+      if (items.length < 2) return state;
 
-      const merged = booleanVectorOf(vectors, action.op);
+      // flatten（P1-05 修复位移缺陷）：各参集 d 由各自本地系按绝对位置差平移到首参集本地系后再合并。
+      // 原实现直接拼串、未展开坐标系——不同画布位置的参集全部叠到首参集原点（位移丢失，LOG 报备）。
+      const absPos = (targetId: string): { x: number; y: number } => {
+        let found: { x: number; y: number } | null = null;
+        const dfs = (n: UINode, ax: number, ay: number): void => {
+          if (found) return;
+          if (n.id === targetId) {
+            found = { x: ax, y: ay };
+            return;
+          }
+          if (isContainer(n)) n.children.forEach((c) => dfs(c, ax + (c.layout.x ?? 0), ay + (c.layout.y ?? 0)));
+        };
+        dfs(nextPage.root, nextPage.root.layout.x ?? 0, nextPage.root.layout.y ?? 0);
+        return found ?? { x: 0, y: 0 };
+      };
+      const ref = absPos(items[0].id);
+      const flat = items.map((it) => {
+        const p = absPos(it.id);
+        return translatePathD(it.d, p.x - ref.x, p.y - ref.y);
+      });
+      const merged = booleanPathOf(flat, action.op);
       if (!merged.d.trim()) return state;
 
-      // 结果节点：继承首个参集的样式与位置；包围盒取参集并集（外接矩形，报备）
-      const first = findById(nextPage.root, vecIds[0])!;
+      // 结果几何：合并后子路径的真实包围盒（负坐标整体归一平移；宽高取紧包围盒，替换原「参集最大尺寸」口径）
+      const boxes = splitSubpaths(merged.d).map((s) => pathBounds(s));
+      const minX = Math.min(...boxes.map((b) => b.x));
+      const minY = Math.min(...boxes.map((b) => b.y));
+      const maxX = Math.max(...boxes.map((b) => b.x + b.width));
+      const maxY = Math.max(...boxes.map((b) => b.y + b.height));
+      const shiftX = minX < 0 ? -minX : 0;
+      const shiftY = minY < 0 ? -minY : 0;
+      const finalD = shiftX || shiftY ? translatePathD(merged.d, shiftX, shiftY) : merged.d;
+      const outW = Math.max(1, Math.round(maxX + shiftX));
+      const outH = Math.max(1, Math.round(maxY + shiftY));
+
+      // 结果节点：继承首个参集的样式与位置
+      const first = findById(nextPage.root, items[0].id)!;
       const parent = first.parent;
       if (!parent) return state;
-      const bounds = vectors.map((v) => ({ w: v.width ?? 0, h: v.height ?? 0 }));
       const node = createNode('VECTOR') as import('../schema/types').VectorNode;
-      node.vector = merged;
+      node.vector = { d: finalD, fillRule: merged.fillRule, width: outW, height: outH };
       node.name = BOOLEAN_OP_NAME[action.op];
       node.style = { ...(first.node.style ?? {}) };
-      node.layout = {
-        ...first.node.layout,
-        width: Math.max(1, Math.round(Math.max(...bounds.map((b) => b.w), first.node.layout.width ?? 1))),
-        height: Math.max(1, Math.round(Math.max(...bounds.map((b) => b.h), first.node.layout.height ?? 1))),
-      };
+      node.layout = { ...first.node.layout, width: outW, height: outH };
 
-      // 删除原参集——仅有效 VECTOR（order 含非参集节点，直接删会误伤未参与的 RECT 等）；
-      // 插位须在 prune 前捕获：prune 后参集已不在数组，findIndex 恒 -1（原实现的位置保持是坏的）。
-      const removeIds = new Set(vecIds);
-      const insertIdx = Math.max(0, parent.children.findIndex((c) => c.id === vecIds[0]));
+      // 删除原参集（含被自动矢量化的图形）；插位须在 prune 前捕获（prune 后 findIndex 恒 -1）
+      const removeIds = new Set(items.map((it) => it.id));
+      const insertIdx = Math.max(0, parent.children.findIndex((c) => c.id === items[0].id));
       const prune = (n: ContainerNode): void => {
         n.children = n.children.filter((c) => {
           const keep = !removeIds.has(c.id);
@@ -1152,7 +1188,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       prune(nextPage.root);
       parent.children.splice(Math.min(insertIdx, parent.children.length), 0, node);
       if (parent.layout.mode === 'ABSOLUTE') {
-        node.layout = { ...node.layout, x: first.node.layout.x, y: first.node.layout.y };
+        // 本地系经归一平移后，节点原点同步回退（保持结果在画布上的绝对位置不变）
+        node.layout = { ...node.layout, x: (first.node.layout.x ?? 0) - shiftX, y: (first.node.layout.y ?? 0) - shiftY };
       }
       return pushHistory({ ...state, selectedIds: [node.id] }, nextPage);
     }

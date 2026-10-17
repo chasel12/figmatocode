@@ -3,6 +3,7 @@ import type { CompiledPage } from '../compiler/css-model';
 import type { GeometryMap } from '../compiler/layout';
 import { escapeHtml, collectFxDefs, type DomParts } from './html';
 import { svgOfVector } from './vector';
+import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { FONT_FACE_CSS, FONT_STACK } from '../font';
 
 /**
@@ -99,6 +100,24 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
         fill: node.style?.background,
       });
       if (svg) out.push(`${indent}${svg}`);
+      return;
+    }
+    if (isShapeSvgNode(node)) {
+      // P1-14：reference 侧同样出内联 <svg>，与 render 侧同形状方可逐像素对比（Arc OVAL 仍走下方 div+conic 通道）
+      const sp = shapePathData(node);
+      if (sp) {
+        const svg = svgOfVector(
+          { d: sp.d, width: sp.width, height: sp.height },
+          node.layout.width ?? sp.width,
+          node.layout.height ?? sp.height,
+          { className: cls, border: shapeStrokeOf(node.style?.border), fill: shapeFillOf(node.style) },
+        );
+        if (svg) {
+          out.push(`${indent}${svg}`);
+          return;
+        }
+      }
+      out.push(`${indent}<div class="${cls}"></div>`);
       return;
     }
     if (node.type === 'RECTANGLE' || node.type === 'OVAL' || node.type === 'LINE' || node.type === 'POLYGON' || node.type === 'STAR') {

@@ -14,6 +14,7 @@ import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { escapeHtml } from './html';
 import { svgOfVector } from './vector';
+import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { buildRuntimeJs, buildRuntimeCss, RUNTIME_FILE } from './runtime';
 
 /** ZIP 条目形状（与 generator/project.ts 的 TaroFile 同构） */
@@ -117,6 +118,20 @@ function renderNode(node: UINode, classNames: Map<string, string>, depth: number
     if (!svg) return '';
     // data-node / data-interaction 挂在 svg 外层包装上（svg 自身不吃自定义属性语义）
     return `${indent}<span${anchor}${inter}>${svg}</span>`;
+  }
+  if (isShapeSvgNode(node)) {
+    // P1-14：圆/多边形/星形切 SVG 通道（与 html.ts/reference.ts 同口径）；data-node 同上挂外层包装
+    const sp = shapePathData(node);
+    if (sp) {
+      const svg = svgOfVector(
+        { d: sp.d, width: sp.width, height: sp.height },
+        node.layout.width ?? sp.width,
+        node.layout.height ?? sp.height,
+        { className: cls, border: shapeStrokeOf(node.style?.border), fill: shapeFillOf(node.style) },
+      );
+      if (svg) return `${indent}<span${anchor}${inter}>${svg}</span>`;
+    }
+    return `${indent}<div class="${cls}"${anchor}${inter}></div>`;
   }
   if (!isContainer(node) || node.type === 'RECTANGLE')
     return `${indent}<div class="${cls}"${anchor}${inter}></div>`;

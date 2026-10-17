@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createNode, createPage, resetIdSeq } from '../src/schema/factory';
 import { arcSpec, clipPathPolygon, compilePage, flattenPx, polygonUnitPoints, starUnitPoints } from '../src/compiler';
+import { buildPreviewDom } from '../src/generator/html';
 import type { StyleSchema, UINode } from '../src/schema/types';
 
 resetIdSeq(0);
@@ -57,27 +58,38 @@ describe('FR-16 形状 helper（画布/出码同口径）', () => {
   });
 });
 
-describe('FR-16 出码：POLYGON / STAR clip-path', () => {
-  it('POLYGON 默认 3 边 → clip-path polygon()', () => {
+describe('FR-16 出码（P1-14）：POLYGON / STAR 切 SVG 通道', () => {
+  function domOf(n: UINode): string {
+    const page = pageWith(n);
+    return buildPreviewDom(page, compilePage(page)).bodyHtml;
+  }
+  function pathD(html: string): string {
+    return /path d="([^"]+)"/.exec(html)![1];
+  }
+
+  it('POLYGON 默认 3 边 → CSS 无形状外观（无 clip-path / border-radius），SVG path 3 顶点', () => {
     const n = createNode('POLYGON');
     const css = cssOf(n);
-    expect(css['clip-path']).toMatch(/^polygon\(/);
+    expect(css['clip-path']).toBeUndefined();
+    expect(css['border-radius']).toBeUndefined();
     expect(n.style?.pointCount).toBe(3);
+    const d = pathD(domOf(n));
+    expect((d.match(/L /g) ?? []).length).toBe(2); // 3 顶点 = M + 2×L + Z
   });
 
-  it('POLYGON pointCount=6 → 6 点（split 得 6 段）', () => {
+  it('POLYGON pointCount=6 → SVG path 6 顶点（M + 5×L）', () => {
     const n = createNode('POLYGON');
     n.style = { ...(n.style as StyleSchema), pointCount: 6 };
-    const css = cssOf(n);
-    expect(css['clip-path'].split(',')).toHaveLength(6);
+    const d = pathD(domOf(n));
+    expect((d.match(/L /g) ?? []).length).toBe(5);
   });
 
-  it('STAR 默认 pointCount=5 / innerRadius=0.38 → 10 点', () => {
+  it('STAR 默认 pointCount=5 / innerRadius=0.38 → SVG path 10 顶点（M + 9×L）', () => {
     const n = createNode('STAR');
     expect(n.style?.pointCount).toBe(5);
     expect(n.style?.innerRadius).toBe(0.38);
-    const css = cssOf(n);
-    expect(css['clip-path'].split(',')).toHaveLength(10);
+    const d = pathD(domOf(n));
+    expect((d.match(/L /g) ?? []).length).toBe(9);
   });
 });
 
@@ -107,10 +119,14 @@ describe('FR-16 出码：OVAL arcData（conic + mask）', () => {
     expect(css['-webkit-mask-image']).toContain('radial-gradient');
   });
 
-  it('整圆等效 arc（0/360/0）→ 不走 conic，保持普通椭圆', () => {
-    const css = oval({ arcData: { startingAngle: 0, endingAngle: 360, innerRadius: 0 } });
+  it('整圆等效 arc（0/360/0）→ 不走 conic，切 SVG 通道（无 border-radius）', () => {
+    const n = createNode('OVAL');
+    n.style = { ...(n.style as StyleSchema), arcData: { startingAngle: 0, endingAngle: 360, innerRadius: 0 } };
+    const css = cssOf(n);
     expect(css['background-image']).toBeUndefined();
-    expect(css['border-radius']).toBe('50%');
+    expect(css['border-radius']).toBeUndefined();
+    const page = pageWith(n);
+    expect(buildPreviewDom(page, compilePage(page)).bodyHtml).toContain('<svg');
   });
 
   it('弧形接管 fills：conic 色取 fills[0] 首色', () => {

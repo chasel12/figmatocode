@@ -4,6 +4,7 @@ import type { CompiledPage } from '../compiler/css-model';
 import { scssFromPage } from '../compiler/css-model';
 import { FONT_FACE_CSS, FONT_STACK } from '../font';
 import { svgOfVector } from './vector';
+import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 
 export function escapeHtml(text: string): string {
   return text
@@ -50,6 +51,20 @@ function makeRenderer(classNames: Map<string, string>, indentUnit = '  ', startD
         fill: node.style?.background,
       });
       return svg ? `${indent}${svg}` : '';
+    }
+    if (isShapeSvgNode(node)) {
+      // P1-14：圆/多边形/星形切 SVG 通道（shapePathData 单一事实源，与编辑器自动矢量化同几何）
+      const sp = shapePathData(node);
+      if (sp) {
+        const svg = svgOfVector(
+          { d: sp.d, width: sp.width, height: sp.height },
+          node.layout.width ?? sp.width,
+          node.layout.height ?? sp.height,
+          { className: cls, border: shapeStrokeOf(node.style?.border), fill: shapeFillOf(node.style) },
+        );
+        if (svg) return `${indent}${svg}`;
+      }
+      return `${indent}<div class="${cls}"></div>`;
     }
     if (!isContainer(node) || node.type === 'RECTANGLE') {
       return `${indent}<div class="${cls}"></div>`;

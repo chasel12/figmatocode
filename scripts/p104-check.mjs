@@ -73,7 +73,7 @@ try {
     await page.screenshot({ path: join(OUT, '01-选中矢量.png') });
 
     // 用 e2e hook 读舞台变换，精确定位 VECTOR 几何（避免猜坐标）
-    const view = await page.evaluate(() => window.__UIC_VIEW__ ?? null);
+    const view = await page.evaluate(() => window.__UIC_VIEW__?.() ?? null);
     const stageBox0 = await page.locator('.konvajs-content').boundingBox();
     step('e2e 通道可用（精确定位锚点）', !!view && !!stageBox0, `view=${JSON.stringify(view)}`);
 
