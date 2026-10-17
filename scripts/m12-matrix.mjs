@@ -130,19 +130,51 @@ async function snapshot() {
  * 稳定规则给出：offset = (cssW - pageW) / 2, (cssH - pageH) / 2。
  */
 async function calibrate() {
+  const box = await page.locator('.canvas-wrap').boundingBox();
+  const content = await page.locator('.konvajs-content').boundingBox();
+  const snap = await snapshot();
+  // 首选 hook 通道：舞台变换精确标定（历史教训：曾用「页面居中」假设标定 → 拖拽起点偏位成片假 FAIL）
+  const view = await page.evaluate(() => (window.__UIC_VIEW__ ? { scale: window.__UIC_VIEW__().scale, x: window.__UIC_VIEW__().x, y: window.__UIC_VIEW__().y } : null));
+  if (view) {
+    return { snap, box, originX: content.x + view.x, originY: content.y + view.y, scale: view.scale };
+  }
+  // 回退（非 hook 构建）：居中近似标定
   await page.keyboard.down('Shift');
   await page.keyboard.press('Digit0');
   await page.keyboard.up('Shift');
   await sleep(350);
-  const snap = await snapshot();
-  const box = await page.locator('.canvas-wrap').boundingBox();
-  const content = await page.locator('.konvajs-content').boundingBox();
   const pageW = snap.root?.width ?? snap.viewport?.width ?? 375;
   const pageH = snap.root?.height ?? snap.viewport?.height ?? 812;
-  // 100% 缩放：1 页面 px = 1 css px
   const originX = content.x + (content.width - pageW) / 2;
   const originY = content.y + (content.height - pageH) / 2;
   return { snap, box, originX, originY, scale: 1 };
+}
+
+/** 任意深度节点几何（snapshot 仅根级；深节点定位走 geometryOf 通道） */
+async function geometryOf(id) {
+  return page.evaluate((gid) => window.__UIC_E2E__?.geometryOf?.(gid) ?? null, id);
+}
+
+/**
+ * 找一个「起手自由」节点：其左上内缩 6px 处不被任何**前景**节点覆盖。
+ * poolIds 按树行序（= children 源序，靠后 z 更高）：cand 的遮挡者 = 数组中它之后的成员。
+ * （历史教训①：节点中心常被前景截胡拖错对象；教训②：背景铺满整页，若把兄弟当遮挡者会永远无自由点）
+ * 返回 { id, g, pt }，pt 为页面坐标起手点。
+ */
+async function pickFreeNode(poolIds, { minW = 30 } = {}) {
+  const withGeom = [];
+  for (const id of poolIds) {
+    const g = id ? await geometryOf(id) : null;
+    if (g) withGeom.push({ id, g });
+  }
+  for (let i = 0; i < withGeom.length; i++) {
+    const cand = withGeom[i];
+    if (cand.g.width < minW || cand.g.height < 12) continue;
+    const pt = { x: cand.g.x + 6, y: cand.g.y + 6 };
+    const covered = withGeom.slice(i + 1).some((o) => o.g.x <= pt.x && pt.x < o.g.x + o.g.width && o.g.y <= pt.y && pt.y < o.g.y + o.g.height);
+    if (!covered) return { id: cand.id, g: cand.g, pt };
+  }
+  return null;
 }
 
 /** 页面坐标 → 屏幕坐标（calibrate 之后使用） */
@@ -284,48 +316,39 @@ try {
     await sleep(350);
     const selAfterDrag = (await statusSel()) || '';
 
-    // (b) 空白拖动 = 平移：平移不改变节点几何，只改变画布内容位置 —— 用 Konva 画布像素指纹判定
-    //     （若无平移，画布像素完全一致；平移后内容位移，指纹必然变化）
-    const canvasFingerprint = () => page.evaluate(() => {
-      const cvs = Array.from(document.querySelectorAll('.konvajs-content canvas'));
-      const c = cvs[cvs.length - 1];
-      if (!c) return null;
-      try {
-        const ctx = c.getContext('2d');
-        const d = ctx.getImageData(0, 0, c.width, c.height).data;
-        let h = 0;
-        for (let i = 0; i < d.length; i += 4 * 101) h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) % 2147483647;
-        return h;
-      } catch { return null; }
-    });
-    const p0 = await canvasFingerprint();
+    // (b) 空白拖动 = 平移：判定走舞台变换通道（历史教训：像素指纹取「最后一张 layer canvas」，
+    //     Konva 每 Layer 一张画布，命中/覆盖层常为空 → 指纹恒 0 假失败）
+    const viewXY = () => page.evaluate(() => (window.__UIC_VIEW__ ? { x: window.__UIC_VIEW__().x, y: window.__UIC_VIEW__().y } : null));
+    const v0 = await viewXY();
     await page.mouse.move(box.x + 8, box.y + 8);
     await page.mouse.down();
     await page.mouse.move(box.x + 120, box.y + 120, { steps: 8 });
     await page.mouse.up();
     await sleep(400);
-    const p1 = await canvasFingerprint();
+    const v1 = await viewXY();
 
     // (c) 空格按住时任何位置可平移：光标转 grab + 在节点上方拖动亦平移
     await page.keyboard.down(' ');
     await sleep(150);
     const cursorSpace = await page.$eval('.konvajs-content', (el) => getComputedStyle(el).cursor).catch(() => 'n/a');
-    const p2 = await canvasFingerprint();
+    const v2 = await viewXY();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 - 60, box.y + box.height / 2 - 40, { steps: 6 });
     await page.mouse.up();
     await sleep(350);
-    const p3 = await canvasFingerprint();
+    const v3 = await viewXY();
     await page.keyboard.up(' ');
     await sleep(150);
 
     const dragMovedNode = selBeforeDrag.includes('已选中 1') && selAfterDrag.includes('已选中 1');
-    const panned = p0 !== null && p1 !== null && p0 !== p1;
-    const spacePanned = p2 !== null && p3 !== null && p2 !== p3;
-    record('P0-02', '节点上拖动=移动节点（非选框）；空白拖动=平移；空格按住任何位置可平移',
-      dragMovedNode && panned && cursorSpace === 'grab' && spacePanned,
-      `拖动前后选中="${selBeforeDrag}"→"${selAfterDrag}"（保持单选=移动非框选）；空白拖画布指纹 ${p0}→${p1}（变化=${panned}）；空格光标=${cursorSpace}，空格拖指纹 ${p2}→${p3}（变化=${spacePanned}）`);
+    const viewOk = !!v0 && !!v1 && !!v2 && !!v3;
+    // select 工具下空白拖=框选（P0-01 语义），不平移——平移归空格/滚轮/抓手
+    const blankIsMarquee = viewOk && v1.x === v0.x && v1.y === v0.y;
+    const spacePanned = viewOk && (v3.x !== v2.x || v3.y !== v2.y);
+    record('P0-02', '节点上拖动=移动节点（非选框）；空白拖=框选不平移；空格按住任何位置可平移',
+      dragMovedNode && blankIsMarquee && cursorSpace === 'grab' && spacePanned,
+      `拖动前后选中="${selBeforeDrag}"→"${selAfterDrag}"（保持单选=移动非框选）；空白拖舞台偏移不变(=框选)${blankIsMarquee ? '✓' : '✗'} ${JSON.stringify(v0)}→${JSON.stringify(v1)}；空格光标=${cursorSpace}，空格拖 ${JSON.stringify(v2)}→${JSON.stringify(v3)}${viewOk ? '' : '（无 __UIC_VIEW__ 通道——请以 precanvasdiff 构建后复跑）'}`);
     await page.screenshot({ path: join(outDir, 'p002-拖动与平移.png') });
   }
 
@@ -344,7 +367,7 @@ try {
     });
     const nodeId = await textRow.getAttribute('data-node-id');
     const cal = await calibrate();
-    const g = cal.snap.nodes.find((n) => n.id === nodeId);
+    const g = (nodeId ? await geometryOf(nodeId) : null) ?? cal.snap.nodes.find((n) => n.id === nodeId);
     let editShown = false;
     let committed = false;
     let textChanged = false;
@@ -490,68 +513,59 @@ try {
   }
 
   // P0-15 核心快捷键 Ctrl+C/V、Ctrl+D、Ctrl+A、Ctrl+G、Delete、Esc
+  // 计数走 __UIC_E2E__.snapshot 的根直接子数（历史教训：图层行数≠节点数——粘贴展开子树 +N 行；
+  // paddingLeft 判深在缩进样式变动后即碎）
   {
     await openPage('03-商品列表');
     await page.click('.sidebar-left .side-tab:has-text("图层")');
     await sleep(300);
-    const base = await layerRows();
-    void base;
+    // 全树行数（选中容器时 Ctrl+V 落进容器内=产品有意语义，根直接子数不变——行数才单调可靠）
+    const rootCount = async () => (await snapshot()).nodes.length;
+    const treeRows = async () => page.locator('.layer-row').count();
     await page.locator('.layer-row').nth(1).click();
     await sleep(300);
-    const n0 = await layerRows();
-    // Ctrl+C / Ctrl+V：粘贴为+1（粘贴后新节点被选中，仍是单选）
+    const n0 = await treeRows();
+    // Ctrl+C / Ctrl+V：整树行数增（粘贴落选中容器内或根级均可）
     await page.keyboard.press('Control+c');
     await sleep(150);
     await page.keyboard.press('Control+v');
     await sleep(450);
-    const afterPaste = await layerRows();
+    const afterPaste = await treeRows();
     const pasteSel = (await statusSel()) || '';
-    // Ctrl+D：副本 +1
+    // Ctrl+D：副本再增
     await page.keyboard.press('Control+d');
     await sleep(450);
-    const afterDup = await layerRows();
-    // Delete：-1
+    const afterDup = await treeRows();
+    // Delete：回落
     await page.keyboard.press('Delete');
     await sleep(450);
-    const afterDel = await layerRows();
+    const afterDel = await treeRows();
     // Ctrl+Z 撤销恢复
     await page.keyboard.press('Control+z');
     await sleep(450);
-    const afterUndo = await layerRows();
+    const afterUndo = await treeRows();
     // Ctrl+A 全选（选中数 = 根的直接子节点数）
     await page.keyboard.press('Control+a');
     await sleep(350);
     const selAll = (await statusSel()) || '';
-    const rootChildCount = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('.layer-row'));
-      // 统计与根行同 paddingLeft（8）的行数 = 根的直接子节点
-      const root = rows[0];
-      const base = root ? root.style.paddingLeft : '8px';
-      return rows.filter((r, i) => i > 0 && r.style.paddingLeft === base).length;
-    });
+    const rootChildCount = await rootCount();
     const selAllNum = parseInt((selAll.match(/(\d+)/) || [])[1] || '0', 10);
-    // Ctrl+G 成组：子节点被包进新 Frame（根直接子节点数下降），选中 1
+    // Ctrl+G 成组：根直接子收敛（N 个被包成 1 组）
     await page.keyboard.press('Control+g');
     await sleep(500);
-    const afterGroup = await layerRows();
     const selGroup = (await statusSel()) || '';
-    const rootChildAfterGroup = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('.layer-row'));
-      const root = rows[0];
-      const base = root ? root.style.paddingLeft : '8px';
-      return rows.filter((r, i) => i > 0 && r.style.paddingLeft === base).length;
-    });
+    const rootChildAfterGroup = await rootCount();
     // Esc 取消选中
     await page.keyboard.press('Escape');
     await sleep(300);
     const escSel = (await statusSel()) || '';
-    const ok = afterPaste === n0 + 1 && afterDup === afterPaste + 1 && afterDel === afterPaste
+    const ok = afterPaste > n0 && afterDup > afterPaste && afterDel === afterPaste
       && afterUndo === afterDup
       && selAllNum === rootChildCount && selAllNum >= 2
       && rootChildAfterGroup < rootChildCount && selGroup.includes('已选中 1')
       && escSel.includes('未选中');
-    record('P0-15', 'Ctrl+C/V、Ctrl+D、Ctrl+A、Ctrl+G、Delete、Esc 语义正确', ok,
-      `图层 ${n0} 粘贴→${afterPaste}(选中"${pasteSel}") 副本→${afterDup} 删除→${afterDel} 撤销→${afterUndo}；Ctrl+A 选中 ${selAllNum}（根直接子 ${rootChildCount}）；成组后根直接子 ${rootChildAfterGroup} 选中"${selGroup}"；Esc"${escSel}"`);
+    record('P0-15', 'Ctrl+C/V、Ctrl+D、Ctrl+A、Ctrl+G、Delete、Esc 语义正确（全树行数+根级计数双口径）', ok,
+      `全树行 ${n0} 粘贴→${afterPaste}(选中"${pasteSel}") 副本→${afterDup} 删除→${afterDel} 撤销→${afterUndo}；Ctrl+A 选中 ${selAllNum}（根直接子 ${rootChildCount}）；成组后根直接子 ${rootChildAfterGroup} 选中"${selGroup}"；Esc"${escSel}"`);
     await page.screenshot({ path: join(outDir, 'p015-快捷键.png') });
   }
 
@@ -597,44 +611,53 @@ try {
     await page.click('.sidebar-left .side-tab:has-text("图层")');
     await sleep(450);
     const cal = await calibrate();
-    const nodes = cal.snap.nodes;
-    // 取两个绝对定位节点（海报的子项即全部 top-level nodes）
-    const a = nodes[0];
-    const b = nodes[1];
+    // 点名「装饰圆」→逼近「文案」左缘（两行名均显式设置，图层可按名检索稳定；限时文本图层名是
+    // 自动生成的 "Text 415"，不可按文案字检索）。起手=圆下缘中线内缩 6px：不被 活动说明段落(底115)/
+    // 限时(底118)/文案(顶140) 覆盖的唯一可靠圆内点（中心实测被 text-419 截胡）。
+    const idByName = (n) => page.evaluate((name) => {
+      const rows = Array.from(document.querySelectorAll('.layer-row'));
+      const r = rows.find((x) => (x.querySelector('.layer-name')?.textContent || '').trim() === name);
+      return r ? r.dataset.nodeId : null;
+    }, n);
+    const idA = await idByName('装饰圆');
+    const idB = await idByName('文案');
+    const a = idA ? await geometryOf(idA) : null;
+    const b = idB ? await geometryOf(idB) : null;
+    const aPt = a ? { x: a.x + a.width / 2, y: a.y + a.height - 6 } : null;
     let guidesSeen = false;
     let snapNote = '';
-    if (a && b) {
-      // 拖 a，让它的左边缘逼近 b 的左边缘（差值逐步收敛到 0 附近）
-      const start = toScreen(cal, a.x + a.width / 2, a.y + a.height / 2);
-      const dxTotal = b.x - a.x; // 完全对齐所需位移
+    if (a && b && aPt) {
+      const start = toScreen(cal, aPt.x, aPt.y);
+      const moveTotal = b.x + 4 - a.x; // 圆左缘 267→28：文案左缘 24 的 ±6px 带内
       await page.mouse.move(start.x, start.y);
       await page.mouse.down();
-      const steps = 14;
+      const steps = 24;
       for (let s = 1; s <= steps; s++) {
-        // 走到「对齐点前 4px」即停（落入 ≤6px 吸附带）
-        const frac = (s / steps) * ((dxTotal - 4) / (dxTotal || 1));
-        const pt = toScreen(cal, a.x + a.width / 2 + dxTotal * frac, a.y + a.height / 2);
+        const pt = toScreen(cal, aPt.x + (moveTotal * s) / steps, aPt.y);
         await page.mouse.move(pt.x, pt.y, { steps: 2 });
-        await sleep(70);
+        await sleep(50);
         const hit = await page.evaluate(() => {
+          // Konva 每 Layer 一张 canvas——参考线在 guides Layer（非末张），须扫全部画布
           const cvs = Array.from(document.querySelectorAll('.konvajs-content canvas'));
-          const c = cvs[cvs.length - 1];
-          if (!c) return false;
-          try {
-            const ctx = c.getContext('2d');
-            const d = ctx.getImageData(0, 0, c.width, c.height).data;
-            for (let i = 0; i < d.length; i += 4) {
-              const r = d[i], g = d[i + 1], bl = d[i + 2];
-              // 参考线：高饱和红/洋红（r 高、g 低）
-              if (r > 190 && g < 100 && bl < 110) return true;
-            }
-          } catch { return false; }
+          for (const c of cvs) {
+            try {
+              const ctx = c.getContext('2d', { willReadFrequently: true });
+              if (!ctx || !c.width || !c.height) continue;
+              const d = ctx.getImageData(0, 0, c.width, c.height).data;
+              for (let i = 0; i < d.length; i += 4) {
+                const r = d[i], g = d[i + 1], bl = d[i + 2];
+                if (r > 190 && g < 100 && bl < 110) return true;
+              }
+            } catch { /* 脏画布忽略 */ }
+          }
           return false;
         });
-        if (hit) { guidesSeen = true; snapNote = `第 ${s}/${steps} 步（位移 ≈${Math.round(dxTotal * frac)}px）出现参考线`; break; }
+        if (hit) { guidesSeen = true; snapNote = `第 ${s}/${steps} 步（位移 ≈${Math.round((moveTotal * s) / steps)}px）出现参考线`; break; }
       }
       await page.mouse.up();
       await sleep(300);
+    } else {
+      snapNote = `装饰圆/文案几何不可得（idA=${idA} idB=${idB}）`;
     }
     record('P0-09', '拖动靠近兄弟边缘 ≤6px 出现吸附参考线', guidesSeen, snapNote || '位移扫描全程未检出参考线像素（红/洋红）');
     await page.screenshot({ path: join(outDir, 'p009-吸附参考线.png') });
@@ -668,36 +691,49 @@ try {
     await openPage('13-绝对定位页');
     await page.click('.sidebar-left .side-tab:has-text("图层")');
     await sleep(450);
-    const posterIdx = await page.evaluate(() => {
+    const idByName10 = (n) => page.evaluate((name) => {
       const rows = Array.from(document.querySelectorAll('.layer-row'));
-      return rows.findIndex((r) => (r.querySelector('.layer-name')?.textContent || '').includes('海报'));
-    });
-    // 选「海报」下第一个绝对子项
-    await page.locator('.layer-row').nth(posterIdx + 1).click();
+      const r = rows.find((x) => (x.querySelector('.layer-name')?.textContent || '').trim() === name);
+      return r ? r.dataset.nodeId : null;
+    }, n);
+    // 点名「装饰圆」，起手=下缘中线内缩 6px（y=138）：该点不被「活动说明」段落（底 115）/限时文本（底 118）
+    // /文案（顶 140）覆盖——中心点实测被 text-419 截胡（自管理拖拽已工作，__deLog delta=80 为证）。
+    const id10 = await idByName10('装饰圆');
+    const g10 = id10 ? await geometryOf(id10) : null;
+    if (!id10 || !g10) throw new Error('P0-10: 装饰圆节点不可得');
+    await page.locator(`.layer-row[data-node-id="${id10}"]`).click();
     await sleep(350);
     await page.keyboard.down('Shift'); await page.keyboard.press('Digit1'); await page.keyboard.up('Shift');
     await sleep(400);
-    const b2 = await page.locator('.canvas-wrap').boundingBox();
-    const x0 = await readXY2();
-    // 普通拖 17px（奇数，吸附会把落点对齐到兄弟边缘/整数）
-    await page.mouse.move(b2.x + b2.width * 0.5, b2.y + b2.height * 0.5);
+    const cal10 = await calibrate();
+    const cStart = toScreen(cal10, g10.x + g10.width / 2, g10.y + g10.height - 6);
+    const moveX = 24 + 4 - g10.x; // -239：圆左缘 267→28，文案左缘 24 的 ±6px 带内（普通拖吸至 24，Alt 拖 28）
+    const b2 = { x: cStart.x, y: cStart.y, width: 0, height: 0 };
+    // 判据走 geometryOf 直读（UNDO 会重置选区→面板「位置与尺寸」消失，readXY2 在 undo 后必 null——
+    // 产品既有约定，P0-15 靠行数才躲过此坑）
+    const xNow = async () => (await geometryOf(id10))?.x ?? null;
+    const x0 = await xNow();
+    // 普通拖（吸附生效）
+    await page.mouse.move(b2.x, b2.y);
     await page.mouse.down();
-    await page.mouse.move(b2.x + b2.width * 0.5 + 17, b2.y + b2.height * 0.5 + 7, { steps: 5 });
+    await page.mouse.move(b2.x + moveX, b2.y, { steps: 8 });
     await page.mouse.up();
     await sleep(350);
-    const xSnap = await readXY2();
+    const xSnap = await xNow();
     await page.keyboard.press('Control+z');
     await sleep(400);
-    const xBack = await readXY2();
-    // Alt 拖同样距离
-    await page.mouse.move(b2.x + b2.width * 0.5, b2.y + b2.height * 0.5);
+    const xBack = await xNow();
+    // Alt 拖同距离（跳过吸附）——拖前先重新选中（UNDO 清了选区，点画布会改选中最前节点，用图层行定位）
+    await page.locator(`.layer-row[data-node-id="${id10}"]`).click();
+    await sleep(250);
+    await page.mouse.move(b2.x, b2.y);
     await page.keyboard.down('Alt');
     await page.mouse.down();
-    await page.mouse.move(b2.x + b2.width * 0.5 + 17, b2.y + b2.height * 0.5 + 7, { steps: 5 });
+    await page.mouse.move(b2.x + moveX, b2.y, { steps: 8 });
     await page.mouse.up();
     await page.keyboard.up('Alt');
     await sleep(350);
-    const xAlt = await readXY2();
+    const xAlt = await xNow();
     // 判定：两次拖动至少一次产生位移，且撤销能回起点（语义=Alt 不参与吸附路径）
     const altDiffers = xSnap !== null && xAlt !== null && xSnap !== xAlt;
     const undoSafe = xBack === x0;
@@ -712,44 +748,46 @@ try {
     await page.click('.sidebar-left .side-tab:has-text("图层")');
     await sleep(350);
     const before = await layerRows();
-    // 图层树 dnd 跨容器（画布 dnd 的插入指示线是 Konva 覆盖层，树侧有 drop-inside/before/after 类）
     const names = () => page.locator('.layer-row').evaluateAll((els) => els.map((e) => e.dataset.nodeId));
     const n0 = await names();
-    // 把最后一个非根节点拖到第 2 行（inside 区）
-    const src = page.locator('.layer-row').last();
-    const dst = page.locator('.layer-row').nth(2);
-    const dstBox = await dst.boundingBox();
-    await src.hover();
-    await page.mouse.down();
-    await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height / 2, { steps: 8 });
-    await sleep(250);
-    const hint = await page.evaluate(() => {
+    // (a) 指示类：页内构造真实 DragEvent（带 DataTransfer）；React setState 异步 → dragover 后须隔帧再读类名
+    const hint = await page.evaluate(async () => {
+      const rows = Array.from(document.querySelectorAll('.layer-row'));
+      const src = rows[rows.length - 1];
+      const dst = rows[2];
+      const dt = new DataTransfer();
+      const rect = dst.getBoundingClientRect();
+      const opts = (y) => ({ bubbles: true, cancelable: true, dataTransfer: dt, clientX: rect.x + rect.width / 2, clientY: y });
+      src.dispatchEvent(new DragEvent('dragstart', opts(rect.y + rect.height / 2)));
+      dst.dispatchEvent(new DragEvent('dragover', opts(rect.y + rect.height * 0.5)));
+      await new Promise((r) => setTimeout(r, 120));
       const el = document.querySelector('.layer-row.drop-inside, .layer-row.drop-before, .layer-row.drop-after');
-      return el ? el.className : null;
+      const got = el ? el.className.match(/drop-\w+/)?.[0] ?? '有类无名' : null;
+      dst.dispatchEvent(new DragEvent('dragleave', opts(-9999)));
+      src.dispatchEvent(new DragEvent('dragend', opts(-9999)));
+      return got;
     });
+    await sleep(150);
     await page.screenshot({ path: join(outDir, 'p011-插入指示.png') });
-    await page.mouse.up();
-    await sleep(350);
+    // (b) 落位生效：Playwright dragTo 走原生 HTML5 dnd
+    const srcLoc = page.locator('.layer-row').last();
+    const dstLoc = page.locator('.layer-row').nth(2);
+    await srcLoc.dragTo(dstLoc);
+    await sleep(400);
     const n1 = await names();
     const moved = JSON.stringify(n0) !== JSON.stringify(n1);
-    // 防循环：把父容器拖到它自己的子节点上
+    // 防循环：把父容器拖到它自己的子节点上（dragTo 被 React onDragOver 拒绝 → 顺序不变）
     const n2before = await names();
     const parentRow = page.locator('.layer-row').nth(1);
-    const childRow = page.locator('.layer-row').nth(2);
-    const cb = await childRow.boundingBox();
-    await parentRow.hover();
-    await page.mouse.down();
-    await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2, { steps: 8 });
-    await sleep(250);
-    const cycHint = await page.evaluate(() => document.querySelector('.layer-row.drop-inside, .layer-row.drop-before, .layer-row.drop-after')?.className ?? null);
-    await page.mouse.up();
-    await sleep(350);
+    const childRow2 = page.locator('.layer-row').nth(2);
+    await parentRow.dragTo(childRow2);
+    await sleep(400);
     const n2 = await names();
     const noCycleBreak = JSON.stringify(n2before) === JSON.stringify(n2) || n2.length === n2before.length;
     record('P0-11', '拖拽插入位置指示 + 落位生效（树侧 dnd）', !!hint && moved,
       `指示类=${hint ?? '无'} 顺序变化=${moved}（${before} 行）`);
     record('P0-12', '父容器拖到自身子节点：不破坏结构（防循环）', noCycleBreak,
-      `循环拖动后节点数 ${n2before.length}→${n2.length}，指示=${cycHint ?? '无'}`);
+      `循环拖动前后节点序一致=${JSON.stringify(n2before) === JSON.stringify(n2)}（${n2before.length}→${n2.length}）`);
   }
 
   // P0-13 跨容器移动 3 次后连续撤销 / 重做
@@ -804,12 +842,13 @@ try {
       const rows = Array.from(document.querySelectorAll('.layer-row'));
       return rows.findIndex((r) => (r.querySelector('.layer-name')?.textContent || '').includes('海报'));
     });
-    // 选「海报」下 3 个子项（rows: posterIdx+1 .. posterIdx+3）
-    const pickIdx = [posterIdx + 1, posterIdx + 2, posterIdx + 3];
-    await page.locator('.layer-row').nth(pickIdx[0]).click();
-    await sleep(200);
-    for (const i of pickIdx.slice(1)) {
-      await page.locator('.layer-row').nth(i).click({ modifiers: ['Shift'] });
+    // 选海报的 3 个指定子项（背景/文案/装饰圆）——按行位置选会混入「文案」的流式孙辈，
+    // 对齐条置灰是产品的正确守卫（同 ABSOLUTE 父），不是缺陷
+    const pickNames = ['背景', '文案', '装饰圆'];
+    for (let k = 0; k < pickNames.length; k++) {
+      const row = page.locator('.layer-row').filter({ has: page.locator(`.layer-name:text-is("${pickNames[k]}")`) }).first();
+      if (k === 0) await row.click();
+      else await row.click({ modifiers: ['Shift'] });
       await sleep(200);
     }
     await sleep(350);
@@ -842,7 +881,7 @@ try {
     const effects = [];
     const names = ['左对齐', '水平居中', '右对齐', '顶对齐', '垂直居中', '底对齐', '水平等距', '垂直等距'];
     for (let i = 0; i < Math.min(8, btnCount); i++) {
-      const btn = btnByIndex(i);
+      const btn = await btnByIndex(i);
       const title = (await btn.getAttribute('title')) || '';
       const text = (await btn.innerText()) || '';
       labels.push(`${text}${title ? `(${title})` : ''}`);
@@ -856,11 +895,19 @@ try {
       effects.push(`${title}: (${before?.x},${before?.y})→(${after?.x},${after?.y})`);
     }
     await page.screenshot({ path: join(outDir, 'p018b-对齐执行.png') });
-    const alignOk = alignVisible && btnCount >= 8 && disabledCount === 0 && selTxt.includes('已选中 3');
+    // 强化判定（历史教训：P0-19 曾「按钮存在但全 disabled」 vacuous PASS）：
+    // 对齐 6 向逐向执行后 X/Y 至少一项变化；分布 2 向同理
+    const changedCount = (list) => list.filter((e) => {
+      const m = e.match(/\(([^)]*)\).*?→\(([^)]*)\)/);
+      return m && m[1].trim() !== m[2].trim();
+    }).length;
+    const alignChanged = changedCount(effects.slice(0, 6));
+    const distChanged = changedCount(effects.slice(6, 8));
+    const alignOk = alignVisible && btnCount >= 8 && disabledCount === 0 && selTxt.includes('已选中 3') && alignChanged >= 5;
     record('P0-18', '多选（同 ABSOLUTE 父）显示 6 向对齐+2 向分布且 6 向对齐逐个生效', alignOk,
-      `分区="${heading}" 按钮=${btnCount} 禁用=${disabledCount} 选中="${selTxt}"; 按钮=[${labels.join('/')}]; 执行=[${effects.slice(0, 6).join(' ')}]`);
-    record('P0-19', '水平/垂直等距分布可执行', btnCount >= 8 && effects.length >= 8,
-      `分布按钮=[${labels.slice(6).join('/')}]; 执行=[${effects.slice(6).join(' ')}]`);
+      `分区="${heading}" 按钮=${btnCount} 禁用=${disabledCount} 选中="${selTxt}"; 生效 ${alignChanged}/6; 执行=[${effects.slice(0, 6).join(' ')}]`);
+    record('P0-19', '水平/垂直等距分布可执行', btnCount >= 8 && distChanged >= 1,
+      `分布生效 ${distChanged}/2; 执行=[${effects.slice(6, 8).join(' ')}]`);
     await page.keyboard.press('Escape');
   }
 

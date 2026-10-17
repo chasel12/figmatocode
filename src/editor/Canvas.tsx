@@ -17,6 +17,8 @@ import { canvasBus } from './canvasBus';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 
 const PAGE_BG = '#FFFFFF';
+/** 导引空态稳定引用（非空数组每次都是新引用 → 每次 dragmove 都触发重渲染） */
+const NO_GUIDES: GuideLine[] = [];
 
 // FR-51②：Konva 文本渲染对齐浏览器——默认 MIDDLE 基线按 em-box 中点定位，与 DOM 半行距+ascent 公式差 ~1px；
 // _fixTextRendering 启用后 Konva 改用 fontBoundingBox 公式（与 CSS line box 一致）。需在 Stage 创建前设置。
@@ -78,6 +80,8 @@ interface Ctx {
   onHover: (id: string | null) => void;
   onSelect: (id: string, additive: boolean) => void;
   onNodeDblClick: (node: UINode, point: { x: number; y: number }) => void;
+  /** 自管理节点拖拽启动（Konva 9 DD 自动启动在本事件链下不可靠——g1-g4 隔离实验定界，见 handleDown 注释） */
+  startNodeDrag: (id: string, grp: Konva.Group, startPage: { x: number; y: number }) => void;
   onNodeDragMove: (
     id: string,
     delta: { x: number; y: number },
@@ -353,6 +357,18 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
     if (ctx.tool !== 'select') return; // 绘制工具（FR-14 Frame 等）：冒泡到 stage 起笔
     ctx.resetClick();
     e.cancelBubble = true;
+    // 自管理拖拽：Konva 9 DD 的自动启动在本事件结构下不可靠（纯 Konva 结构复刻 g1-g3 均正常、
+    // 手动 startDrag+move 也不被 DD 认账——隔离实验定界），故 down 只记录意图，位移由
+    // stageMouseMove 驱动、endInteraction 提交——与拖拽连线/框画同一套已验证机制，
+    // 真实鼠标与 Playwright 同路径。
+    if (e.evt.button === 0 && interactive) {
+      const stage = e.target.getStage();
+      const pointer = stage?.getPointerPosition();
+      const grp = dragRef.current;
+      if (stage && pointer && grp) {
+        ctx.startNodeDrag(node.id, grp, pagePoint(stage, pointer));
+      }
+    }
   };
   const handleEnter = () => {
     if (ctx.tool === 'select' && !ctx.panActive) ctx.onHover(node.id);
@@ -745,45 +761,17 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
   return (
     <Group
       name={isRoot ? 'page-bg' : node.id}
-      position={{ x: 0, y: 0 }}
-      draggable={interactive}
+      ref={(n) => {
+        dragRef.current = n;
+      }}
+      // 拖拽走应用层自管理（handleDown→stageMouseMove→endInteraction），故 Konva 侧 draggable 关闭
+      draggable={false}
       onClick={handleClick}
       onTap={handleClick}
       onMouseDown={handleDown}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onDblClick={handleDbl}
-      onDragStart={() => {
-        ctx.resetClick();
-        // 拖拽结束后的 click 会重置多选，标记抑制（下一次 mousedown 会清除）
-        ctx.markSuppressClick();
-      }}
-      onDragMove={(e) => {
-        const stage = e.target.getStage();
-        const pointer = stage?.getPointerPosition();
-        if (!stage || !pointer) return;
-        const pointerPage = pagePoint(stage, pointer);
-        const delta = { x: e.target.x(), y: e.target.y() };
-        const corrected = ctx.onNodeDragMove(node.id, delta, pointerPage, e.evt.altKey);
-        if (corrected.x !== delta.x || corrected.y !== delta.y) e.target.position(corrected);
-      }}
-      onDragEnd={(e) => {
-        const stage = e.target.getStage();
-        const pointer = stage?.getPointerPosition();
-        const pagePos = pointer && stage ? pagePoint(stage, pointer) : { x: geom.x, y: geom.y };
-        const delta = { x: e.target.x(), y: e.target.y() };
-        const finalRect: SnapRect = {
-          x: geom.x + delta.x,
-          y: geom.y + delta.y,
-          width: geom.width,
-          height: geom.height,
-        };
-        ctx.onNodeDragEnd(node.id, finalRect, pagePos);
-        e.target.position({ x: 0, y: 0 });
-      }}
-      ref={(n) => {
-        dragRef.current = n;
-      }}
     >
       {shape}
       {node.type === 'SECTION' && !isRoot && (
@@ -884,6 +872,8 @@ export function Canvas() {
   // FR-44：window mouseup（endInteraction）读连接草稿最新值
   const connDraftRef = useRef<{ x: number; y: number } | null>(null);
   connDraftRef.current = connDraft;
+  // 自管理节点拖拽（Konva DD 自动启动不可靠的替代，见 NodeView.handleDown 注释）
+  const nodeDragRef = useRef<{ id: string; grp: Konva.Group; start: { x: number; y: number }; moved: boolean } | null>(null);
   // FR-21：钢笔锚点拖拽起点（拖动拉手柄；page 坐标）
   const penDragRef = useRef<{ x: number; y: number } | null>(null);
   const resizing = useRef<{
@@ -933,6 +923,7 @@ export function Canvas() {
     onHover: () => {},
     onSelect: () => {},
     onNodeDblClick: () => {},
+    startNodeDrag: () => {},
     onNodeDragMove: (_id, delta) => delta,
     onNodeDragEnd: () => {},
     onResize: () => {},
@@ -945,6 +936,10 @@ export function Canvas() {
   ctx.snapOn = snapOn;
   ctx.onHover = (id) => setHoverId(id);
   ctx.onSelect = (id, additive) => dispatch({ type: 'SELECT', id, additive });
+  ctx.startNodeDrag = (id, grp, startPage) => {
+    if (nodeDragRef.current) return; // shape+Group 双 handler 幂等
+    nodeDragRef.current = { id, grp, start: startPage, moved: false };
+  };
   ctx.onNodeDblClick = (node, point) => {
     if (node.type === 'TEXT' || node.type === 'BUTTON') {
       setEditText(node.text);
@@ -981,7 +976,7 @@ export function Canvas() {
   };
 
   ctx.onNodeDragMove = (id, delta, pointerPage, altKey) => {
-    setGuides([]);
+    setGuides(NO_GUIDES);
     setInsertHint(null);
     const found = findInTree(state.page.root, id);
     const geom = geometry[id];
@@ -1025,7 +1020,7 @@ export function Canvas() {
   };
 
   ctx.onNodeDragEnd = (id, finalRect) => {
-    setGuides([]);
+    setGuides(NO_GUIDES);
     setInsertHint(null);
     const found = findInTree(state.page.root, id);
     const geom = geometry[id];
@@ -1256,6 +1251,24 @@ export function Canvas() {
       dispatch({ type: 'COMMIT' });
       return;
     }
+    // 自管理节点拖拽提交（moved<3px 的纯点击不产位移，指示即刻清）
+    if (nodeDragRef.current) {
+      const drag = nodeDragRef.current;
+      nodeDragRef.current = null;
+      const g = geometry[drag.id];
+      const delta = { x: drag.grp.x(), y: drag.grp.y() };
+      drag.grp.position({ x: 0, y: 0 });
+      setGuides(NO_GUIDES);
+      setInsertHint(null);
+      if (g && drag.moved && (delta.x !== 0 || delta.y !== 0)) {
+        const finalRect: SnapRect = { x: g.x + delta.x, y: g.y + delta.y, width: g.width, height: g.height };
+        const stage = stageRef.current;
+        const pointer = stage?.getPointerPosition();
+        const pagePos = stage && pointer ? pagePoint(stage, pointer) : { x: finalRect.x, y: finalRect.y };
+        ctx.onNodeDragEnd(drag.id, finalRect, pagePos);
+      }
+      return;
+    }
     // FR-44 连接线：从连接点起手拖线，mouseup 落点=最近 FRAME 祖先 → 创建 ON_CLICK/Navigate/Instant
     if (connDraftRef.current) {
       const at = connDraftRef.current;
@@ -1482,6 +1495,14 @@ export function Canvas() {
           // FR-44：Escape 作废拖线（只清拖线态，不动选区）
           setConnDraft(null);
           setConnHover(null);
+          handled = true;
+        }
+        if (nodeDragRef.current) {
+          // Escape 中断节点拖拽：视觉复位（不提交）
+          nodeDragRef.current.grp.position({ x: 0, y: 0 });
+          nodeDragRef.current = null;
+          setGuides(NO_GUIDES);
+          setInsertHint(null);
           handled = true;
         }
         if (handled) e.stopImmediatePropagation();
@@ -1737,6 +1758,23 @@ export function Canvas() {
         },
         transient: true,
       });
+      return;
+    }
+    // 自管理节点拖拽（handleDown 起手 → 这里驱动位移与吸附/插入指示 → endInteraction 提交）。
+    // Konva 9 DD 自动启动在本事件结构下不可靠（隔离实验定界），与拖线/框选同走 stage 级驱动。
+    if (nodeDragRef.current) {
+      const drag = nodeDragRef.current;
+      const stage = stageRef.current;
+      const pointer = stage?.getPointerPosition();
+      if (!stage || !pointer) return;
+      const p = pagePoint(stage, pointer);
+      const dx = p.x - drag.start.x;
+      const dy = p.y - drag.start.y;
+      if (!drag.moved && Math.hypot(dx * scale, dy * scale) < 3) return; // <3px 视为点击
+      drag.moved = true;
+      suppressClickRef.current = true; // 拖后合成的 click 不得重置多选（原 onDragStart 语义）
+      const corrected = ctx.onNodeDragMove(drag.id, { x: dx, y: dy }, p, e.evt.altKey);
+      drag.grp.position(corrected);
       return;
     }
     // FR-44：拖线期间只需光标位置（mode 恒 idle，与钢笔草稿同挂载点）

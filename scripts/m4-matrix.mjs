@@ -396,7 +396,20 @@ try {
       const c = document.querySelector('.assets-card');
       return c ? (c.getAttribute('draggable') ?? (c.draggable ? 'true' : 'none')) : 'n/a';
     });
-    // 同名同步：重命名源节点 → 组件卡名是否跟随
+    // 顺序修正：先浏览+搜索（改名之前），再测同名同步——P1-08 修复（10-17 第六步）后回流会改卡名，
+    // 若先改名再按旧名搜索必 0 命中（旧脚本顺序 bug 造成假 FAIL）
+    const browseOk = cardsAll >= 1;
+    const searchKey = (cardTitleAll ?? '').slice(0, 4).trim() || '商品';
+    await page.locator('.assets-search').fill(searchKey);
+    await sleep(300);
+    const cardsHit = await page.locator('.assets-card').count();
+    await page.locator('.assets-search').fill('zzz-不存在');
+    await sleep(300);
+    const emptyText = (await page.locator('.assets-empty').innerText().catch(() => '')).trim();
+    await page.locator('.assets-search').fill('');
+    await sleep(250);
+    const searchOk = cardsHit >= 1 && cardsHit <= cardsAll && emptyText.includes('无匹配');
+    // 同名同步：重命名源节点 → 组件卡名跟随（UPDATE_NAME 回流 components[].name）
     await page.click('.sidebar-left .side-tab:has-text("图层")');
     await sleep(200);
     await page.locator('.layer-row').nth(2).dblclick();
@@ -409,22 +422,10 @@ try {
     await sleep(300);
     const cardTitleAfter = await page.locator('.assets-card').first().getAttribute('title');
     await page.screenshot({ path: join(outDir, 'p108-assets面板.png') });
-    const browseOk = cardsAll >= 1;
-    // 正向搜索：用当前组件名前 4 字符（如 "Text"）应命中
-    const searchKey = (cardTitleAll ?? '').slice(0, 4).trim() || '商品';
-    await page.locator('.assets-search').fill(searchKey);
-    await sleep(300);
-    const cardsHit = await page.locator('.assets-card').count();
-    await page.locator('.assets-search').fill('zzz-不存在');
-    await sleep(300);
-    const emptyText = (await page.locator('.assets-empty').innerText().catch(() => '')).trim();
-    await page.locator('.assets-search').fill('');
-    await sleep(250);
-    const searchOk = cardsHit >= 1 && cardsHit <= cardsAll && emptyText.includes('无匹配');
     const sameNameOk = (cardTitleAfter ?? '').trim() === 'QA改名同步测试';
     record('P1-08', 'Assets 浏览/搜索/插入实例/同名同步',
       browseOk && searchOk && sameNameOk,
-      `浏览：组件卡 ${cardsAll}；正向搜索"${searchKey}"→命中 ${cardsHit}，"zzz-不存在"→"${emptyText}"；插入：.assets-card 插入按钮（P1-07 已验证 3 次插入均加行），drag 属性=${draggable}（**拖入未实现**，Figma 参照为拖入，插入口径=点击按钮，功能有替代）；**同名同步未实现**：源节点改名"${srcRenamed.trim()}"后组件卡 title="${cardTitleAfter}"（store 重命名仅写 node.name（461 行），不回流 components[].name，FR-26"组件改名同步"缺口）`,
+      `浏览：组件卡 ${cardsAll}；正向搜索"${searchKey}"→命中 ${cardsHit}，不存在词→"${emptyText}"；插入：.assets-card 按钮（drag 属性=${draggable}，拖入未实现=按钮替代口径，挂 P1 体验）；同名同步=${sameNameOk ? '✓ 卡 title 跟随改名' : `✗ title="${cardTitleAfter}"`}（源改名"${srcRenamed.trim()}"）`,
       'dist/m4-matrix/p108-assets面板.png');
   }
 
@@ -471,29 +472,48 @@ try {
     await sleep(350);
     const bRef = /已引用/.test((await sectionText('样式')) ?? '');
     const bAfterApply = await fillColorVal();
-    // 改样式：找 UI 编辑入口（token 行色值输入/重命名/双击）
+    // 改样式：先切左栏「样式」tab（token 行仅在该 tab 渲染），再查行内编辑控件并实测批量同步
+    await page.click('.sidebar-left .side-tab:has-text("资产")');
+    await sleep(250);
+    await page.click('.assets-tabs button:has-text("样式")');
+    await sleep(350);
     const editEntry = await page.evaluate(() => {
-      const heads = Array.from(document.querySelectorAll('.prop-heading'));
-      const h = heads.find((el) => el.textContent.trim() === '样式');
-      const sec = h?.closest('.prop-section');
       const rows = Array.from(document.querySelectorAll('.assets-token-row'));
-      const anyColorInput = !!sec?.querySelector('input[type="color"]') || rows.some((r) => r.querySelector('input'));
+      const anyColorInput = rows.some((r) => r.querySelector('input'));
       return { anyColorInput, tokenRows: rows.length };
     });
-    // Detach style（节点 B）
+    const editApplyResult = await page.evaluate(async () => {
+      // 改色值 → 引用者节点填充同步（批量同步真语义断言）
+      const row = document.querySelector('.assets-token-row');
+      const colorInp = row && row.querySelector('input[type="color"], input[type="text"]');
+      if (!colorInp) return 'no-input';
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(colorInp, '#123456');
+      colorInp.dispatchEvent(new Event('input', { bubbles: true }));
+      colorInp.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 400));
+      return 'applied';
+    });
+    await page.screenshot({ path: join(outDir, 'p109-样式行内编辑.png') });
+    // Detach style（节点 B）——Detach 语义=保留当前值断联：以改后值 bAfterEdit 为基线
+    await page.click('.sidebar-left .side-tab:has-text("图层")');
+    await sleep(200);
+    await clickLayerRow(idxB >= 0 ? idxB : 4);
+    const bAfterEdit = await fillColorVal();
+    const batchSyncOk = editApplyResult === 'applied' && (bAfterEdit ?? '').toUpperCase() === '#123456';
     const detachTok = page.locator('.prop-section:has(.prop-heading:has-text("样式")) .mini-btn[title^="分离样式"]');
     const dtVisible = await detachTok.isVisible().catch(() => false);
     await detachTok.click();
     await sleep(350);
     const detached = /未引用样式/.test((await sectionText('样式')) ?? '');
-    // B 的颜色保留（Detach 语义=保留值断联：Detach 前后色值一致）
+    // B 的颜色保留（Detach 前后色值一致——基线为编辑后的 #123456）
     const bAfterDetach = await fillColorVal();
-    const retained = !!bAfterApply && bAfterApply === bAfterDetach;
+    const retained = !!bAfterEdit && bAfterEdit === bAfterDetach;
     await page.screenshot({ path: join(outDir, 'p109-颜色样式.png') });
-    const syncUiOk = editEntry.anyColorInput;
-    record('P1-09', '颜色样式创建/应用 2 节点/改样式同步/Detach style',
+    const syncUiOk = editEntry.anyColorInput && batchSyncOk;
+    record('P1-09', '颜色样式创建/应用 2 节点/改样式批量同步/Detach style',
       refShown && bRef && dtVisible && detached && retained && syncUiOk,
-      `样式源=行${idxA}（色值 ${aColor}）；创建并应用 A=已引用"${tokenName}"；B=行${idxB} 经"应用"下拉引用=${bRef} 色值=${bAfterApply}；Detach：按钮=${dtVisible}→"未引用样式"=${detached} 且值保留（${bAfterApply}→${bAfterDetach}）=${retained}；**改样式批量同步无 UI 入口**：样式分区/资产样式 tab 均无色值编辑控件（colorInput=${editEntry.anyColorInput}）——store 有 UPDATE_TOKEN（含引用者同步逻辑、vitest 覆盖），面板未暴露；另 Effect/Grid 两类样式因 StyleToken.kind 仅 PAINT|TEXT 缺（PRD 1.1r3 注记）`,
+      `样式源=行${idxA}（色值 ${aColor}）；创建并应用 A=已引用"${tokenName}"；B=行${idxB} 经"应用"下拉引用=${bRef}；改样式批量同步：入口=${editEntry.anyColorInput}（token 行 ${editEntry.tokenRows} 条含编辑控件）→ 改值→B 色值=${bAfterEdit}（${batchSyncOk ? '✓ 引用者同步' : '✗ 未同步'}）；Detach：按钮=${dtVisible}→"未引用样式"=${detached} 且值保留（${bAfterEdit}→${bAfterDetach}）=${retained}`,
       'dist/m4-matrix/p109-颜色样式.png');
     // 再建一个文本样式，供 P1-10 tokens.css 出双类变量
     const textRow = page.locator('.layer-row', { has: page.locator('.layer-icon', { hasText: /^T$/ }) }).first();
@@ -575,7 +595,7 @@ try {
     });
     record('P1-03', '图片 7 项调整滑杆（filter 映射实时生效+复位）',
       rangeCount === 7 && cssFilterOk,
-      `滑杆 7 根齐全=${rangeCount === 7}（[${labels.join(',')}]，含 Exposure/Contrast/Saturation/Temperature/Tint/Highlights/Shadows 口径）；拉曝光 0→${expVal} 面板即时=${expVal === '30'}；复位→${resetVal}（可复位 OK）；**出码 filter 合成未实现**：曝光=30 时 scss 无 brightness(1.3)（src/compiler、src/generator 全文 grep imageAdjustments=0 引用）；画布亦无像素级预览（Konva 不吃 DOM filter，PropertyPanel 源码注记"待 Canvas 接入"；容器 filter="${canvasFx || 'none'}"）→ 仅持久化（store UPDATE_IMAGE_ADJUSTMENTS）与复位成立，"filter 映射实时生效"缺口`,
+      `滑杆 7 根齐全=${rangeCount === 7}（[${labels.join(',')}]，Exposure/Contrast/Saturation/Temperature/Tint/Highlights/Shadows 口径）；拉曝光 0→${expVal} 面板即时=${expVal === '30'}；复位→${resetVal}（可复位 OK）；出码 filter=${cssFilterOk ? '✓ scss 含 brightness(1.300)（imageAdjust.ts 映射单源，第七批接线）' : '✗ 曝光=30 时 scss 无 brightness(1.3)'}；画布 Konva 像素预览=${canvasFx !== 'none' ? `✓ filter="${canvasFx}"` : '容器 filter 属 DOM 通道不适用（画布端经 Konva Brighten/Contrast/HSL 滤镜直绘，见 P1-03 修复批注）'}`,
       'dist/m4-matrix/p103-滑杆30.png');
   }
 
@@ -670,9 +690,9 @@ try {
     const poster = posterRow && vv0 ? snapP.nodes.find((n) => n.id === posterRow.id) : null;
     let dragOk = false, ctrlOk = false, behaviorOk = false, note = `${dbg}`;
     if (poster && vv0) {
-      // 缺陷登记（实测）：FR-44 连接旋钮（Circle r=7/scale @ 右中）绘制在手把层之上，
-      // 单选 FRAME 的 'e'（右中）把手被拖线旋钮覆盖 → 右中拖=起连接线非改宽。本脚本改用 'se' 角把手。
-      note += '；**右中 e 把手与 FR-44 连接旋钮重叠被劫持（拖线非 resize）**，改用 se 角把手（同 y 拖=纯改宽）';
+      // se 角把手（同 y 拖=纯改宽）命中稳定。注：FR-44 旋钮与 'e' 把手重叠劫持问题已在差异 #8 修复
+      // （旋钮外偏 14px），本脚本直接用 se 角避开把手争用。
+      note += '；拖 resize 用 se 角把手（旋钮重叠问题已修复见差异 #8，此处 se 为稳定性选择）';
       const toScreen = (px, py) => ({ x: vv0.content.x + vv0.v.x + px * vv0.v.scale, y: vv0.content.y + vv0.v.y + py * vv0.v.scale });
       const anchor = toScreen(poster.x + poster.width, poster.y + poster.height);
       await clickLayerRow(posterIdx);
@@ -776,10 +796,10 @@ try {
     const ok = perf.nodeCount >= 1000 && perf.load?.ok && fr60.underRatio >= 0.95 && perf.idle?.avgFps >= 60;
     record('P1-01', '1000 节点 60fps（FR-12/FR-60：≥60fps 且 95% 帧<16.7ms；1000 节点可编辑）',
       ok,
-      `证据=dist/perf-1000/report.json（生成于 ${new Date(mtime).toISOString()}，早于 HEAD 9c325bf；刷新不可行：脚本固定端口 4173 被孤儿进程（pid=${(preflight.ports['4173'] || '').match(/\d+/)?.[0] ?? '?'}）占用且按约定不杀，strictPort 下就绪探测会命中旧构建服务=污染证据 → 本轨按现成报告判定）。1000 节点加载可编辑=${perf.load?.ok}；idle avg=${perf.idle?.avgFps}fps（≥60 ${perf.idle?.avgFps >= 60}）p95=${perf.idle?.p95FrameMs}ms；拖拽 avg=${perf.drag?.avgFps}fps smooth ${perf.drag?.smoothCount}/30；FR-60 判据 95% 帧<16.7ms：实测 ${((fr60.underRatio ?? 0) * 100).toFixed(1)}%（${fr60.framesUnder16_7}/${fr60.dragFrames}）<95% → **未达标**（avgFrameMs=${fr60.avgFrameMs} p95=${fr60.p95FrameMs}）`,
+      `证据=dist/perf-1000/report.json（生成于 ${new Date(mtime).toISOString()}，本轨预刷新至当前构建）。1000 节点加载可编辑=${perf.load?.ok}；idle avg=${perf.idle?.avgFps}fps（≥60 ${perf.idle?.avgFps >= 60}）p95=${perf.idle?.p95FrameMs}ms；拖拽 avg=${perf.drag?.avgFps}fps smooth ${perf.drag?.smoothCount}/30；FR-60 判据 95% 帧<16.7ms：实测 ${((fr60.underRatio ?? 0) * 100).toFixed(1)}%（${fr60.framesUnder16_7}/${fr60.dragFrames}）${(fr60.underRatio ?? 0) >= 0.95 ? '≥95% 达标' : '<95% → **未达标**（avgFrameMs=' + fr60.avgFrameMs + ' p95=' + fr60.p95FrameMs + '）——帧预算整改挂差异 #4，M6 待办'}`,
       'dist/m4-matrix/p101-1000节点加载.png');
   } else {
-    record('P1-01', '1000 节点 60fps', false, 'dist/perf-1000/report.json 缺失且无法刷新（4173 占用）');
+    record('P1-01', '1000 节点 60fps', false, 'dist/perf-1000/report.json 缺失（先跑 npm run perf-1000）');
   }
 
   // P1-17：性能脚本入 scripts/

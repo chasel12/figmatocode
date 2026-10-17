@@ -94,6 +94,11 @@ export function Editor() {
       },
       captureRegion: (region: { x: number; y: number; width: number; height: number }, pixelScale: number) =>
         canvasBus.requestCapture(region, pixelScale, 'image/png'),
+      /** 任意深度节点的几何（验证轨深节点定位；snapshot 仅根级子节点）——只读 */
+      geometryOf: (id: string) => {
+        const g = geometry[id];
+        return g ? { id, x: g.x, y: g.y, width: g.width, height: g.height } : null;
+      },
     };
     return () => {
       delete (window as unknown as Record<string, unknown>).__UIC_E2E__;
