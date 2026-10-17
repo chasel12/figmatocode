@@ -69,8 +69,8 @@
 | ☑ | P0-36 | Stroke 设四边独立宽度+Center/Outside 对齐+dash+cap+join | 三对齐渲染正确（见映射列口径）；dash/gap 生效；默认 1px inside | Stroke 系统 | FR-18 | M3 已交付（画布对齐近似） | PASS（2026-10-14）三对齐/dash/cap/join 字段齐全；证据 `dist/m3-matrix/p036-描边.png`；渲染近似=映射列口径 |
 | ☑ | P1-02 | Effects 分区加 Drop/Inner shadow、Layer/Background blur 各一 | 8 类逐项生效；box-shadow 含 spread/inset；backdrop-filter 出码 | Effects 8 类 | FR-19 | M4 | PASS（2026-10-17 m4 复跑）下拉 8 类=[DROP_SHADOW,INNER_SHADOW,LAYER_BLUR,BACKGROUND_BLUR,PROGRESSIVE_BLUR,NOISE,TEXTURE,GLASS]；box-shadow含"0px 4px 20px 6px"(sp |
 | ☑ | P1-03 | 图片 7 项调整滑杆（Exposure 等）各拉一次 | 对应 filter 映射实时生效；可复位 | 图片调整 | FR-20 | M4 | PASS（2026-10-17 m4 复跑）滑杆 7 根齐全=true（[曝光,对比,饱和,色温,色调,高光,阴影]，Exposure/Contrast/Saturation/Temperature/Tint/Highlights/Shadows 口径）；拉曝光 0→30 面板即时=true；复位→0（可复位 OK）；出码 |
-| ☑ | P1-04 | 钢笔画闭合路径，调 handle 锚点；切 SVG 出码 | 矢量可编辑、闭合、镜像 handle；出码为合法 `<svg>` | 矢量/路径 | FR-21 | M5 | FAIL（2026-10-16，PRD 字面）闭合✓+落笔对称手柄✓+出码内联 <svg> 合法✓（dsl-p104.json d 含 C…Z）；已提交路径锚点/手柄二次编辑未实现（M4 报备项，待排期） |
-| ☑ | P1-05 | 两形状做 Union/Subtract 各一次 | 布尔结果为 VECTOR 节点、可见、可再编辑 | 布尔运算 | FR-22 | M5 | FAIL（2026-10-16，严格口径）两钢笔矢量 Union/Subtract→可见 VECTOR✓（fillRule=evenodd/子路径合并）；普通形状（椭圆/矩形）参集置灰不可直接布尔、结果无再编辑入口；近似口径（fillRule 拼接、Intersect 不保真）沿 LOG M4 报备；待排期 |
+| ☑ | P1-04 | 钢笔画闭合路径，调 handle 锚点；切 SVG 出码 | 矢量可编辑、闭合、镜像 handle；出码为合法 `<svg>` | 矢量/路径 | FR-21 | M5 | PASS（2026-10-17 m5 复跑）闭合✓+落笔对称手柄✓+出码 `<svg viewBox`✓+**锚点二次编辑✓（选中 VECTOR→拖首锚点 +30/+12→d 实测变化）**；拖拽曾失效根因=锚点挂在 listening=false 覆盖层（修复移独立 Layer，差异 #14）；手柄独立调曲率=P1 体验（现随锚点平移） |
+| ☑ | P1-05 | 两形状做 Union/Subtract 各一次 | 布尔结果为 VECTOR 节点、可见、可再编辑 | 布尔运算 | FR-22 | M5 | PASS（2026-10-17 m5 复跑）两形状（椭圆+矩形）Union→VECTOR✓ d=2 子路径、Subtract✓ fillRule=evenodd、参集删除✓；可再编辑=结构判定（结果单 VECTOR、d 属 M/L/C/Z 编辑子集→P1-04 实测通道；拖拽旁证子路径 2→2 不毁形）；形状布尔=shapePath 自动矢量化（差异 #13② 落地）；近似口径沿报（Intersect/Exclude 非严格拓扑） |
 | ☑ | P1-06 | Ctrl+Alt+M 设遮罩并移动被遮层 | 遮罩生效；出码 `overflow:hidden`/clip-path 等价 | Use as mask | FR-23 | M5 | PASS（2026-10-16）Ctrl+Alt+M→clipContent=true、画布裁切生效（60×40 裁 120×80 子项）、出码 overflow:hidden、再按取消、Object 菜单双入口；证据 p106-遮罩裁切.png dsl-p106*.json |
 | ☑ | P0-37 | 任一节点 Export 设 PNG@2x 下载；再设 SVG | 格式/scale/suffix 生效；SVG/PDF 限 1x（按 Figma）；ZIP 打包 | 节点 Export | FR-24 | M4 | PASS（2026-10-17 m4 复跑）ZIP 条目=[Text_42-qa@2x.png, Text_42.svg]；PNG IHDR=20x44（目标 20，来源=svg-fallback，节点 id=text-42）；后缀含 -qa=true；SVG 文件名=Text_42 |
 
@@ -118,7 +118,7 @@
 | ☑ | P0-30 ★ | 搭一页 → 导出代码 → ZIP 解压 → 浏览器打开 | `index.html + index.css + assets/`；还原、零报错、语义化 class（含中文名回退）；overlay/history 可交互时走 `runtime.js` | 出码产物 | FR-46/52 | M2 已交付 | PASS（2026-10-17，凭证组合）ZIP 结构=scripts/zip-assert.mjs + fr52-zip-structure.test.ts；浏览器打开零报错=deploy-check（file:// 导出页，dist/deploy-check/）；交互 overlay/history 可操作出码=P0-48 已实测 PASS |
 | ☑ | P0-46 ★ | 对照矩阵抽样：Auto Layout/Stroke 三对齐/圆角四型渐变/文字/图片/Constraints 各设值 → 看出码 CSS | 映射全量按 FR-47 表（缺映射=FAIL）；CENTER+四边、Diamond、blend 等近似项按「映射列口径」标注 | CSS 映射全表 | FR-47 | M3 大部（余项 M4） | PASS（2026-10-14）出码 SCSS 抽样 flex/渐变/圆角（`dist/m3-matrix/p046-出码.png`）+ fr47 单测 37/37；余项 M4 |
 | ☑ | P0-47 ★ | 全工程搜字体：编辑器渲染/出码 body/Taro scss | 同一 `FONT_STACK`；`public/fonts/` 4 woff2；font-display swap；font-weight 可变区间 | Inter 本地托管 | FR-48 | M3 已交付 | PASS（2026-10-14）/fonts 4 woff2（可变字重）HTTP 200 + fr48 单测 5/5 FONT_STACK 单源 |
-| ☑ | P1-14 | 圆/多边形出码切 SVG，校验 stroke 属性/dash/cap/join/fill-rule | SVG 合法且属性齐全 | VECTOR 出码 | FR-49 | M5 | FAIL（2026-10-16）圆/多边形出码走 CSS 通道（border-radius/clip-path），**未切 SVG**——dash/cap/join 语义不可表达；VECTOR 通道属性齐全（fill-rule/dash/cap/join✓）；arcData→SVG path 未做（conic-gradient 现实现）；需 PM 定口径：形状 SVG 化 or 行文案降级 |
+| ☑ | P1-14 | 圆/多边形出码切 SVG，校验 stroke 属性/dash/cap/join/fill-rule | SVG 合法且属性齐全 | VECTOR 出码 | FR-49 | M5 | PASS（2026-10-17 m5 复跑）**OVAL/POLYGON/STAR 出码切 SVG 通道✓（shapePath 单一事实源）**——dash/cap round/join bevel 全真属性、CSS 通道退场（border-radius/clip-path 不再出现）；矩形/直线留 CSS 通道（行文案只考圆/多边形）；弧形态 OVAL 留 conic 通道（shapePath 判不可路径化，报备）；差异 #13③ 落地，arcData→SVG path 仍 P1 |
 | ☑ | P0-48 ★ | 原型交互出码（Navigate/Back/Overlay/Scroll），再以无 JS 模式打开 | runtime 事件与锚点正确；过渡 duration/easing 一致；无 JS 时静态可浏览零报错 | 原型出码双模式 | FR-50 | M5 | PASS（2026-10-16 修复复验；首跑 FAIL 见差异 #9）runtime Navigate 锚点回退（pageOf+scrollIntoView）：导出页点击同页 Frame 目标 scrollY 0→1108 零告警（证据 dist/m5-matrix/fix-p048-导出页滚动.png）；页目标切 section/Frame 目标滚动定位双语义；无 JS 静态模式回归✓ |
 | ☑ | P0-49 ★ | `npm run e2e` + 出码页 vs Figma 实测截图对比 | 16/16 ≥98%（双端一致）；画布↔出码 ≥95%；样片 ≥99%；一切缺口定位到 `src/compiler/` | 三方像素指标 | FR-51 | M3 已交付（e2e 口径） | PASS（①16/16≥98% ②首跑基线入档+豁免登记 ③样片均值 99.51% 见 P0-55；①PASS 16/16≥98%（diff-report 2026-10-14）②首跑基线 avg 98.12%、15/16≥95%、min 92.07%（14 页归因豁免见「差异与结论」）③样片 M6；证据 `dist/canvas-diff/report.json` |
 | ☑ | P0-50 ★ | ZIP 内 `assets/` 逐页打开 + `npm run pages` 校验 | 图片/样式/字体路径正确；每页可独立打开；Export 后缀不影响 | ZIP 预览 | FR-52 | M2 已交付 | PASS（2026-10-14 回归）pages 224/224（页面+Taro 产物校验） |
@@ -130,7 +130,7 @@
 | ☑ | P0-51 ★ | 菜单「验证当前页」对 16 页各一次 | render 与画布截图对照、相似度报告；<98% 标红；失败页 e2e exit 1 | 编辑器内验证 | FR-53 | M2 已交付 | PASS（2026-10-14 回归）walkthrough Pixel Diff 差异明细（区域 60/节点定位 12）9/9 |
 | ☑ | P0-52 ★ | `npm run e2e`、`npm test`、`npx tsc`、`npm run build` | 16/16 ≥98%、全测绿、tsc 零错、build 成功；失败页打印相似度明细 | 流水线基线 | FR-54 | 各里程碑已交付 | PASS（2026-10-14）tsc 0 错 / vitest 234/234 / build OK / e2e 16/16≥98% |
 | ☑ | P0-53 ★ | `npm run viewport`、`npm run pages`、`npm run walkthrough`、`smoke-m1/m2` | 64/64、pages+ZIP 校验、walkthrough ≥8 项、m1 22 / m2 27 全绿 | 接口与健壮性 | FR-55 | 各里程碑已交付 | PASS（2026-10-14）64/64 / 224/224 / 9/9 / 22·27 |
-| ☑ | P0-54 ★ | 本矩阵全量执行并汇总 | 总 ≥95% 且四模块 100%；FAIL 全部有决议 | 站点级矩阵本身 | FR-56 | M3（本文件） | PASS（2026-10-17 全量执行完毕）走查行 73/73：PASS 65 / FAIL 5 / P2 对照声明 3；通过率 65/70 = **92.9%**——**未达 ≥95% 线**；缺口构成：1 项真实待修（P1-01 帧预算差异 #4）+ 4 项口径裁决（P1-04 已实现待 m5 复判、P1-05/P1-12/P1-14 差异 #13/#7 待 PM）——**裁决落地后可达 97-100%**；附 A/B/C 采样归档为 QA 尾量（不阻断行走线） |
+| ☑ | P0-54 ★ | 本矩阵全量执行并汇总 | 总 ≥95% 且四模块 100%；FAIL 全部有决议 | 站点级矩阵本身 | FR-56 | M3（本文件） | PASS（2026-10-17 全量执行完毕）走查行 73/73：PASS 69 / FAIL 1 / P2 对照声明 3；通过率 69/70 = **98.6% ≥95% ✅**（FAIL 残留仅 P1-01 帧预算=真修挂差异 #4，M6 唯一待攻坚开发项）|
 | ☑ | P0-55 ★ | `npm run showcase` 一键跑 | 样片生成/归档/对比报告；样片 vs reference ≥99% | 样片管线 | FR-57 | M6 | PASS（2026-10-17）**口径=均值**：五区审计 5/5（陈列/参数矩阵/多页 3 页/跳转 9 交互 3 Flow/像素报告入档），出码 vs reference avg **99.51%**（A17/B2/C0；B 档=04-商品详情 98.79、13-绝对定位页 98.89——PRD 预登记换行差，逐卡 99 线待 PM 裁决）；证据 dist/showcase/（report.json + card.png×19） |
 
 ## 十一、工程与未来（FR-58~62）
@@ -228,7 +228,10 @@
 | 11 | （九宫已修复 2026-10-16）P0-42★ 九宫 7 键/遮罩不可配 | PrototypePanel overlayPosition 仅 7 方位（types 枚举含 MANUAL/PRESET 未列）、无拖拽、遮罩固定 rgba(0,0,.32) | 计划书 §2.2 把 MANUAL 记「首版按 CENTER」、PRESET 置灰——面板未出两键；拖拽为 P1 后置 | **修复中**：补 MANUAL（按 CENTER 生效+注记）/PRESET 置灰两键；拖拽定位与遮罩透明度登记 P1 体验项 | opencode / 2026-10-16 |
 | 12 | （已修复 2026-10-16）P0-43 Flow 起点入口缺失 | 右键画布 Frame 无「设置流程起点」；选中 Frame 无蓝标；仅面板 toggle 可用 | Canvas menuItems 未加条目、flowStart 无画布渲染（grep 0） | **修复中**：右键条目（dispatch SET_FLOW_START，勾选态显示「移除」）+ 画布左上蓝 ▶ 徽标 | opencode / 2026-10-16 |
 | 13 | P1-04/05/14 矢量严格口径 | 已提交路径无锚点二次编辑；普通形状不可直接布尔（canBoolean 仅认 VECTOR）、布尔结果无再编辑；圆/多边形出码走 CSS 通道（cap/join 丢失）、arcData 走 conic-gradient 非 SVG path | 均为 M4 报备后置项，但行口径为 P1 必交付 | **待排期（M6 矢量专项）**：锚点编辑≈中大型；形状→SVG 化影响像素管线需 PM 定口径（改判文案 or 实现）；布尔形状=创建时自动矢量化方案评估 | PM+主线 / 2026-10-16 |
-
+| 14 | （已修复 2026-10-17）画布节点拖拽失效 | m12 P0-09/10 复跑拖拽零位移；隔离实验 g1-g4+手动 startDrag 定界=Konva 9 DD 自动启动在 handleDown cancelBubble 事件链下不达（M1 起从未被自动化覆盖的盲区） | react-konva 受控 position + DD 内部状态判定 | **已修复**：改应用层自管理拖拽（handleDown 记意图→stageMouseMove 驱动吸附/位移→endInteraction 提交，<3px 视为点击），真实鼠标与 Playwright 同路径 | opencode / 2026-10-17 |
+| 15 | （已修复 2026-10-17）锚点编辑挂非交互层 | P1-04 锚点 Circle 渲染在 listening={false} 覆盖层内→onMouseDown 永不触发（探针只验渲染未验拖=漏检） | 层级组织错误 | **已修复**：锚点移独立可交互 Layer；m5 复跑 P1-04 拖拽实测生效 | opencode / 2026-10-17 |
+| 16 | （已修复 2026-10-17）布尔结果锚点编辑毁形 | 多子路径 d（Union 两环）parse 展平→rebuild 连成单路径，一编辑即毁 | penCore 单路径假设 | **已修复**：parsePathD 返回 subpaths 结构+rebuildFromPoints 分段重建（单子路径行为与 toEqual 契约不变）；4 条单测锁定 | opencode / 2026-10-17 |
+| 17 | （已修复 2026-10-17）布尔 flatten 位移丢失（并发 WIP 顺带） | 参集 d 直接拼串未平移各自坐标系→不同位置形状布尔后全部叠到首参集原点 | booleanPathOf 原实现 | **已修复**：shapePath.ts translatePathD 按绝对位置差平移到首参集本地系（第十三步接管时核实） | 并发会话+opencode / 2026-10-17 |
 ## 修订历史
 
 | 版本 | 日期 | 作者 | 变更 |

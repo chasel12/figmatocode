@@ -80,6 +80,9 @@ export interface ParsedPath {
   closed: boolean;
   /** 解析是否完整（遇到不支持的指令 → false，调用方应放弃编辑而非改坏路径） */
   ok: boolean;
+  /** 多子路径结构（仅 >1 子路径时给出——单路径保持无此键，消费面 toEqual 契约不变）。
+   *  布尔结果（形状 Union 等）d 含多段 M…Z；重建必须按子路径分段，否则连环毁形。 */
+  subpaths?: { start: number; closed: boolean }[];
 }
 
 const num = (s: string): number => Number(s);
@@ -98,6 +101,7 @@ const num = (s: string): number => Number(s);
 export function parsePathD(d: string): ParsedPath {
   const out: PenDraftPoint[] = [];
   let closed = false;
+  const subs: { start: number; closed: boolean }[] = [];
   if (!d || !d.trim()) return { points: out, closed, ok: true };
 
   const toks = d.trim().match(/[MLCZmlcz]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? [];
@@ -124,12 +128,14 @@ export function parsePathD(d: string): ParsedPath {
 
     if (upper === 'Z') {
       closed = true;
+      if (subs.length) subs[subs.length - 1].closed = true;
       continue;
     }
     if (upper === 'M') {
       const v = need(2);
       if (!v) return { points: out, closed, ok: false };
       cur = { x: r2(v[0]), y: r2(v[1]) };
+      subs.push({ start: out.length, closed: false });
       out.push(cur);
       continue;
     }
@@ -163,6 +169,27 @@ export function parsePathD(d: string): ParsedPath {
     out.push(next);
   }
 
+  // 多子路径（布尔结果等）：逐段做闭合归一（pointsToPathD 对闭合段显式写末→首段再 Z，
+  // 全局首末去重对多段无效——sub1 首 ≠ subN 末），子路径信息随结果返回，重建按段处理。
+  // 单路径行为与 toEqual 契约保持原样。
+  if (subs.length > 1) {
+    const ddPoints: PenDraftPoint[] = [];
+    const ddSubs: { start: number; closed: boolean }[] = [];
+    for (let s = 0; s < subs.length; s += 1) {
+      const start = subs[s].start;
+      const end = s + 1 < subs.length ? subs[s + 1].start : out.length;
+      let seg = out.slice(start, end);
+      if (subs[s].closed && seg.length > 1) {
+        const f = seg[0];
+        const l = seg[seg.length - 1];
+        if (Math.abs(f.x - l.x) < 1e-6 && Math.abs(f.y - l.y) < 1e-6) seg = seg.slice(0, -1);
+      }
+      ddSubs.push({ start: ddPoints.length, closed: subs[s].closed });
+      ddPoints.push(...seg);
+    }
+    return { points: ddPoints, closed, ok: true, subpaths: ddSubs };
+  }
+
   // 收尾归一：`pointsToPathD(closed)` 会**显式写出末→首段再追加 Z**，
   // 故闭合路径解析出的末锚点与首锚点重合。此处删掉该冗余锚点，
   // 否则再次序列化会多加一段（往返不闭合）。
@@ -175,14 +202,33 @@ export function parsePathD(d: string): ParsedPath {
   return { points: out, closed, ok: true };
 }
 
-/** 点集 → 节点本地 d + 包围盒（锚点编辑后重算几何用；与 commitPen 同口径） */
+/** 点集 → 节点本地 d + 包围盒（锚点编辑后重算几何用；与 commitPen 同口径）。
+ *  subpaths 给出且 >1 段时按子路径分段重建（布尔结果编辑毁形缺陷的正解）；缺省单路径行为不变。 */
 export function rebuildFromPoints(
   points: PenDraftPoint[],
   closed: boolean,
+  subpaths?: { start: number; closed: boolean }[],
 ): { d: string; bounds: { x: number; y: number; width: number; height: number } } {
   if (!points.length) return { d: '', bounds: { x: 0, y: 0, width: 0, height: 0 } };
   const b = draftBounds(points);
   const local = toLocalPoints(points, b.x, b.y);
+  if (subpaths && subpaths.length > 1) {
+    const parts: string[] = [];
+    for (let s = 0; s < subpaths.length; s += 1) {
+      const start = subpaths[s].start;
+      const end = s + 1 < subpaths.length ? subpaths[s + 1].start : local.length;
+      let seg = local.slice(start, end);
+      const sc = subpaths[s].closed;
+      if (sc && seg.length > 1) {
+        const f = seg[0];
+        const l = seg[seg.length - 1];
+        if (Math.abs(f.x - l.x) < 1e-6 && Math.abs(f.y - l.y) < 1e-6) seg = seg.slice(0, -1);
+      }
+      const dseg = pointsToPathD(seg, sc);
+      if (dseg) parts.push(dseg);
+    }
+    return { d: parts.join(' '), bounds: b };
+  }
   return { d: pointsToPathD(local, closed), bounds: b };
 }
 

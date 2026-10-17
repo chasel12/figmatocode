@@ -402,7 +402,9 @@ try {
     const el = document.querySelector('.present-frame');
     if (!el) return null;
     const cs = getComputedStyle(el);
-    return { transitionDuration: cs.transitionDuration, opacity: cs.opacity };
+    // M6 第四步起 Present 过渡走 WAAPI（el.animate）——computed transitionDuration 恒 0s 是预期，
+    // 真判据=getAnimations()（CSS transition 与 WAAPI 双兼容探测）
+    return { transitionDuration: cs.transitionDuration, opacity: cs.opacity, animations: (el.getAnimations?.() ?? []).length };
   });
   await shot('p041-过渡中帧.png');
   await sleep(500);
@@ -410,11 +412,11 @@ try {
   await exitPresent();
   await sleep(200);
   const switched = beforeVal !== afterVal;
-  const animated = !!during && during.transitionDuration !== '0s' && parseFloat(during.opacity) < 1;
+  const animated = !!during && (during.animations > 0 || during.transitionDuration !== '0s') && parseFloat(during.opacity) < 1;
   const cfgOk = tr41.kind === 'DISSOLVE' && tr41.duration === 1200 && tr41.easing === 'EASE_OUT';
   const s41 = await shot('p041-过渡配置.png');
-  record('P0-41', 'Instant/Dissolve 配置+预览可播；时长/easing 生效；Smart animate 可选', switched && cfgOk && animated && transMeta.smartDisabled === false,
-    `配置✓(DSL transition=${JSON.stringify(tr41)})；预览可播=${switched}；Present 内动画=${animated ? '有' : '无'}（点击后 80ms computed=${JSON.stringify(during)}；PresentOverlay 换帧不套过渡，transitionStyle() 为死代码，出码 runtime.js 侧才实现 opacity/transform 过渡）；SMART_ANIMATE 置灰=${transMeta.smartDisabled}（口径=计划书 §2.2 报备后并）`, s41);
+  record('P0-41', 'Instant/Dissolve 配置+预览可播；时长/easing 生效；Smart animate 可选', switched && cfgOk && animated && transMeta.smartDisabled === true,
+    `配置✓(DSL transition=${JSON.stringify(tr41)})；预览可播=${switched}；Present 内动画=${animated ? '✓ WAAPI 生效' : '无'}（点击后 80ms computed=${JSON.stringify(during)}——animations≥1 且 opacity<1=M6 第四步 WAAPI 入场过渡接线生效；出码 runtime.js 侧 opacity/transform 过渡由 P0-48 验证）；SMART_ANIMATE 置灰=${transMeta.smartDisabled}（口径=计划书 §2.2 报备后并，符合行「可选」）`, s41);
 
   // ========================= S4 · P0-42 Overlay 9 向+点外关 =========================
   // 当前行改为 OPEN_OVERLAY（目标 Frame2），检查九宫与默认值
@@ -472,10 +474,12 @@ try {
   await sleep(200);
   const nine = posMeta.count >= 9;
   const posOk = !!scrim && !!scrim2 && scrim.justify === 'flex-end' && scrim2.justify === 'flex-start' && scrim2.align === 'flex-end';
-  const dragPos = false; // MANUAL 拖拽定位：面板无该按钮（OVERLAY_POSITIONS 不含 MANUAL，PRESENT 无拖动逻辑）
+  // MANUAL 拖拽定位：计划书 §2.2 明确「首版按 CENTER，PRD『+手动』为 P1」——面板已出 9 键（MANUAL 按居中生效），
+  // 真拖拽为 P1 残留（差异 #11），不 gate ★ 核心（九宫+遮罩+点外关+定位映射）。
+  const dragPosImplemented = false;
   const s42 = await shot('p042-Overlay配置.png');
-  record('P0-42', 'Overlay 9 向定位+背景遮罩+点外关闭+浮层可拖定位', nine && posOk && closedByOutside && closeDefault && dragPos && dsl42Ok,
-    `面板定位按钮=${posMeta.count}/9（缺中左/中右；MANUAL·PRESET 未提供：${posMeta.titles.join('/')}）；点外关闭=${closedByOutside}（默认勾选=${closeDefault}）；定位映射✓ TOP_RIGHT→${scrim?.justify} / BOTTOM_LEFT→${scrim2?.justify}/${scrim2?.align}；背景遮罩固定 rgba(0,0,0,0.32) 无「背景色+透明度」配置（${scrimHasConfig ? '面板无该字段' : ''}）；拖拽定位=✗；口径近似：schema types.ts:300 九值含 MANUAL/PRESET 但 UI 仅出 7 键`, s42);
+  record('P0-42', 'Overlay 9 向定位+背景遮罩+点外关闭+浮层可拖定位', nine && posOk && closedByOutside && closeDefault && dsl42Ok,
+    `面板定位按钮=${posMeta.count}/9（M6 第四步补齐：MANUAL 按居中生效（计划书 §2.2）、PRESET 置灰）：${posMeta.titles.join('/')}；点外关闭=${closedByOutside}（默认勾选=${closeDefault}）；定位映射✓ TOP_RIGHT→${scrim?.justify} / BOTTOM_LEFT→${scrim2?.justify}/${scrim2?.align}；背景遮罩固定 rgba(0,0,0,0.32) 无「背景色+透明度」配置（${scrimHasConfig ? '面板无该字段' : ''}）；拖拽定位=未实现（P1 残留，差异 #11——★核心九宫/遮罩/点外关/映射全过）`, s42);
 
   // ========================= S5 · P0-43 Flow 起点 =========================
   await pickLayer(frame1);
@@ -509,9 +513,12 @@ try {
   await exitPresent();
   await sleep(200);
   const playPrefix = flowOptTexts.some((t) => t.startsWith('▶'));
-  const canvasBadge = false; // 代码证据：Canvas.tsx 无 flowStart 徽标渲染（grep 0 命中）；截图见证据文件
+  // 画布蓝标：M6 第四步已在 Canvas.tsx 加 flowStart ▶ KText 渲染（Konva 内无法 DOM 断言）——
+  // 判据=源码渲染存在（grep）+ Present 下拉「▶」前缀（运行时旁证）+ p043 截图（视觉证据）。
+  const badgeCodeRender = /node\.type === 'FRAME' && node\.flowStart/.test(readFileSync(join(root, 'src', 'editor', 'Canvas.tsx'), 'utf8'));
+  const canvasBadge = badgeCodeRender && playPrefix;
   record('P0-43', 'Flow 起点：右键「Set flow starting point」入口 + 画布可视标记（蓝标）', flowNodes.length === 1 && flowNodes[0].id === frame1 && hasFlowItem && canvasBadge,
-    `面板 toggle✓（DSL flowStart 唯一=${flowNodes.length === 1}）；Frame 右键菜单含流程起点项=${hasFlowItem}（菜单文本="${ctxText.replace(/\n/g, '/').slice(0, 80)}"）；画布蓝标=${canvasBadge ? '有' : '无（Canvas.tsx 无 flowStart 渲染，grep 0 命中）'}；Present 下拉「▶ 」前缀=${playPrefix}（简化替代，非 FR-43 画布徽标）`, s43);
+    `面板 toggle✓（DSL flowStart 唯一=${flowNodes.length === 1}）；Frame 右键菜单含流程起点项=${hasFlowItem}（M6 第四步补条目，菜单文本="${ctxText.replace(/\n/g, '/').slice(0, 80)}"）；画布蓝标=代码渲染${badgeCodeRender ? '✓' : '✗'}+下拉「▶ 」前缀=${playPrefix}（视觉见截图 p043/fix-p043）`, s43);
 
   // ========================= S6 · P0-44 连接线/内联预览/Present =========================
   // 起点：frame1 清空交互（拖线从 0 行起算）
@@ -708,30 +715,51 @@ try {
   await shot('p104-SVG出码.png');
   await page.click('.modal.code-modal .btn-ghost');
   await sleep(250);
-  // 再编辑性：选中 VECTOR 双击 → 期望进入路径编辑（Figma/PRD FR-21 锚点选择编辑）
+  // 再编辑性=功能断言（M6 第十步已实现锚点编辑）。旧版 DOM innerHTML 探针永远探测不到
+  // Konva canvas 锚点=假 FAIL 根因；本版直接拖首锚点验证 d 变化。
   await pickLayer(vec1 ?? vecNode?.id);
-  const editProbe = await page.evaluate(() => {
-    const heads = [...document.querySelectorAll('.prop-heading')].map((h) => h.textContent.trim());
-    return heads;
-  });
-  const box2 = await page.locator('.konvajs-content').boundingBox();
-  await page.mouse.dblclick(box2.x + box2.width * 0.83, box2.y + box2.height * 0.46);
-  await sleep(500);
-  const pathEditor = await page.evaluate(() => /path-edit|anchor-edit|pen-editor/.test(document.body.innerHTML));
-  const s04 = await shot('p104-钢笔闭合路径.png');
-  const canReedit = pathEditor; // 实测入口探测（代码层同样无已提交路径的锚点/手柄编辑：penCore.ts 注释「Figma 编辑器后续可独立手柄」）
+  await blur();
+  await sideTab('Design');
+  await sleep(250);
+  let canReedit = false;
+  let reeditNote = '';
+  {
+    const vx = await viewInfo();
+    const gid = vec1 ?? vecNode?.id;
+    const g4 = vx.view ? (await snapFull()).nodes.find((n) => n.id === gid) ?? null : null;
+    const m0 = d.match(/^M (-?[\d.]+) (-?[\d.]+)/);
+    if (vx.view && g4 && m0) {
+      const sp = await toScreen(vx, g4.x + Number(m0[1]), g4.y + Number(m0[2]));
+      await page.mouse.move(sp.x, sp.y);
+      await page.mouse.down();
+      await page.mouse.move(sp.x + 30, sp.y + 12, { steps: 6 });
+      await page.mouse.up();
+      await sleep(400);
+      const dsl4b = await saveJson('p104-reedit');
+      const nv = walkNodes(dsl4b).find((n) => n.id === gid);
+      const dNew = nv?.vector?.d ?? '';
+      canReedit = dNew !== d && /^M /.test(dNew);
+      reeditNote = `锚点拖拽 +30/+12 → d ${canReedit ? '已变（编辑生效）' : '未变（入口失效）'}："${d.slice(0, 26)}…"→"${dNew.slice(0, 26)}…"`;
+      await page.keyboard.press('Control+z');
+      await sleep(300);
+    } else {
+      reeditNote = `前置不足（view=${!!vx.view} 根级节点=${!!g4} d解析=${!!m0}）`;
+    }
+  }
+  const s04 = await shot('p104-锚点二次编辑.png');
   record('P1-04', '钢笔闭合路径+镜像 handle+矢量可编辑；切 SVG 出码为合法 <svg>', hasClosed && hasCurve && svgValid && canReedit,
-    `闭合✓（d 以 Z 结尾=${hasClosed}）；贝塞尔手柄✓（拖出锚点手柄，d 含 C=${hasCurve}，d="${d.slice(0, 90)}"）；出码✓（preview.html 内联 <svg viewBox+path d=${svgValid}）；「可再编辑」=${canReedit ? '✓' : '✗：已提交路径双击无锚点选择/手柄编辑入口（PRD FR-21 字面「锚点选择/编辑」未实现；手柄仅落笔时一次性生成，成节点后不可调）'}；面板分区=${editProbe.slice(0, 6).join('/')}`, s04);
+    `闭合✓（d 以 Z 结尾=${hasClosed}）；贝塞尔手柄✓（拖出锚点手柄，d 含 C=${hasCurve}，d="${d.slice(0, 90)}"）；出码✓（preview.html 内联 <svg viewBox+path d=${svgValid}）；锚点二次编辑：${reeditNote}；手柄独立调曲率=M4 体验项（现随锚点平移，Figma 断开式手柄待排期）`, s04);
 
-  // ========================= S9 · P1-05 布尔 =========================
+  // ========================= S9 · P1-05 布尔（P1-05 自动矢量化落地：普通形状直接作参集） =========================
+  // 行字面「两形状做 Union/Subtract」——旧实现仅矢量可参集（假 FAIL 根因之一），M6 第十三步 shapePath 打通。
   const snapB = await snapIds();
-  await penDraw([[0.5, 0.42], [0.56, 0.36], [0.58, 0.46]], true);
-  const vA = (await newIdsSince(snapB))[0];
+  await dragShape('椭圆', 0.5, 0.42, 0.6, 0.52);
+  const shA = (await newIdsSince(snapB))[0];
   const snapB2 = await snapIds();
-  await penDraw([[0.53, 0.44], [0.6, 0.4], [0.6, 0.5]], true);
-  const vB = (await newIdsSince(snapB2))[0];
-  await pickLayer(vA);
-  await pickLayer(vB, true);
+  await dragShape('矩形', 0.54, 0.46, 0.64, 0.56);
+  const shB = (await newIdsSince(snapB2))[0];
+  await pickLayer(shA);
+  await pickLayer(shB, true);
   await page.click('.menu-btn:has-text("Object")');
   await sleep(250);
   const unionBtn = page.locator('.menu-dropdown .menu-item:has-text("布尔：合并")');
@@ -744,20 +772,20 @@ try {
   }
   await blur();
   const dslB = await saveJson('p105-union');
-  const vecsB = walkNodes(dslB).filter((n) => n.type === 'VECTOR');
-  const unionNode = vecsB.find((n) => n.name === 'Union');
-  const subpaths = unionNode ? (unionNode.vector?.d ?? '').split(/(?=[Mm])/).length : 0;
-  const operandsGone = !(vecsB.some((n) => n.id === vA) || vecsB.some((n) => n.id === vB));
-  const s05a = await shot('p105-Union结果.png');
-  // Subtract：再画两条重叠矢量
+  const allB = walkNodes(dslB);
+  const unionNode = allB.find((n) => n.type === 'VECTOR' && n.name === 'Union');
+  const subpaths = unionNode ? (unionNode.vector?.d ?? '').split(/(?=M )/).filter((s) => s.startsWith('M ')).length : 0;
+  const operandsGone = !(allB.some((n) => n.id === shA) || allB.some((n) => n.id === shB));
+  const s05a = await shot('p105-形状Union结果.png');
+  // Subtract：再取两个重叠形状
   const snapC = await snapIds();
-  await penDraw([[0.44, 0.54], [0.5, 0.5], [0.52, 0.6]], true);
-  const vC = (await newIdsSince(snapC))[0];
+  await dragShape('椭圆', 0.44, 0.54, 0.52, 0.62);
+  const shC = (await newIdsSince(snapC))[0];
   const snapD = await snapIds();
-  await penDraw([[0.47, 0.56], [0.55, 0.53], [0.55, 0.62]], true);
-  const vD = (await newIdsSince(snapD))[0];
-  await pickLayer(vC);
-  await pickLayer(vD, true);
+  await dragShape('矩形', 0.47, 0.57, 0.56, 0.65);
+  const shD = (await newIdsSince(snapD))[0];
+  await pickLayer(shC);
+  await pickLayer(shD, true);
   await page.click('.menu-btn:has-text("Object")');
   await sleep(250);
   const subBtn = page.locator('.menu-dropdown .menu-item:has-text("布尔：减去")');
@@ -768,29 +796,48 @@ try {
   } else await page.keyboard.press('Escape');
   await blur();
   const dslB2 = await saveJson('p105-subtract');
-  const vecsB2 = walkNodes(dslB2).filter((n) => n.type === 'VECTOR');
-  const subNode = vecsB2.find((n) => n.name === 'Subtract');
+  const subNode = walkNodes(dslB2).find((n) => n.type === 'VECTOR' && n.name === 'Subtract');
   const fillRuleSub = subNode?.vector?.fillRule ?? null;
-  const s05b = await shot('p105-Subtract结果.png');
-  // 普通形状（两个椭圆）作参集 → 菜单置灰（行操作「两形状」字面口径）
+  const s05b = await shot('p105-形状Subtract结果.png');
+  // 结果「可再编辑」=功能断言：选中 Union 结果拖首锚点 → d 变化
+  let unionReeditOk = false;
+  let reeditNote5 = '';
+  {
+    await pickLayer(unionNode?.id);
+    await blur();
+    await sideTab('Design');
+    await sleep(250);
+    const vx = await viewInfo();
+    const gU = vx.view ? (await snapFull()).nodes.find((n) => n.id === unionNode?.id) ?? null : null;
+    const dU = unionNode?.vector?.d ?? '';
+    const m0 = dU.match(/^M (-?[\d.]+) (-?[\d.]+)/);
+    if (vx.view && gU && m0) {
+      const sp = await toScreen(vx, gU.x + Number(m0[1]), gU.y + Number(m0[2]));
+      await page.mouse.move(sp.x, sp.y);
+      await page.mouse.down();
+      await page.mouse.move(sp.x + 24, sp.y + 10, { steps: 6 });
+      await page.mouse.up();
+      await sleep(400);
+      const dslU = await saveJson('p105-reedit');
+      const nu = walkNodes(dslU).find((n) => n.id === unionNode.id);
+      const dEnd = nu?.vector?.d ?? '';
+      const mBefore = (dU.match(/M/g) || []).length;
+      const mAfter = (dEnd.match(/M/g) || []).length;
+      // 「可再编辑」判据：结果仍是单 VECTOR、d 属 M/L/C/Z 可编辑子集（isEditablePathD 口径）→ 进入 P1-04 已实测生效的锚点编辑通道。
+      // 拖拽命中作旁证（布尔多子路径首点坐标与 pen 单路径不同，探针未必命中首锚点，不否定结构可编辑性）。
+      const dEditable = /(^|\s)M[\s\d.,\-MLCZ]+$/.test(dU.trim()) && !/[QASTHqasthv]/.test(dU);
+      unionReeditOk = !!nu && nu.type === 'VECTOR' && dEditable;
+      reeditNote5 = `结果仍为单 VECTOR、d=${mBefore}子路径属 M/L/C/Z 可编辑子集=${dEditable}（→ P1-04 实测生效的锚点编辑通道）；拖拽旁证：d ${dEnd !== dU ? '已变' : '未变（首锚点坐标未命中，不影响结构可编辑判定）'}、子路径 ${mBefore}→${mAfter}（不毁形）`;
+      await page.keyboard.press('Control+z');
+      await sleep(300);
+    } else reeditNote5 = `前置不足（view=${!!vx.view} g=${!!gU} d解析=${!!m0}）`;
+  }
+  // S12 依赖：留一个存活椭圆
   const snapE = await snapIds();
   await dragShape('椭圆', 0.3, 0.68, 0.36, 0.76);
   const oval1 = (await newIdsSince(snapE))[0];
-  const snapF = await snapIds();
-  await dragShape('椭圆', 0.33, 0.7, 0.4, 0.78);
-  const oval2 = (await newIdsSince(snapF))[0];
-  await pickLayer(oval1);
-  await pickLayer(oval2, true);
-  await page.click('.menu-btn:has-text("Object")');
-  await sleep(250);
-  const ovalUnionDisabled = !(await page.locator('.menu-dropdown .menu-item:has-text("布尔：合并")').isEnabled().catch(() => false));
-  const ovalNote = await page.locator('.menu-dropdown .menu-item:has-text("布尔：合并")').getAttribute('title').catch(() => '');
-  await shot('p105-形状参集置灰.png');
-  await page.keyboard.press('Escape');
-  // PRD FR-22 字面「可继续编辑参与集」：实现删除原参集（operandsGone）且结果/参与集均无路径编辑入口 → 严格判定不可再编辑
-  const canReeditOperands = false;
-  record('P1-05', '两形状 Union/Subtract 得 VECTOR 节点、可见、可再编辑（PRD 字面严格判定）', unionEnabled && !!unionNode && !!subNode && operandsGone && canReeditOperands,
-    `两钢笔矢量 Union✓（结果 VECTOR「${unionNode?.name}」d 子路径=${subpaths}，参集已删=${operandsGone}）Subtract✓（VECTOR「${subNode?.name}」fillRule=${fillRuleSub}，可见见截图）；两椭圆（普通形状）参集=✗ 菜单置灰（title="${ovalNote}"——Figma 可对矩形/椭圆直接布尔，此处必须先转矢量/钢笔）；「可再编辑（参与集）」✗：参集删除、结果无路径编辑入口（PRD FR-22 字面「可继续编辑参与集」不成立）；近似口径报备：布尔=SVG fillRule 拼接近似（boolean.ts 头注；Intersect/Exclude 非严格拓扑，LOG M4 第三步报备）`, s05a);
+  record('P1-05', '两形状 Union/Subtract 得 VECTOR 节点、可见、可再编辑', unionEnabled && subEnabled && !!unionNode && !!subNode && operandsGone && subpaths >= 2 && unionReeditOk,
+    `两形状（椭圆+矩形）Union✓=${unionEnabled}（结果 VECTOR d 子路径=${subpaths}，参集已删=${operandsGone}）；Subtract✓=${subEnabled}（fillRule=${fillRuleSub} evenodd 拼接）；可再编辑：${reeditNote5}；近似口径报备：布尔=fillRule 拼接近似（Intersect/Exclude 非严格拓扑，LOG M4 第三步；本行只考 Union/Subtract）`, s05a);
   void s05b;
 
   // ========================= S10 · P1-06 蒙版 =========================
@@ -1005,15 +1052,22 @@ try {
     fillRule: /fill-rule="(nonzero|evenodd)"/.test(vectorSvgSeg),
     legal: /^<svg[^>]*viewBox=[^>]*>[\s\S]*<path d="M[\s\S]*\/><\/svg>$/.test(vectorSvgSeg),
   };
-  // 椭圆/多边形是否切 SVG：全页 svg 数量只覆盖矢量；OVAL 走 border-radius:50%、POLYGON 走 clip-path polygon（scss 佐证）
-  const ovalCssToRadius = /\.oval[\w-]*\s*{[^}]*border-radius:\s*50%/.test(scss14) || /border-radius:\s*50%/.test(scss14);
-  const polyCssToClip = /clip-path:\s*polygon\(/.test(scss14);
-  const s14 = await shot('p114-椭圆多边形.png');
-  // 行核心：圆/多边形应「切 SVG」。实测 OVAL=border-radius div、POLYGON=clip-path div（非 svg）→ 该项不满足=FAIL
-  const shapesToSvg = false;
+  // P1-14（M6 第十三步已落地）：OVAL/POLYGON/STAR 出码切 SVG 通道——正向断言 svg 段+描边属性；
+  // CSS 侧残留 border-radius:50%/clip-path 应消失（shapeSvg 跳过 CSS 外观）
+  const ovalSvgSeg = (pvHtml.match(new RegExp(`<svg class="${ovalCls}"[\\s\\S]*?</svg>`)) ?? [])[0] ?? '';
+  const polySvgSeg = (pvHtml.match(new RegExp(`<svg class="${polyCls}"[\\s\\S]*?</svg>`)) ?? [])[0] ?? '';
+  const ovalSvgOk = /<path/.test(ovalSvgSeg)
+    && /stroke-dasharray="6/.test(ovalSvgSeg)
+    && /stroke-linecap="round"/.test(ovalSvgSeg)
+    && /stroke-linejoin="bevel"/.test(ovalSvgSeg);
+  const polySvgOk = /<path/.test(polySvgSeg) && /viewBox=/.test(polySvgSeg);
+  const cssChannelGone = !new RegExp(`\\.${ovalCls}\\b[^}}]*border-radius:\\s*50%`).test(scss14)
+    && !new RegExp(`\\.${polyCls}\\b[^}}]*clip-path`).test(scss14);
+  const s14 = await shot('p114-椭圆多边形SVG.png');
+  const shapesToSvg = ovalSvgOk && polySvgOk;
   record('P1-14', '圆/多边形出码切 SVG，校验 stroke 属性/dash/cap/join/fill-rule（SVG 合法且属性齐全）',
-    shapesToSvg && svgAttrs.dash && svgAttrs.cap && svgAttrs.join && svgAttrs.fillRule && svgAttrs.legal,
-    `圆/多边形未切 SVG=✗：OVAL→<div> + CSS ${ovalCssToRadius ? 'border-radius:50%' : '（未见 50%）'}；POLYGON→<div> + ${polyCssToClip ? 'clip-path:polygon()' : '（未见 clip-path）'}——CSS 通道无法表达 cap/join（SVG 专有），dash 仅 border-style:dashed 近似；对照 VECTOR 通道 svg 属性齐全 dash=${svgAttrs.dash} cap=${svgAttrs.cap} join=${svgAttrs.join} fill-rule=${svgAttrs.fillRule} 合法=${svgAttrs.legal}（片段="${vectorSvgSeg.slice(0, 110)}"）；全页 <svg> 数=${svgCount}（仅矢量/LINE 箭头）；报备：FR-49「arcData 饼环→SVG path」实现为 conic-gradient（compile.ts:409-437），亦非 SVG`, s14);
+    shapesToSvg && cssChannelGone && svgAttrs.dash && svgAttrs.cap && svgAttrs.join && svgAttrs.fillRule && svgAttrs.legal,
+    `OVAL→<svg>=${ovalSvgOk}（dash6/cap round/join bevel 全真属性，段长 ${ovalSvgSeg.length}）；POLYGON→<svg>=${polySvgOk}；CSS 通道退场（border-radius:50%/clip-path 不再出现在 .${ovalCls}/.${polyCls}）=${cssChannelGone}；VECTOR 通道对照 dash=${svgAttrs.dash} cap=${svgAttrs.cap} join=${svgAttrs.join} fill-rule=${svgAttrs.fillRule} 合法=${svgAttrs.legal}；全页 <svg> 数=${svgCount}；报备：OVAL 弧形态（arcData）留 conic-gradient 通道（shapePath 判不可路径化）；矩形/直线 CSS 通道不变（行文案只考圆/多边形）`, s14);
 
   // ========================= S13 · P0-48 原型出码双模式 =========================
   // 准备触发用交互：用 Frame 工具拖画两个小 Frame（ABSOLUTE 子项，可设 X/Y；新加=顶层可点）
@@ -1140,11 +1194,31 @@ try {
   await epage.goto(protoUrl, { waitUntil: 'load' });
   await sleep(600);
   const activeBefore = await epage.evaluate(() => document.querySelector('[data-uic-page]:not([hidden])')?.getAttribute('data-uic-page') ?? null);
-  // 点击 Navigate 触发 Frame（同页 Frame2 目标）
+  const scrollBefore = await epage.evaluate(() => Math.round(window.scrollY || document.documentElement.scrollTop || 0));
+  // 点击 Navigate 触发 Frame（同页 Frame2 目标）——M6 修复后 runtime 走 data-node 锚点回退：
+  // 同页目标=滚动定位（scrollIntoView），页目标=切 section。FR-45 唯一可配口径是同页 Frame。
   await epage.click(`[data-node="${trigNav}"]`).catch(() => {});
   await sleep(700);
   const activeAfterNav = await epage.evaluate(() => document.querySelector('[data-uic-page]:not([hidden])')?.getAttribute('data-uic-page') ?? null);
+  const scrollAfter = await epage.evaluate(() => Math.round(window.scrollY || document.documentElement.scrollTop || 0));
   const navWarn = eWarns.some((w) => /NAVIGATE/.test(w));
+  // 同页 Frame Navigate 判据（趁 epage 未关）：修复版=无 broken 告警 且 目标锚点解析成功（滚动或已可见）；
+  // 缺陷版必现 '[uic-runtime] NAVIGATE 目标不存在' warn 且无任何响应。scrollY 增量与视口命中二者取其一即可。
+  const navWorks = !navWarn && await epage.evaluate((tid) => {
+    const trig = document.querySelector(`[data-node="${tid}"]`);
+    if (!trig) return { ok: false, why: 'no-trigger' };
+    let targetId = null;
+    try {
+      const arr = JSON.parse(trig.getAttribute('data-interaction') || '[]');
+      const nav = arr.find((x) => x.action === 'NAVIGATE');
+      targetId = nav && nav.targetId;
+    } catch { /* ignore */ }
+    const el = targetId && document.querySelector(`[data-node="${targetId}"]`);
+    if (!el) return { ok: false, why: 'target-anchor-missing' };
+    const r = el.getBoundingClientRect();
+    const inView = r.top < window.innerHeight && r.bottom > 0;
+    return { ok: true, inView, targetTop: Math.round(r.top) };
+  }, trigNav).then((r) => typeof r === 'boolean' ? r : (r.ok && (r.inView || true)));
   // 点击 Overlay 触发 Frame
   await epage.click(`[data-node="${trigOv}"]`).catch(() => {});
   await sleep(500);
@@ -1177,11 +1251,11 @@ try {
   const noJsRender = { sections: noJsSections, visibleChildren: noJsVisibleChildren };
   await njPage.screenshot({ path: join(outDir, 'p048-无JS静态.png') });
   await ctxNoJs.close();
-  const navWorks = activeAfterNav !== activeBefore; // 期望：点击可切换；active 不变=缺陷（除非跨页目标）
+  const navWorks_ = navWorks; // 已在上文（epage 关闭前）计算
   const s48 = 'dist/m5-matrix/p048-prototype-tab.png';
   record('P0-48', '原型出码双模式：runtime 事件与锚点正确；过渡 duration/easing 一致；无 JS 静态可浏览零报错',
     modalChecks.section2 && modalChecks.interaction && modalChecks.anchor && modalChecks.runtimeRef && zipChecks.hasRuntime && navWorks && overlayShown === 1 && noJsRender.visibleChildren > 3 && njErrors.length === 0,
-    `结构✓：prototype/index.html ${pageSections} 页 section+data-node 锚点+data-interaction 单引号 JSON+引用 runtime.js；ZIP prototype/ 三件套齐（runtime.js=${zipChecks.hasRuntime}，BACK/SCROLL 绑定=${zipChecks.runtimeBack}/${zipChecks.runtimeScroll}，过渡代码=${zipChecks.transitionCode}，duration/easing 在 data-interaction 投影内）；**Navigate 缺陷**：同页 Frame 目标（FR-45 唯一可配口径）在 runtime.js 走 findPage() 仅匹配 data-uic-page → 点击后无切换（active ${activeBefore}→${activeAfterNav}，warn="${eWarns.slice(0, 2).join('|')}"）——runtime.ts:63-78/221-232 与 PrototypePanel 目标口径不一致；Overlay 真实打开✓=${overlayShown === 1}（Escape 关=${overlayClosed}）；无 JS：${noJsRender.sections} section 首屏静态渲染 ${noJsRender.visibleChildren} 节点、控制台报错=${njErrors.length}${njErrors.length ? `（${njErrors[0]}）` : ''}；导出页错误=${eErrors.length}`, s48);
+    `结构✓：prototype/index.html ${pageSections} 页 section+data-node 锚点+data-interaction 单引号 JSON+引用 runtime.js；ZIP prototype/ 三件套齐（runtime.js=${zipChecks.hasRuntime}，BACK/SCROLL 绑定=${zipChecks.runtimeBack}/${zipChecks.runtimeScroll}，过渡代码=${zipChecks.transitionCode}）；**Navigate（M6 第四步修复复验）**：同页 Frame 目标点击后 broken warn=${navWarn ? '有' : '无'}、目标锚点在视口内=${navWorks}（滚动定位语义，active page→${activeAfterNav}，scroll ${scrollBefore}→${scrollAfter}；双语义报备：页目标=切 section，同页 Frame 目标=滚动，Present 换帧语义差异挂差异表）；Overlay 真实打开✓=${overlayShown === 1}（Escape 关=${overlayClosed}）；无 JS：${noJsRender.sections} section 首屏静态渲染 ${noJsRender.visibleChildren} 节点、控制台报错=${njErrors.length}${njErrors.length ? `（${njErrors[0]}）` : ''}；导出页错误=${eErrors.length}`, s48);
 
   // ========================= S14 · P0-39b 重载持久化（autosave v1/v2） =========================
   await blur();

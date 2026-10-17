@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）—— UI Compiler 项目快速上手
 
-> 写给：接手本项目开发的 agent。日期：**2026-10-16 第二轮收口** · 基线 HEAD：`6cad745`（master，工作区干净）
+> 写给：接手本项目开发的 agent。日期：**2026-10-17 第三轮收口** · 基线 HEAD：本文件随 M6 第十四步提交（ff0d680 后两批：接管 shapePath 矢量化 + m5 段复判结案）
 > 本文档是**路线与纪律**；细节以 `docs/PRD.md`（需求唯一凭据）与 `LOG.md`（逐日事实）为准。
 
 ---
@@ -76,14 +76,15 @@ tests/            31 个 *.test.ts = 434 例（vitest，node 环境，不依赖�
 - **★ GA 阻断已全清**（FR-57 五区补齐全过；样片 16→19 页，新增 `src/demo/showcase.ts` 三页）。
 - **已闭环差异**：#5 imageAdjustments 双端消费、#6 组件改名回流+样式编辑入口、#9-#12（上轮）。**仍开放**：#1（14 页 92.07% 豁免待 M6 终验）、#4 帧预算、#7 约束档位口径（待拍板）、#13 矢量三件之②③（待拍板）。
 
-## 6. 剩余任务队列（按此顺序推，均为 GA 线内）
+## 6. 剩余任务队列（2026-10-17 刷新，仅剩 3 项）
 
 | # | 任务 | 入手点 | 预估 |
 |---|---|---|---|
-| 1 | **m12 段 7 行甄别**：P0-07/10/15 快照通道只给根级子节点 → 脚本改走 `__UIC_VIEW__`+DOM 或扩 snapshot；P0-09/11 像素扫描复跑甄别；FATAL 脚本 bug | `scripts/m12-matrix.mjs` | 1.5-3h |
-| 2 | **FR-60 帧预算专项**（差异 #4，最不确定）：1000 节点拖拽 95% 帧<16.7ms 实测 59.7%。方向：`onDragMove` 重算节流（transientEdit 已有基线机制）、ContentLayer memo 命中率、几何 resolve 增量化。改完必须复跑 perf-1000 + 全像素门禁 | `Canvas.tsx` + `compiler/*` | 4-8h，开口 |
-| 3 | **P1 矢量三件之②③（先拍板）**：P1-05 普通形状布尔（形状→路径自动矢量化方案）；P1-14 形状 SVG 化口径（改行文案 or 实做；动出码管线有像素回归风险） | `Canvas.tsx`/`boolean.ts`/`compile.ts` | 各 3-5h，**需 PM 定口径** |
-| 4 | **收口**：矩阵全量汇总行（≥95% 精算）、Go/No-Go 纪要（FR-62）、ci-local 重跑刷新、HANDOFF 再刷新 | §步骤 8 | 2-3h |
+| 1 | **FR-60 帧预算专项**（差异 #4，唯一 ★外 FAIL=矩阵 69/70=98.6% 的最后缺口）：1000 节点拖拽 95% 帧<16.7ms 实测 55.0%。方向：自管理拖拽下 stageMouseMove 每帧只 position 无 setState（已具备）→ 瓶颈在 computeSnap 兄弟遍历与 transient dispatch 链；候选：拖拽期快照 refs、rAF 合帧、guides 仅变化时 setState。改完必须复跑 perf-1000 + 全量门禁 | `Canvas.tsx`（nodeDragRef/anchorDrag 分支）+ `snapping.ts` | 4-8h，开口 |
+| 2 | **附 A/B/C 采样归档**（GA 四模块 100% 线的站点级凭据）：附A 19 页×9 要素（canvasdiff 已按 19 页基建）、附B 右栏 11 分区逐字段、附C 7 菜单——写 m6-appendix.mjs 型脚本采样+截图入 dist/ | `docs/figma-parity-checklist.md` 附表 + matrix 模板 | 6-10h，机械 |
+| 3 | **收口包**：canvasdiff 19 页基线复跑（现为 16 页旧口径）、ci-local 刷新、矩阵汇总终版、Go/No-Go 纪要（FR-62）、m4-matrix P1-12 判据同步「4 档」、README/HANDOFF 终刷 | 各脚本 | 2-3h |
+
+> 已交付（勿重做）：图片 7 项调整双端、组件改名回流、样式行内编辑、FR-27 四类样式、每页历史、FR-57 样片五区、P1-04 锚点二次编辑（含拖拽真生效）、**P1-05 形状布尔（shapePath 自动矢量化）**、**P1-14 形状 SVG 出码**、m12 段 24/24、**画布节点拖拽（自管理，修 Konva DD 不达）**、**布尔多子路径编辑（penCore subpaths）**。
 
 > 已交付（勿重做）：图片 7 项调整双端出码+画布、组件改名回流、样式行内编辑、FR-27 四类样式（含 types.ts 扩 kind）、每页独立历史完整形态、FR-57 样片五区、P1-04 锚点二次编辑。
 

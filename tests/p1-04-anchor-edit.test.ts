@@ -220,3 +220,39 @@ describe('P1-04 store：UPDATE_VECTOR_D', () => {
     expect(v.vector?.d).toBe('M 0 0 L 10 0 L 10 10');
   });
 });
+
+describe('多子路径 d（布尔结果）round-trip 不毁形', () => {
+  it('双子路径闭合 d：parse 返回 subpaths 结构', () => {
+    const d = 'M 0 0 L 20 0 L 20 20 L 0 20 Z M 10 10 L 30 10 L 30 30 L 10 30 Z';
+    const parsed = parsePathD(d);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.subpaths).toHaveLength(2);
+    expect(parsed.subpaths?.[1].start).toBe(4);
+  });
+
+  it('rebuildFromPoints 带 subpaths：M 数与闭合结构保持（单路径行为不变）', () => {
+    const d = 'M 0 0 L 20 0 L 20 20 L 0 20 Z M 10 10 L 30 10 L 30 30 L 10 30 Z';
+    const parsed = parsePathD(d);
+    const abs = parsed.points.map((p) => ({ ...p, x: p.x + 50, y: p.y + 50 }));
+    const r = rebuildFromPoints(abs, parsed.closed, parsed.subpaths);
+    expect((r.d.match(/M/g) || []).length).toBe(2);
+    expect((r.d.match(/Z/g) || []).length).toBe(2);
+    // 每段各自闭合，不出现跨子路径连线
+    expect(r.d).toMatch(/Z M/);
+  });
+
+  it('拖一锚点后其余子路径形状不互连（结构保持）', () => {
+    const d = 'M 0 0 L 20 0 L 20 20 L 0 20 Z M 10 10 L 30 10 L 30 30 L 10 30 Z';
+    const parsed = parsePathD(d);
+    const pts = parsed.points.map((p, i) => (i === 0 ? { ...p, x: p.x + 5 } : p));
+    const r = rebuildFromPoints(pts, parsed.closed, parsed.subpaths);
+    const after = parsePathD(r.d);
+    expect(after.subpaths).toHaveLength(2);
+    expect(after.points).toHaveLength(parsed.points.length);
+  });
+
+  it('单子路径不返回 subpaths 键（toEqual 契约与旧行为）', () => {
+    const parsed = parsePathD('M 0 0 L 10 0 L 10 10 Z');
+    expect(parsed.subpaths).toBeUndefined();
+  });
+});

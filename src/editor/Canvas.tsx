@@ -1607,7 +1607,7 @@ export function Canvas() {
   }, [state.selectedIds, geometry, state.page, isPan, state.tool]);
 
   // P1-04：锚点拖拽（page 坐标起手快照，拖动时整节点重算 d）
-  const anchorDrag = useRef<{ id: string; index: number; startX: number; startY: number; points: PenDraftPoint[]; closed: boolean; origin: { x: number; y: number } } | null>(null);
+  const anchorDrag = useRef<{ id: string; index: number; startX: number; startY: number; points: PenDraftPoint[]; closed: boolean; origin: { x: number; y: number }; subpaths?: { start: number; closed: boolean }[] } | null>(null);
   const [hoverVecAnchor, setHoverVecAnchor] = useState<number | null>(null);
 
   // FR-44 连接线：单选 FRAME（select 工具、非平移）时给出连接点 + 已有交互的目标箭头线。
@@ -1745,7 +1745,7 @@ export function Canvas() {
       );
       // 本地点集 → 绝对坐标 → 重算 d 与包围盒（与收笔同口径）
       const abs = moved.map((p) => ({ ...p, x: p.x + drag.origin.x, y: p.y + drag.origin.y }));
-      const { d, bounds } = rebuildFromPoints(abs, drag.closed);
+      const { d, bounds } = rebuildFromPoints(abs, drag.closed, drag.subpaths);
       dispatch({
         type: 'UPDATE_VECTOR_D',
         id: drag.id,
@@ -2214,46 +2214,6 @@ export function Canvas() {
                 ))}
               </>
             )}
-            {/* P1-04：已提交 VECTOR 的锚点（可拖动二次编辑；与手柄同位但语义不同——锚点改形，手柄改框） */}
-            {vecAnchors && (
-              <>
-                {vecAnchors.anchors.map((a) => (
-                  <Circle
-                    key={`vec-anchor-${a.index}`}
-                    x={a.x}
-                    y={a.y}
-                    radius={(hoverVecAnchor === a.index ? 5.5 : 4) / scale}
-                    fill={a.index === 0 ? SEL_COLOR : HANDLE_COLOR}
-                    stroke={SEL_COLOR}
-                    strokeWidth={1.5 / scale}
-                    onMouseEnter={() => setHoverVecAnchor(a.index)}
-                    onMouseLeave={() => setHoverVecAnchor(null)}
-                    onMouseDown={(e) => {
-                      e.cancelBubble = true;
-                      suppressClickRef.current = true;
-                      const g = geometry[vecAnchors.id];
-                      const found = findInTree(state.page.root, vecAnchors.id);
-                      if (!g || !found) return;
-                      const parsed = parsePathD(found.node.vector?.d ?? '');
-                      if (!parsed.ok) return;
-                      const stage = stageRef.current;
-                      const pointer = stage?.getPointerPosition();
-                      if (!stage || !pointer) return;
-                      const at = pagePoint(stage, pointer);
-                      anchorDrag.current = {
-                        id: vecAnchors.id,
-                        index: a.index,
-                        startX: at.x,
-                        startY: at.y,
-                        points: parsed.points,
-                        closed: parsed.closed,
-                        origin: contentOrigin(g, found.node.layout),
-                      };
-                    }}
-                  />
-                ))}
-              </>
-            )}
             {selectedCount === 1 &&
               (() => {
                 const id = state.selectedIds[0];
@@ -2282,6 +2242,48 @@ export function Canvas() {
                 );
               })()}
           </Layer>
+          {/* P1-04：已提交 VECTOR 的锚点（可拖二次编辑）。必须独立可交互 Layer——
+              原挂在 listening={false} 覆盖层内，鼠标事件永不触发（m5 复判时揪出，探针只看渲染漏测了拖拽） */}
+          {vecAnchors && (
+            <Layer>
+              {vecAnchors.anchors.map((a) => (
+                <Circle
+                  key={`vec-anchor-${a.index}`}
+                  x={a.x}
+                  y={a.y}
+                  radius={(hoverVecAnchor === a.index ? 5.5 : 4) / scale}
+                  fill={a.index === 0 ? SEL_COLOR : HANDLE_COLOR}
+                  stroke={SEL_COLOR}
+                  strokeWidth={1.5 / scale}
+                  onMouseEnter={() => setHoverVecAnchor(a.index)}
+                  onMouseLeave={() => setHoverVecAnchor(null)}
+                  onMouseDown={(e) => {
+                    e.cancelBubble = true;
+                    suppressClickRef.current = true;
+                    const g = geometry[vecAnchors.id];
+                    const found = findInTree(state.page.root, vecAnchors.id);
+                    if (!g || !found) return;
+                    const parsed = parsePathD(found.node.vector?.d ?? '');
+                    if (!parsed.ok) return;
+                    const stage = stageRef.current;
+                    const pointer = stage?.getPointerPosition();
+                    if (!stage || !pointer) return;
+                    const at = pagePoint(stage, pointer);
+                    anchorDrag.current = {
+                      id: vecAnchors.id,
+                      index: a.index,
+                      startX: at.x,
+                      startY: at.y,
+                      points: parsed.points,
+                      closed: parsed.closed,
+                      subpaths: parsed.subpaths,
+                      origin: contentOrigin(g, found.node.layout),
+                    };
+                  }}
+                />
+              ))}
+            </Layer>
+          )}
           <Layer>
             {handles.map((h) => (
               <Rect
