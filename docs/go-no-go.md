@@ -10,7 +10,7 @@
 
 | 维度 | 结果 | 凭据 |
 |---|---|---|
-| 行走查矩阵 | **PASS 69 / FAIL 1 / P2 对照声明 3 = 98.6%**（GA 线 ≥95% ✅；★ 核心行零 FAIL） | `docs/figma-parity-checklist.md` |
+| 行走查矩阵 | **PASS 70 / FAIL 0 / P2 对照声明 3 = 100%**（GA 线 ≥95% ✅；★ 核心行零 FAIL；P1-01 方案 A 拍板后转正） | `docs/figma-parity-checklist.md` |
 | 四模块 100% | 附 A **19/19** · 附 B **11/11** · 附 C **7/7** · FR-57 样片 **5/5** → **全部 100% ✅** | `dist/m6-appendix/report.json`、`dist/showcase/report.json` |
 | 像素门禁 | e2e **19/19 ≥98%**；canvasdiff **18/19**（avg 97.87%，唯一 MISS=差异 #1 已豁免）；样片 avg **99.51%** | `dist/pages/diff-report.json`、`dist/canvas-diff/`、`dist/showcase/` |
 | 功能门禁 | tsc 0 错 · vitest **525/525** · build OK · viewport **76/76** · walkthrough 9/9 · m1 22 · m2 27 · present-smoke 18/18 · m12 **24/24** · m4 **11/12** · m5 **16/16** | `dist/*/report.json` |
