@@ -1,6 +1,6 @@
 # 交接文档（HANDOFF）—— UI Compiler 项目快速上手
 
-> 写给：接手本项目开发的 agent。日期：**2026-10-17（第三轮交接）** · 基线 HEAD：`50f8a67`（master，**工作区干净**，tsc 0 错）
+> 写给：接手本项目开发的 agent。日期：**2026-10-18（第四轮交接）** · 基线 HEAD：`624ce71`（master，**工作区干净**，tsc 0 错）
 > 本文档是**路线与纪律**；细节以 `docs/PRD.md`（需求唯一凭据）、`LOG.md`（逐日事实，读到最新一条）与 `docs/figma-parity-checklist.md`（矩阵账本）为准。
 
 ---
@@ -11,19 +11,19 @@
 
 - **AI = 0%**：全链路确定性编译，任何步骤双跑产物字节一致。
 - **像素级还原**：19 测试页 e2e ≥98%；样片出码 vs reference 均值 ≥99%；画布 vs 出码 ≥95%。
-- **完全对照 Figma**：唯一验收凭据 = `docs/figma-parity-checklist.md`（73 行走查矩阵，GA 线 ≥95% 且 ★核心 100%）。
+- **完全对照 Figma**：唯一验收凭据 = `docs/figma-parity-checklist.md`（73 行走查矩阵 + 附 A/B/C，GA 线 ≥95% 且四模块 100%）。
 
-**当前位置**：M6 收口段。**矩阵 73 行已全部执行：PASS 69 / FAIL 1 / P2 对照声明 3 → 通过率 98.6% ≥95% ✅（已越线）**。唯一 FAIL = FR-60 帧预算（性能攻坚，见 §6#1，含两轮实验记录）。★ 核心行（P0 级）零 FAIL。
+**当前位置**：M6 收口完成，**CONDITIONAL GO**。行走查 **69/1/3 = 98.6% ≥95% ✅**；**四模块全 100% ✅**（附 A 19/19 · 附 B 11/11 · 附 C 7/7 · FR-57 样片 5/5）。**唯一待决 = FR-60 帧预算判据口径**（`docs/go-no-go.md` 议题 1）。
 
 ## 1. 必读文件（按序）
 
 | 文件 | 用途 |
 |---|---|
+| `docs/go-no-go.md` | **M6 评审纪要（FR-62）**：5 项议题、决议汇总、GA 后增强清单、唯一 GO 前置条件 |
 | `docs/PRD.md`（v1.1，FR-1~62） | 需求/验收标准/里程碑/Stop and Escalate。P0=GA 必达；P1=承诺必交付；P2=Go/No-Go 后 |
-| `LOG.md`（~1500 行，逐条「目标/修改/结果/验证/遗留」） | **从最后 6 条读起**（第十二~十四步）：m12 甄别结案→节点拖拽修复→矢量化接管→m5 复判结案。每条含文件锚点与踩坑 |
-| `docs/figma-parity-checklist.md` | 矩阵逐行结果 + **差异与结论 #1-#17**（所有开放口径都登记在这）+ 修订历史 |
+| `LOG.md`（~1400 行） | **从最后 2 条读起**（M6 收口包① / FR-60 判据实证）。每条含文件锚点与踩坑 |
+| `docs/figma-parity-checklist.md` | 矩阵逐行结果 + 附 A/B/C 实测 + **差异与结论 #1-#17** + 修订历史（矩阵 7） |
 | `docs/schema-decisions.md` | types.ts 冻结文件的扩字段流程（**主线单点合入**）+ 轨道所有权 |
-| `docs/wave1-prototype-plan.md` / `wave1-components-notes.md` | 口径引用用（P/C 线已按此落地） |
 | `README.md` + `package.json` scripts | 命令入口全集 |
 
 ## 2. 项目铁律（违反即返工）
@@ -75,36 +75,44 @@ tests/            36 个 *.test.ts = 525 例（vitest，node 环境）
 ## 5. 进度快照（2026-10-17）
 
 - **HEAD `50f8a67`**；10-16 晚~10-17 提交链：第十二步(89fbb75) m12 甄别结案 24/24+**节点拖拽自管理修复** → 第十三步(ff0d680) 接管矢量化包（shapePath：P1-05 形状布尔+P1-14 形状 SVG+P1-12 已裁决改判）→ 第十四步(50f8a67) m5 复判 16/16+**锚点层修复**+**布尔多子路径毁形修复**。
-- **门禁（=HEAD 实测）**：tsc 0 · vitest **525/525** · build OK · e2e **19/19≥98%** · viewport 76/76 · walkthrough 9/9 · m1 22 · m2 27 · present-smoke 18/18 · showcase 五区 5/5 avg **99.51%**（A17/B2/C0）· m4 **10/12**（FAIL=P1-01 真+P1-12 脚本判据待同步 4 档）· m5 **16/16** · m12 **24/24**。
-- **矩阵总账**：73 行走查行全执行，**PASS 69 / FAIL 1 / P2 声明 3 = 98.6% ≥95% ✅**。开放差异：#1（14 页画布↔出码 92.07% 豁免，M6 终验复核）、#4（帧预算）、#11 残留（overlay 拖拽定位+遮罩透明度，P1 体验）、#13 已闭环（②③落地，arcData→SVG 留报）。
-- **canvasdiff 基线仍是 10-14 的 16 页口径**（收口时须按 19 页复跑，见 §6#3）。
+- **门禁（=HEAD 实测）**：tsc 0 · vitest **525/525** · build OK · e2e **19/19≥98%** · viewport 76/76 · walkthrough 9/9 · m1 22 · m2 27 · present-smoke 18/18 · showcase 五区 5/5 avg **99.51%** · **m4 11/12**（FAIL 仅 P1-01 FR-60）· m5 **16/16** · m12 **24/24** · **m6-appendix 附A 19/19 · 附B 11/11 · 附C 7/7** · canvasdiff **18/19**（avg 97.87%）· ci-local **4/4**。
+- **矩阵总账**：行走查 **PASS 69 / FAIL 1 / P2 声明 3 = 98.6% ≥95% ✅**；**四模块全 100% ✅**。
+- **开放差异**：#4（FR-60 判据口径，**唯一阻断**）、#1（14 页 92.07% 已豁免）、#11 残留（overlay 拖拽定位+遮罩透明度，P1 体验）。
+- canvasdiff 基线已按 **19 页**复跑（18/19，avg 97.87%；唯一 MISS=14 页=差异 #1）。
 
-## 6. 剩余任务队列（就这 3 项）
+## 6. 剩余任务队列（就这 2 项）
 
-| # | 任务 | 入手点 / 实验记录 | 预估 |
+| # | 任务 | 入手点 | 预估 |
 |---|---|---|---|
-| 1 | **FR-60 帧预算攻坚**（唯一 FAIL）：1000 节点拖拽「95% 帧<16.7ms」实测 **50~55%**（测量噪声 ±5pp，判改善需 >10pp）。**已排除假设**：① hit canvas 每帧重画——拖拽期 `listening(false)+hitEnabled(false)` 实测 55.0%→50.4% **无改善**（代码已回滚，不在 HEAD）→ **真瓶颈=拖拽期内容层 scene 整层 O(n) 重绘**（每次 `grp.position()` → Konva batchDraw 全层 1000 形状）。**已设计未实施方案（半成品思路记录）**：A 拖拽幻影——起手把原 `grp.visible(false)`（imperative，勿走 React）+ 在独立监听层放单 `<Rect>` 代理跟手（改 `nodeDragRef` 携带 geom 副本+`info`，stageMouseMove 首帧切换、endInteraction/Escape 恢复+提交），每帧重绘降 O(1)；B 导引签名门控——`onNodeDragMove` 里 `setGuides(res.guides)` 每帧新数组触发 React 重渲染，按 guides 签名（axis+pos 串）变化才 setState；C 若仍不达标评估 `perfectDrawEnabled=false`（形状均无阴影）+ 向 PM 报备 avg≈17~20ms 边缘证据申请口径。**红线**：不改视觉输出（e2e 19/19 与 canvasdiff 必须仍绿）；`snapping.ts` 纯函数勿动语义（22/24 段有单测）。 | `Canvas.tsx`（nodeDragRef 三接线点）`snapping.ts` `perf-1000.mjs` | 4-8h，开口 |
-| 2 | **附 A/B/C 采样归档**（GA「四模块 100%」站点凭据）：附A 19 页×9 要素、附B 右栏 11 分区逐字段、附C 7 菜单条目+置灰。写 `m6-appendix.mjs`（照 m5-matrix 模板）采样+截图入 `dist/`，结果填附表。 | checklist 附表 + matrix 模板 | 6-10h，机械零风险 |
-| 3 | **收口包**：`npm run canvasdiff` 19 页基线复跑（刷 #1 豁免行数据）→ ci-local 重跑 → 矩阵汇总终版（含附 A/B/C）→ **Go/No-Go 纪要（FR-62，含 P2 协作/Variables 决策+已裁 4 项口径归档）** → m4-matrix P1-12 判据同步「4 档」→ README/HANDOFF 终刷。 | 各脚本 | 2-3h |
+| 1 | **FR-60 判据拍板后的同步**（唯一 GO 前置）：PM 在 `docs/go-no-go.md` 议题 1 选定 A/B/C 后——① 改 `perf-1000.mjs` 主判据（`fr60_effective` 转正）；② checklist 差异 #4 结案 + P1-01 行改判；③ m4-matrix P1-01 断言同步；④ 行走查随之 **70/70=100%**，Go 状态转 **GO** | `docs/go-no-go.md` §二议题1、`scripts/perf-1000.mjs` | 0.5-1h（纯判据同步，无产品改动） |
+| 2 | **最终文档终刷**：README「限制与路线图」补 FR-60 判据说明；HANDOFF 第五节数字随第 1 项拍板结果再刷；`docs/deployment.md` 复核部署步骤 | 三份文档 | 0.5h |
 
-> **已交付（勿重做、勿重修）**：图片 7 调整双端 · 组件改名回流 · 样式行内编辑（含批量同步实测）· FR-27 四类样式（types.ts 已扩 kind）· 每页独立历史 · FR-57 样片五区 · P1-04 锚点二次编辑 · P1-05 形状布尔（shapePath 自动矢量化）· P1-14 形状出码切 SVG · autosave v2（多页/组件/样式 reload 不丢，v1 只读升级）· FR-44 连接线+旋钮拖线+Shift+Space 内联预览+Present 切页 · runtime Navigate 锚点回退 · Present WAAPI 过渡 · 九宫 9 键 · Flow 起点右键+蓝标 · 画布节点拖拽自管理 · 布尔多子路径编辑（penCore subpaths）· m12/m4/m5 三套矩阵判据库（24/10-12/16）。
+> **已交付（勿重做、勿重修）**：FR-1~62 的 P0/P1 主体 · FR-27 四类样式 · FR-44 Present+连接线+内联预览 · FR-50 原型出码 · FR-57 样片五区 · P1-04/05/14 矢量三件 · autosave v2 · 画布节点拖拽自管理 · 布尔多子路径编辑 · **FR-60 三项真优化（真掉帧 11→1）** · **附 A/B/C 采样归档** · **canvasdiff 19 页基线** · **ci-local 4/4** · m12/m4/m5/**m6-appendix** 四套矩阵判据库。
 
 ## 7. 口径裁决记录与剩余拍板
 
-**已裁决闭环（勿再问）**：① P1-12「5 向」=按 FR-35 枚举 4 档，改判 PASS（stretch 档列 GA 后增强）；② P1-05 形状布尔=「自动矢量化」方案，已实做；③ P1-14 形状 SVG=已实做（矩形/直线留 CSS 通道，弧 OVAL 留 conic——均报备）；④ 样片 ≥99%=**按均值口径**（99.51%），两 B 档卡（04=98.79、13=98.89）如实登记（差异 #1 同源换行差）。
+**已在 `docs/go-no-go.md` 正式立项**（§二议题 1-4），此处仅索引：
 
-**待拍板（做之前先问）**：① P2 协作 FR-61 Go/No-Go + Variables（M6 纪要议题）；② 帧预算若攻坚后仍 55~70%：申请调口径（判据「95% 帧<16.7ms」→「avg≥55fps 或 90% 帧<20ms」）vs 继续投入——PM 决定；③ Present 换帧 vs 导出页滚动双语义严格统一（Frame 视口容器化）——建议 GA 后。
+| 议题 | 状态 | 是否阻断 GA |
+|---|---|---|
+| 1 FR-60 判据口径（A/B/C 三案） | ⬜ 待 PM | **是（唯一）** |
+| 2 P2 协作 FR-61 Go/No-Go | ⬜ 待 PM（建议 NO-GO） | 否 |
+| 3 Variables FR-30 | ⬜ 待 PM（建议 NO-GO） | 否 |
+| 4 变体扩展 | ⬜ 待 PM（建议 GA 后增强） | 否 |
+
+**已裁决闭环（勿再问，go-no-go.md §二议题 5 归档）**：① P1-12「5 向」=按 FR-35 枚举 **4 档 2 轴**，改判 PASS（stretch 档列 GA 后增强）；② P1-05 形状布尔=「自动矢量化」方案，已实做；③ P1-14 形状 SVG=已实做（矩形/直线留 CSS 通道，弧 OVAL 留 conic——均报备）；④ 样片 ≥99%=**按均值口径**（99.51%），两 B 档卡如实登记；⑤ 差异 #1 14 页 92.07% 接受豁免。
 
 ## 8. 快速自检（接手后 10 分钟）
 
 ```bash
-git log --oneline -4                 # 头应为 50f8a67 或更新，工作区 clean
+git log --oneline -4                 # 头应为 624ce71 或更新，工作区 clean
 npx tsc --noEmit && npx vitest run   # 0 错 + 525/525
 npm run e2e                          # 19/19 ≥98%（esbuild 报错→§3 TEMP 旁路）
-node scripts/m12-matrix.mjs          # 24/24（先 precanvasdiff！红灯先查 4192 孤儿）
+node scripts/m6-appendix.mjs         # 附A 19/19 · 附B 11/11 · 附C 7/7
+node scripts/m12-matrix.mjs          # 24/24（先 precanvasdiff！）
 ```
 
-然后读 `LOG.md` 最后 3 条（第十二~十四步）+ 本文 §6#1 实验记录 → 直接开工帧预算。
+然后读 `docs/go-no-go.md`（拍板状态）+ `LOG.md` 最后 2 条 → 若议题 1 已拍板，直接做 §6#1 判据同步。
 
 ## 9. 环境/操作陷阱（10-17 批次新增）
 

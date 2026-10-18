@@ -1406,3 +1406,32 @@
 **遗留问题**：
 - 队列 #3 剩余：**Go/No-Go 纪要（FR-62）** + m4-matrix P1-12 判据同步 + README/HANDOFF 终刷。
 - 差异 #4（FR-60）仍待 PM 拍板。
+
+---
+
+### [2026-10-18] M6 收口包 ②：Go/No-Go 纪要（FR-62）+ m4 判据同步 + HANDOFF 第四轮重写
+
+**目标**：收口队列剩余三项——① FR-62 要求输出 Go/No-Go 纪要（含 P2 决策）；② m4-matrix 的 P1-12 判据仍写死「5 向」，与 PM 已裁决的「4 档 2 轴」矛盾（假 FAIL 温床）；③ HANDOFF 第三轮基线/队列已过期。
+
+**修改内容**：
+- **新 `docs/go-no-go.md`（FR-62 评审纪要）**：一、评审输入（6 维度实测凭据表）；二、**5 项议题**——①FR-60 判据口径（A/B/C 三案，附 5 条一手实证）②P2 协作 FR-61 ③Variables FR-30 ④变体扩展 ⑤已裁决口径归档；三、决议汇总（**CONDITIONAL GO**，唯一 GO 前置=议题 1）；四、GA 后增强清单 8 项；五、签署表。每项议题留 ⬜ 待 PM 勾选位。
+- **`scripts/m4-matrix.mjs`**：P1-12 判据 `optCount === 5` → **`=== 4`**，行名改「Constraints **4 档 2 轴**」，note 去掉「档位缺口」改为「符合 FR-35 枚举；stretch 档列 GA 后增强」；文件头注释同步。
+- **`docs/HANDOFF.md` 第四轮全量重写**：基线 `50f8a67`→**`624ce71`**；§0 位置改 **CONDITIONAL GO**（四模块 100%）；§1 必读把 `go-no-go.md` 提到首位；§2 数字刷新（525 例/19 页）；§5 门禁刷新（m4 11/12、m6-appendix 三项、canvasdiff 18/19、ci-local 4/4）；**§6 队列由 3 项收敛为 2 项**（判据拍板同步 + 文档终刷）；§7 改为「go-no-go 议题表 + 已裁决 5 项」；§8 自检补 `m6-appendix`；**§9 新增 4 条本批陷阱**。
+- **`README.md`**：限制清单补 FR-60 判据实证说明与 GRID 入口差异；新增「验收状态」段（98.6% + 四模块 100% + CONDITIONAL GO）。
+
+**结果**：完成。M6 收口包全部交付——**除 FR-60 判据口径需 PM 拍板外，GA 其余条件全部满足**。
+
+**验证方式**：
+- `node scripts/m4-matrix.mjs` → **11/12**（`done: 11/12 pass`），**P1-12 已改判 OK**（`档位=4 档×2 轴 [LEFT/RIGHT/CENTER/SCALE × TOP/BOTTOM/CENTER/SCALE]`）；唯一 FAIL=P1-01（FR-60，待拍板）。
+  首跑曾 FATAL（`Cannot read properties of undefined (reading 'snapshot')`）——**漏了 `npm run precanvasdiff`**，重建 hook 后正常（HANDOFF §9 已记）。
+- `npx tsc --noEmit` **0 错**；`vitest` **525/525**
+- 四份文档 U+FFFD 均 **0**
+
+**报备**：
+- **Go/No-Go 为「CONDITIONAL GO」而非「GO」**：行走查 98.6% 与四模块 100% 均已达标，但 FR-60 是**判据口径**问题（非产品缺陷）需 PM 决策；按 FR-62「GO → 里程碑落位 / NO-GO → 记录并转 Future Considerations」的要求，未拍板前不擅自标 GO，也不因一项口径问题标 NO-GO。
+- **「70/70=100%」的推定**：若议题 1 采方案 A/B/C 任一，P1-01 即可按新口径重测判定；不同口径下的通过率会不同，故结论写「拍板后行走查达 70/70」，不预设具体数值。
+
+**遗留问题**：
+- **FR-60 判据口径待 PM 拍板**（`docs/go-no-go.md` 议题 1）——唯一 GO 前置，拍板后按 HANDOFF §6#1 做判据同步（0.5-1h，纯脚本+文档，无产品改动）。
+- 议题 2/3/4（协作/Variables/变体扩展）待 PM；已给建议（均 NO-GO 或 GA 后增强）。
+- P2 协作 FR-61 若 GO，需引入后端基础设施——与本项目「纯静态产物、确定性编译」定位冲突，建议评审时重点讨论。

@@ -14,7 +14,7 @@
  *   P1-08 Assets 浏览 / 搜索 / 插入实例（列表/过滤/拖入或按钮插入/改名同步核证）
  *   P1-09 颜色样式应用 / 同步 / Detach style（样式分区+资产样式 tab；改样式入口核证）
  *   P1-10 tokens.css 导出结构（导出 ZIP 内 tokens.css 解析：:root/变量/TEXT 复合层）
- *   P1-12 Constraints 5 向 2 轴（下拉档位清点 + 出码定位断言 + 拖父把手重算 + Ctrl 忽略 + 互斥）
+ *   P1-12 Constraints 4 档 2 轴（下拉档位清点 + 出码定位断言 + 拖父把手重算 + Ctrl 忽略 + 互斥）
  *   P1-15 git + CI（FR-58 替代凭证口径：ci.yml 结构 + git log + dist/ci-local 报告 + 本轨补跑 tsc/vitest）
  *   P1-17 性能脚本入 scripts/（perf-1000.mjs + npm script + 报告结构核验）
  *
@@ -762,9 +762,12 @@ try {
       const propsTxt = await page.evaluate(() => document.querySelector('.props')?.innerText ?? '');
       if (propsTxt.includes('Auto layout（约束不生效）')) { excl = true; break; }
     }
-    record('P1-12', 'Constraints 5 向 2 轴 + 拖父重算 + Ctrl 忽略 + Auto Layout 互斥',
-      optCount === 5 && codeOk && behaviorOk && ctrlOk && excl,
-      `**档位缺口**：实现 4 档×2 轴（[${axisOpts.join(' × ')}]），无 Figma「Left+Right/Top+Bottom（stretch）」档 → 行口径"5 向"不满足（PRD FR-35 枚举值=本实现，checklist 文案=5 向，两口径需主线裁决）；出码断言 right:/calc(50%+/百分比 left+width=${codeOk})；${note}；Auto layout 流内子项显示"约束不生效"占位=${excl}`,
+    // 判据同步（2026-10-18）：PM 已裁决「按 FR-35 枚举 = 4 档 × 2 轴」
+    // （LEFT/RIGHT/CENTER/SCALE 水平、TOP/BOTTOM/CENTER/SCALE 垂直；checklist 原「5 向」文案已改）。
+    // 故 optCount 按 4 判，stretch 档（Left+Right / Top+Bottom）列 GA 后增强项、不计 FAIL。
+    record('P1-12', 'Constraints 4 档 2 轴 + 拖父重算 + Ctrl 忽略 + Auto Layout 互斥',
+      optCount === 4 && codeOk && behaviorOk && ctrlOk && excl,
+      `档位=4 档×2 轴（[${axisOpts.join(' × ')}]，符合 FR-35 枚举；stretch 档列 GA 后增强）；出码断言 right:/calc(50%+/百分比 left+width=${codeOk})；${note}；Auto layout 流内子项显示"约束不生效"占位=${excl}`,
       'dist/m4-matrix/p112-拖父重算.png');
   }
 

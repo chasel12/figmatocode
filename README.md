@@ -102,9 +102,13 @@ TypeScript · React 18 · react-konva · Vite 5 · Vitest 2 · Playwright · pix
 ## 限制与路线图
 
 - Pixel Diff 基准视口为 375×812（`SHOT_WIDTH`/`SHOT_HEIGHT` 可覆盖）；多断点 diff 待接入。
-- 字体度量基于 Canvas 近似（Arial + 权重匹配规则），与浏览器在部分中英混排文本上存在 <5% 宽度误差；画布↔出码在混排长文本上有换行点位差异（14 页 92.07%，归因豁免待 M6 终验）。
+- 字体度量基于 Canvas 近似（Arial + 权重匹配规则），与浏览器在部分中英混排文本上存在 <5% 宽度误差；画布↔出码在混排长文本上有换行点位差异（14 页 92.07%，已登记差异 #1 豁免）。
 - 矢量布尔为 **SVG 填充规则近似**（Union=nonzero，其余=evenodd），Intersect 非严格几何交集；严格拓扑需引入裁剪库。
 - 图片 7 项调整中，色温/色调/高光/阴影为 **CSS filter 近似**且画布不预览（Konva 无对应滤镜）。
-- Layout grid 出码为 **CSS 可表达的等价网格**（Figma 的 Layout grid 本为编辑器辅助线）。
-- 当前进度与剩余队列见 `docs/HANDOFF.md`；需求唯一凭据 `docs/PRD.md`；逐日事实 `LOG.md`。
+- Layout grid 出码为 **CSS 可表达的等价网格**（Figma 的 Layout grid 本为编辑器辅助线）；入口挂在 FR-27 GRID 样式（与 Figma 的右栏独立分区不同，见 checklist 附 B 报备）。
+- **FR-60 帧预算判据待定**：PRD 字面「95% 帧 <16.7ms」经实证**在本机不可判定**——60Hz 下 rAF 间隔≈16.667ms，严格 `<16.7` 仅余 0.033ms；**空白页实测仅 75~86%**，CPU profile 显示主线程 idle 占 74%。`npm run perf-1000` 同时输出与量化噪声无关的 `fr60_effective`（vsync 准时率，当前 94.4~99.4%）。判据口径 A/B/C 三案见 `docs/go-no-go.md` 议题 1。
+
+**验收状态**：行走查矩阵 **98.6%（69 PASS / 1 FAIL / 3 P2 声明）**，**四模块全 100%**（附 A 19/19 · 附 B 11/11 · 附 C 7/7 · 样片五区 5/5）→ **CONDITIONAL GO**（唯一 GO 前置 = FR-60 判据拍板）。
+
+进度与剩余队列见 `docs/HANDOFF.md`；需求唯一凭据 `docs/PRD.md`；逐日事实 `LOG.md`；评审纪要 `docs/go-no-go.md`。
 
