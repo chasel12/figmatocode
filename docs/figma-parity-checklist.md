@@ -255,6 +255,7 @@
 | 14 | （已修复 2026-10-17）画布节点拖拽失效 | m12 P0-09/10 复跑拖拽零位移；隔离实验 g1-g4+手动 startDrag 定界=Konva 9 DD 自动启动在 handleDown cancelBubble 事件链下不达（M1 起从未被自动化覆盖的盲区） | react-konva 受控 position + DD 内部状态判定 | **已修复**：改应用层自管理拖拽（handleDown 记意图→stageMouseMove 驱动吸附/位移→endInteraction 提交，<3px 视为点击），真实鼠标与 Playwright 同路径 | opencode / 2026-10-17 |
 | 15 | （已修复 2026-10-17）锚点编辑挂非交互层 | P1-04 锚点 Circle 渲染在 listening={false} 覆盖层内→onMouseDown 永不触发（探针只验渲染未验拖=漏检） | 层级组织错误 | **已修复**：锚点移独立可交互 Layer；m5 复跑 P1-04 拖拽实测生效 | opencode / 2026-10-17 |
 | 16 | （已修复 2026-10-17）布尔结果锚点编辑毁形 | 多子路径 d（Union 两环）parse 展平→rebuild 连成单路径，一编辑即毁 | penCore 单路径假设 | **已修复**：parsePathD 返回 subpaths 结构+rebuildFromPoints 分段重建（单子路径行为与 toEqual 契约不变）；4 条单测锁定 | opencode / 2026-10-17 |
+| 18 | 效果画布实时预览不对等（**2026-10-18 PM 追问审计新发现**）：8 类效果仅 DROP_SHADOW 在 Konva 画布渲染（Canvas.tsx:247），INNER_SHADOW/LAYER_BLUR/BACKGROUND_BLUR/PROGRESSIVE_BLUR/NOISE/TEXTURE/GLASS 在编辑画布不可见、仅出码/预览 DOM 生效；Figma 画布全类型所见即所得 | 画布端从未接线非阴影效果（Konva 无原生 backdrop/progressive）；矩阵 P1-02 判据口径=面板逐项+出码 CSS，不覆盖画布预览，故历轮 PASS 均不矛盾 | **报备入册**：登记为 go-no-go §四增强 #9（可行路径：LAYER_BLUR→Konva.Filters.Blur+cache、NOISE/TEXTURE→pattern 填充、INNER/GLASS→近似或维持不预览并明示"以导出为准"；BACKGROUND/PROGRESSIVE 画布物理不可近似）；**是否补做待 PM 裁决**，项目关闭状态不因此重开阻断 | PM 追问 / 2026-10-18 |
 | 17 | （已修复 2026-10-17）布尔 flatten 位移丢失（并发 WIP 顺带） | 参集 d 直接拼串未平移各自坐标系→不同位置形状布尔后全部叠到首参集原点 | booleanPathOf 原实现 | **已修复**：shapePath.ts translatePathD 按绝对位置差平移到首参集本地系（第十三步接管时核实） | 并发会话+opencode / 2026-10-17 |
 ## 修订历史
 

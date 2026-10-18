@@ -1503,3 +1503,23 @@
 - 增强 8 项：stretch 约束档 / arcData→SVG path / Present 与导出页导航双语义统一 / overlay 拖拽定位+遮罩透明度 / 手柄独立调曲率 / Flows 多分组+设备外框 / 14 页换行收敛 / 多断点 diff。
 - 工程：git remote + GitHub Actions 实跑（当前为替代本地凭证口径）。
 - Future：实时协作（若翻案另立里程碑）、Variables mode 切换。
+
+---
+
+### [2026-10-18] M6 第十八步：PM 追问「设计功能是否全还原（效果/透明度/环形模糊）」——审计发现差异 #18 并报备入册
+
+**目标**：核答案例——8 类效果与透明度在设计区的真实覆盖度。
+
+**审计结论**：
+- **透明度：全对等** —— 节点/填充/描边/效果层四道 opacity（types.ts:26/124/134/142/170），面板可编辑、出码生效、fr19/fr47 单测锁。
+- **8 类效果（=Figma UI3 全集，FR-19）**：schema/面板/出码/预览 DOM **全通道齐**（box-shadow 合并/inset/filter:blur/backdrop-filter/SVG noise；PROGRESSIVE=均值近似、GLASS=链近似、NOISE/TEXTURE=SVG filter——均已报备且单测锁）；矩阵 P1-02 PASS、附 B B8 P。
+- **「环形模糊」=非还原遗漏**：Figma UI3 效果体系本身无此项（最接近的已实现=渐进模糊 PROGRESSIVE_BLUR）。径向/环形模糊属矩阵外新需求，未立项；如需请另行拍板。
+- **新发现（差异 #18）**：编辑画布（Konva）**只实时预览 DROP_SHADOW**（Canvas.tsx:247），其余 7 类效果在画布不可见、仅出码/预览生效——Figma 画布为所见即所得，此为真实不对等。历轮 P1-02 判据口径（面板+出码）不覆盖画布，PASS 不构成矛盾。
+
+**修改内容**：checklist 差异表 +#18（报备：修复路径与"待 PM 裁决、不重开阻断"注记）；go-no-go §四增强清单 +#9。纯文档，代码零改动。
+
+**验证方式**：tsc 0；grep 差异 #18/增强 #9 在册。
+
+**遗留**：差异 #18 处置（补画布近似预览 or 明示口径）待 PM 裁决；其余项目关闭状态不变。
+
+**卫生补记（第十八步随记）**：本步提交时 `git add -A` 误将**并发会话刚写入的 WIP**（NumericField 组件/PropertyPanel 重构/store/Canvas/styles +38 文件 +1105 行 + 3 个 p104 探针）一并入账，发现后已 `git reset --mixed HEAD~1` 剥离、仅以显式路径重提文档三项——WIP 原样退回工作区由并发会话自行门禁自提。**今后规范：本项目常态存在并发写入，提交一律用显式路径清单，禁用 `git add -A`**。
