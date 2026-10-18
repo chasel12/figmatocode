@@ -132,6 +132,13 @@ let dragFramesUnder = 0;
 let dragUnderRatio = 0;
 let dragFramesP95 = 0;
 let dragFramesAvg = 0;
+// FR-60 有效判据：vsync 量化掉帧（不受 rAF 抖动污染）
+let dragOnTimeRatio = 0;
+let dragMissedFrames = 0;
+/** 有效判据参与统计的帧数（已丢首帧） */
+let dragArrCount = 0;
+/** vsync 周期（60Hz = 16.667ms），供报告区引用 */
+const VSYNC_MS = 1000 / 60;
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1500, height: 950 }, deviceScaleFactor: 1 });
@@ -237,6 +244,25 @@ try {
     dragFramesAvg = Number((dragFrameDeltas.reduce((s, d) => s + d, 0) / dragFrameDeltas.length).toFixed(2));
   }
 
+  /**
+   * FR-60 有效判据：**vsync 量化掉帧率**。
+   *
+   * 为什么需要它（2026-10-17 实证）：`<16.7ms` 是严格小于，而 60Hz 下 rAF 间隔≈16.667ms，
+   * 任何 ±0.05ms 调度抖动都判负。实测**空白页（0 节点）也只有 75~86%**、且 CPU profile 显示
+   * 主线程 idle 占 60%、应用 JS 总计 <200ms——说明该指标测的是 rAF 量化噪声而非卡顿。
+   * 故并行给出与噪声无关的真卡顿指标：
+   *   - missedFrames / dropRate：落在 2×/3× vsync 桶（≈33.4/50ms）的帧数=实际掉帧
+   *   - onTimeRatio：落在 1× 桶（<1.5×vsync）的帧占比，即真正「按时出帧」的比例
+   * 判据：onTimeRatio ≥ 95%（等价「95% 帧按时」），与 PRD 语义一致但不受抖动污染。
+   */
+  const VSYNC = 1000 / 60;
+  const dragArr = dragFrameDeltas.slice(1); // 丢首帧（起拖瞬间的启动抖动）
+  const onTime = dragArr.filter((d) => d < VSYNC * 1.5).length;
+  const missedFrames = dragArr.length - onTime;
+  dragOnTimeRatio = dragArr.length ? Number((onTime / dragArr.length).toFixed(4)) : 0;
+  dragMissedFrames = missedFrames;
+  dragArrCount = dragArr.length;
+
   await pg.screenshot({ path: join(outDir, 'after-drags.png') });
 } catch (e) {
   loadNote = e instanceof Error ? e.message : String(e);
@@ -287,8 +313,25 @@ const report = {
       ? `达标（${(dragUnderRatio * 100).toFixed(1)}% 帧 <16.7ms ≥95%）`
       : `未达标（${(dragUnderRatio * 100).toFixed(1)}% 帧 <16.7ms <95%）`,
   },
-  targets: { fps: '≥60', p95FrameMs: '<16.7', underRatio: '≥0.95', note: 'FR-60 判据如实上报；本机未达标不阻塞（阈值分级口径）' },
-  verdict: {
+  /**
+   * FR-60 有效判据（2026-10-17 新增）：vsync 量化掉帧率。
+   * 原 `<16.7ms` 严格判据受 rAF 量化噪声污染（空白页仅 75~86%），不可用于判定卡顿；
+   * 本区以「按时出帧比例」度量真卡顿，与 PRD「95% 帧按时」语义一致但不受抖动影响。
+   */
+  fr60_effective: {
+    criterion: '拖拽采样中 ≥95% 帧按时（<1.5×vsync≈25ms），即掉帧率 ≤5%',
+    vsyncMs: Number(VSYNC_MS.toFixed(3)),
+    frames: dragArrCount,
+    onTimeFrames: dragArrCount - dragMissedFrames,
+    missedFrames: dragMissedFrames,
+    onTimeRatio: dragOnTimeRatio,
+    passed: dragOnTimeRatio >= FRAME_UNDER_TARGET,
+    verdict:
+      dragOnTimeRatio >= FRAME_UNDER_TARGET
+        ? `达标（按时 ${(dragOnTimeRatio * 100).toFixed(2)}%，掉帧 ${dragMissedFrames} 帧）`
+        : `未达标（按时 ${(dragOnTimeRatio * 100).toFixed(2)}%，掉帧 ${dragMissedFrames} 帧）`,
+  },
+  targets: { fps: '≥60', p95FrameMs: '<16.7', underRatio: '≥0.95', note: 'FR-60 判据如实上报；本机未达标不阻塞（阈值分级口径）' },  verdict: {
     fps: fpsOk ? '达标' : '未达标',
     p95: p95Ok ? '达标' : '未达标',
     '95%帧<16.7ms': frameUnderOk ? '达标' : '未达标',
@@ -303,4 +346,5 @@ console.log(
   `FR-60 判据: 拖拽逐帧 ${dragFramesCount} 帧，<16.7ms ${(dragUnderRatio * 100).toFixed(1)}% (${dragFramesUnder}/${dragFramesCount}) avg=${dragFramesAvg}ms p95=${dragFramesP95}ms → ${report.fr60.verdict}`,
 );
 console.log(`perf-1000 done → dist/perf-1000/report.json  verdict: fps ${report.verdict.fps}, p95 ${report.verdict.p95}`);
+console.log(`FR-60 有效判据（vsync 掉帧）: 按时 ${(dragOnTimeRatio * 100).toFixed(2)}%，掉帧 ${dragMissedFrames}/${dragArrCount} → ${report.fr60_effective.verdict}`);
 if (!loadOk) process.exitCode = 1;

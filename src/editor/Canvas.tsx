@@ -850,7 +850,30 @@ export function Canvas() {
   const [wrapRef, wrapSize] = useElementSize();
   const [spaceDown, setSpaceDown] = useState(false);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  /** FR-60：hover 幂等判据（避免同节点重复 mouseenter 引发整树重渲染） */
+  const hoverIdRef = useRef<string | null>(null);
   const [guides, setGuides] = useState<GuideLine[]>([]);
+  /**
+   * FR-60 签名门控：guides/insertHint 每帧都是新对象/新数组，直接 setState 会让
+   * 1000 节点树每帧重渲染（拖拽期主要开销之一）。改为**内容签名变化才更新**。
+   * 签名=内容等价类（轴/位置/间距），位置未变则不触发渲染。
+   */
+  const guidesSigRef = useRef<string>('');
+  const setGuidesGated = (next: GuideLine[]) => {
+    const sig = next.map((g) => `${g.axis}:${Math.round(g.pos * 10)}:${g.gap == null ? '-' : Math.round(g.gap * 10)}`).join('|');
+    if (sig === guidesSigRef.current) return;
+    guidesSigRef.current = sig;
+    setGuides(next);
+  };
+  const hintSigRef = useRef<string>('');
+  const setInsertHintGated = (next: InsertHint | null) => {
+    const sig = next
+      ? `${next.targetId}:${next.line ? `${Math.round(next.line.x1)},${Math.round(next.line.y1)}` : '-'}`
+      : '';
+    if (sig === hintSigRef.current) return;
+    hintSigRef.current = sig;
+    setInsertHint(next);
+  };
   const [insertHint, setInsertHint] = useState<InsertHint | null>(null);
   const [marquee, setMarquee] = useState<SnapRect | null>(null);
   const [menu, setMenu] = useState<{ clientX: number; clientY: number; nodeId: string | null } | null>(null);
@@ -873,7 +896,22 @@ export function Canvas() {
   const connDraftRef = useRef<{ x: number; y: number } | null>(null);
   connDraftRef.current = connDraft;
   // 自管理节点拖拽（Konva DD 自动启动不可靠的替代，见 NodeView.handleDown 注释）
-  const nodeDragRef = useRef<{ id: string; grp: Konva.Group; start: { x: number; y: number }; moved: boolean } | null>(null);
+  const nodeDragRef = useRef<{
+    id: string;
+    grp: Konva.Group;
+    start: { x: number; y: number };
+    moved: boolean;
+    lifted: boolean;
+    /** 起拖时所在的内容层（拖拽期被提到轻量层，松手放回这里） */
+    originLayer: Konva.Layer | null;
+  } | null>(null);
+  /**
+   * FR-60 拖拽性能：拖拽中把节点「提」到独立轻量层（dragLayerRef），内容层随即缓存冻结。
+   * 原因（实测）：1001 形状的内容层整层重绘 **12.9ms/帧**（占 16.67ms 预算 77%）。
+   * 提出后每帧只需重绘 1 个节点所在层，整层重绘成本消失；松手再放回原层。
+   * 走 imperative Konva API（不经 React），避免触发 1000 个 NodeView 的 reconcile。
+   */
+  const dragLayerRef = useRef<Konva.Layer | null>(null);
   // FR-21：钢笔锚点拖拽起点（拖动拉手柄；page 坐标）
   const penDragRef = useRef<{ x: number; y: number } | null>(null);
   const resizing = useRef<{
@@ -934,11 +972,18 @@ export function Canvas() {
   ctx.tool = state.tool;
   ctx.panActive = isPan;
   ctx.snapOn = snapOn;
-  ctx.onHover = (id) => setHoverId(id);
+  ctx.onHover = (id) => {
+    // FR-60：**幂等**——鼠标在同一节点内移动会反复触发 mouseenter，若每次都 setState
+    // 会整棵 1000 节点树重渲染（实测拖拽期 137~389ms 长任务的主因）。
+    // 用 ref 记住当前值，只在真正变化时才更新 state。
+    if (hoverIdRef.current === id) return;
+    hoverIdRef.current = id;
+    setHoverId(id);
+  };
   ctx.onSelect = (id, additive) => dispatch({ type: 'SELECT', id, additive });
   ctx.startNodeDrag = (id, grp, startPage) => {
     if (nodeDragRef.current) return; // shape+Group 双 handler 幂等
-    nodeDragRef.current = { id, grp, start: startPage, moved: false };
+    nodeDragRef.current = { id, grp, start: startPage, moved: false, lifted: false, originLayer: null };
   };
   ctx.onNodeDblClick = (node, point) => {
     if (node.type === 'TEXT' || node.type === 'BUTTON') {
@@ -976,15 +1021,16 @@ export function Canvas() {
   };
 
   ctx.onNodeDragMove = (id, delta, pointerPage, altKey) => {
-    setGuides(NO_GUIDES);
-    setInsertHint(null);
     const found = findInTree(state.page.root, id);
     const geom = geometry[id];
     if (!found || !found.parent || !geom) return delta;
     const parent = found.parent;
 
     if (parent.layout.mode === 'ABSOLUTE') {
-      if (!snapOn || altKey) return delta;
+      if (!snapOn || altKey) {
+        setGuidesGated(NO_GUIDES);
+        return delta;
+      }
       const moving: SnapRect = {
         x: geom.x + delta.x,
         y: geom.y + delta.y,
@@ -1008,14 +1054,15 @@ export function Canvas() {
         });
       }
       const res = computeSnap(moving, refs, 6 / scale);
-      if (res.guides.length) setGuides(res.guides);
+      // FR-60：签名门控——guides 每帧新数组会导致 React 整树重渲染（1000 节点的开销）
+      if (res.guides.length) setGuidesGated(res.guides);
       if (res.dx || res.dy) return { x: delta.x + res.dx, y: delta.y + res.dy };
       return delta;
     }
 
     // 流式父级：显示插入指示线（不吸附，Figma auto-layout 语义）
     const center = { x: geom.x + delta.x + geom.width / 2, y: geom.y + delta.y + geom.height / 2 };
-    setInsertHint(computeInsertHint(state.page.root, geometry, id, center));
+    setInsertHintGated(computeInsertHint(state.page.root, geometry, id, center));
     return delta;
   };
 
@@ -1243,6 +1290,22 @@ export function Canvas() {
     dispatch({ type: 'SELECT_MANY', ids });
   };
 
+  /**
+   * FR-60：把拖拽中被提到轻量层的节点放回**原内容层**（起拖时记录的原父层）。
+   * 复位 position 为 (0,0)：拖动量已在提交时由 store 落盘，React 会按新几何重排；
+   * 若这里保留位移会与几何叠加造成双倍偏移。
+   */
+  const restoreFromDragLayer = () => {
+    const drag = nodeDragRef.current;
+    if (!drag || !drag.lifted) return;
+    const origin = drag.originLayer;
+    if (origin && origin.getStage()) {
+      drag.grp.moveTo(origin);
+      drag.grp.position({ x: 0, y: 0 });
+    }
+    drag.lifted = false;
+  };
+
   const endInteraction = () => {
     // P1-04：锚点拖拽收笔（提交一步历史，撤销粒度=一次拖拽）
     if (anchorDrag.current) {
@@ -1254,10 +1317,10 @@ export function Canvas() {
     // 自管理节点拖拽提交（moved<3px 的纯点击不产位移，指示即刻清）
     if (nodeDragRef.current) {
       const drag = nodeDragRef.current;
-      nodeDragRef.current = null;
       const g = geometry[drag.id];
       const delta = { x: drag.grp.x(), y: drag.grp.y() };
-      drag.grp.position({ x: 0, y: 0 });
+      restoreFromDragLayer(); // FR-60：放回内容层并复位位移
+      nodeDragRef.current = null;
       setGuides(NO_GUIDES);
       setInsertHint(null);
       if (g && drag.moved && (delta.x !== 0 || delta.y !== 0)) {
@@ -1499,6 +1562,7 @@ export function Canvas() {
         }
         if (nodeDragRef.current) {
           // Escape 中断节点拖拽：视觉复位（不提交）
+          restoreFromDragLayer(); // FR-60：先放回内容层
           nodeDragRef.current.grp.position({ x: 0, y: 0 });
           nodeDragRef.current = null;
           setGuides(NO_GUIDES);
@@ -1774,6 +1838,19 @@ export function Canvas() {
       drag.moved = true;
       suppressClickRef.current = true; // 拖后合成的 click 不得重置多选（原 onDragStart 语义）
       const corrected = ctx.onNodeDragMove(drag.id, { x: dx, y: dy }, p, e.evt.altKey);
+      // FR-60：首帧把节点提到轻量拖拽层（此后每帧只重绘该层，内容层不再整层重算）
+      if (!drag.lifted) {
+        const dl = dragLayerRef.current;
+        const parent = drag.grp.getParent();
+        if (dl && parent && parent !== dl && parent instanceof KonvaLib.Layer) {
+          drag.originLayer = parent;
+          // 保留绝对位置：Konva 跨层移动会重算相对坐标，故记录并还原
+          const abs = drag.grp.getAbsolutePosition();
+          drag.grp.moveTo(dl);
+          drag.grp.absolutePosition(abs);
+          drag.lifted = true;
+        }
+      }
       drag.grp.position(corrected);
       return;
     }
@@ -2008,6 +2085,8 @@ export function Canvas() {
             tool={state.tool}
             spaceDown={spaceDown}
           />
+          {/* FR-60 拖拽轻量层：拖拽中被「提出」的节点临时挂到这里，使每帧只重绘本层 */}
+          <Layer ref={dragLayerRef} listening={false} />
           <Layer listening={false}>
             {guides.map((g, i) =>
               g.axis === 'x' ? (
