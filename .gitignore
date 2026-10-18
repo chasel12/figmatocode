@@ -7,6 +7,10 @@ dist/
 .dev-server.log
 preview-dbg.log
 
+# 临时构建目录（esbuild/Playwright 的 TEMP 旁路；见 HANDOFF §3/§9）
+.tmp-esbuild/
+.esbuild-tmp/
+
 # Editor/OS
 .vscode/
 .idea/
