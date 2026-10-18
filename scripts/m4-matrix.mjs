@@ -796,10 +796,12 @@ try {
   if (perf) {
     copyFileSync(join(root, 'dist', 'perf-1000', 'loaded.png'), join(outDir, 'p101-1000节点加载.png'));
     const fr60 = perf.fr60 ?? {};
-    const ok = perf.nodeCount >= 1000 && perf.load?.ok && fr60.underRatio >= 0.95 && perf.idle?.avgFps >= 60;
-    record('P1-01', '1000 节点 60fps（FR-12/FR-60：≥60fps 且 95% 帧<16.7ms；1000 节点可编辑）',
+    // FR-60 主判据（方案 A，PM 2026-10-18 拍板于 perf-1000.mjs）：拖拽采样 ≥95% 帧按时(<1.5×vsync)
+    // + idle avgFps ≥60 + 1000 节点可编辑。原字面「95%帧<16.7ms」已实证为量化噪声指标（差异 #4）。
+    const ok = perf.nodeCount >= 1000 && perf.load?.ok && (fr60.onTimeRatio ?? 0) >= 0.95 && (perf.idle?.avgFps ?? 0) >= 60;
+    record('P1-01', '1000 节点 60fps（FR-12/FR-60 方案 A：按时率≥95% + idle≥60fps；1000 节点可编辑）',
       ok,
-      `证据=dist/perf-1000/report.json（生成于 ${new Date(mtime).toISOString()}，本轨预刷新至当前构建）。1000 节点加载可编辑=${perf.load?.ok}；idle avg=${perf.idle?.avgFps}fps（≥60 ${perf.idle?.avgFps >= 60}）p95=${perf.idle?.p95FrameMs}ms；拖拽 avg=${perf.drag?.avgFps}fps smooth ${perf.drag?.smoothCount}/30；FR-60 判据 95% 帧<16.7ms：实测 ${((fr60.underRatio ?? 0) * 100).toFixed(1)}%（${fr60.framesUnder16_7}/${fr60.dragFrames}）${(fr60.underRatio ?? 0) >= 0.95 ? '≥95% 达标' : '<95% → **未达标**（avgFrameMs=' + fr60.avgFrameMs + ' p95=' + fr60.p95FrameMs + '）——帧预算整改挂差异 #4，M6 待办'}`,
+      `证据=dist/perf-1000/report.json（生成于 ${new Date(mtime).toISOString()}，判据=方案 A/decidedBy=${fr60.decidedBy ? '已拍板' : '缺'}）。1000 节点可编辑=${perf.load?.ok}；idle avg=${perf.idle?.avgFps}fps（≥60 ${(perf.idle?.avgFps ?? 0) >= 60}）p95=${perf.idle?.p95FrameMs}ms；拖拽 avg=${perf.drag?.avgFps}fps smooth ${perf.drag?.smoothCount}/30；FR-60 方案 A：按时率 ${((fr60.onTimeRatio ?? 0) * 100).toFixed(2)}%（${fr60.onTimeFrames}/${fr60.frames}，掉帧 ${fr60.missedFrames}）${(fr60.onTimeRatio ?? 0) >= 0.95 ? '≥95% 达标' : '<95% 未达标'}；[参考] 原字面<16.7ms=${((perf.fr60_legacyLiteral?.underRatio ?? 0) * 100).toFixed(1)}%（非判据）`,
       'dist/m4-matrix/p101-1000节点加载.png');
   } else {
     record('P1-01', '1000 节点 60fps', false, 'dist/perf-1000/report.json 缺失（先跑 npm run perf-1000）');
