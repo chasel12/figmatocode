@@ -1435,3 +1435,25 @@
 - **FR-60 判据口径待 PM 拍板**（`docs/go-no-go.md` 议题 1）——唯一 GO 前置，拍板后按 HANDOFF §6#1 做判据同步（0.5-1h，纯脚本+文档，无产品改动）。
 - 议题 2/3/4（协作/Variables/变体扩展）待 PM；已给建议（均 NO-GO 或 GA 后增强）。
 - P2 协作 FR-61 若 GO，需引入后端基础设施——与本项目「纯静态产物、确定性编译」定位冲突，建议评审时重点讨论。
+
+---
+
+### [2026-10-18] 工程卫生修复：清理误提交的临时构建缓存（576 文件）
+
+**目标**：发现 `6cad745` 起 `.tmp-esbuild/`（esbuild/Playwright 的 TEMP 旁路目录）被 `git add -A` **误带入版本库**——累计 576 个 `node-compile-cache` 文件。这是本会话的操作失误，需修正。
+
+**修改内容**：
+- `.gitignore` 补 `.tmp-esbuild/` 与 `.esbuild-tmp/`（并注明用途：HANDOFF §3/§9 的 TEMP 旁路目录）。
+- `git rm -r --cached .tmp-esbuild` 解除跟踪（**保留磁盘文件**，不影响任何构建）。
+- 提交 `14843c3`。
+
+**结果**：完成。`git ls-files .tmp-esbuild` = **0**；`git status` **clean**；工作区无残留。
+
+**验证方式**：`git ls-files .tmp-esbuild | wc -l` → 0；`git status --short` 空；`git log` 记录该次清理。
+
+**报备（教训）**：
+- **根因**：本轮多次用 `git add -A` 提交，而 `.tmp-esbuild` 当时既在 `.gitignore` 之外、又恰好存在（为跑 e2e/矩阵临时创建）。**`-A` 会把所有未跟踪文件纳入**，包括临时目录。
+- **今后规范**：① 跑完 Playwright/矩阵**立刻删临时目录**（HANDOFF §3 已有此要求，本轮执行不到位）；② 提交前先 `git status --short` 过一眼，或用 `git add <具体路径>` 而非 `-A`；③ `.gitignore` 已加固，但**不应依赖**——目录不该存在才是正解。
+- 该失误**不影响产品/门禁**（缓存文件与构建产物无关，e2e/矩阵结果均有效）。
+
+**遗留问题**：无。
