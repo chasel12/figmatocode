@@ -1576,3 +1576,31 @@
 **修改文件**：Canvas.tsx / project.ts / tools/effectPreview.ts（新）/ 2 新测试 / checklist 差异 #18#19#20 状态 / go-no-go §四#9 / 本 LOG。探针 _panel-probe/_konva-micro/_blur-check 验毕即删。
 
 **遗留**：无新增。增强 #9 关闭；差异 #18/#19 以「已修复+明示口径」结案；项目维持已关闭 GO 状态（本批属 PM 指示的 GA 后增强首单）。
+
+---
+
+### [2026-10-18] 全功能审计（参数级 51 项 + 深度 151 项 + 用户流程 12 步）+ 3 枚真缺陷修复
+
+**目标**：用户要求「跑全部功能确认每个小参数都能实际修改并应用成功，Figma 对照列出没对上的功能，再从用户流程做一个页面」。
+
+**新增脚本（均落库）**：
+- `scripts/audit-params.mjs`：**51 项**参数三重验证（控件接受 → 出码变化 → 语义正确），覆盖 15 类节点的位置/尺寸/圆角/填充/描边/透明/混合/排版/布局/效果/导出/约束。**51/51 = 100%**。
+- `scripts/audit-params-deep.mjs`：**151 项**深度覆盖（5 种填充含 4 渐变、渐变 stop/角度/层可见性、描边 3 对齐+dash/cap/join、8 类效果全谱+参数+显隐删除、文本 case/decoration/自动大小/换行/截断、形状 arcData/边数/内径/四角圆角/smoothing、图片 4 scaleMode+7 调整、导出、约束 4 档 2 轴、Auto Layout wrap/min-max/clip）。**144/151 = 95.4%**，15 项未实现/近似已分类归档。
+- `scripts/user-flow.mjs`：**12 步**纯 UI 用户流程——空白画布 → 375×812 画板 → 标题(22px/700)/副标题(13px)/主图(335×180 圆角16 蓝底)/横向容器+3 卡(100×64 圆角12)/按钮(335×48 圆角24) → 生成代码 → 保存 JSON → `file://` 独立渲染。**12/12**。产物 `dist/user-flow/index.html` + 截图。
+
+**修复 3 枚真缺陷**：
+1. **矩形容纳子节点致出码静默丢失**（严重）：`effectiveParentId()` 只判 `isContainer()`（RECTANGLE 为 true），而 5 处出码/布局路径都把 RECTANGLE 当叶子跳过递归 → Palette 添加的节点画布可见、产物消失。修：排除 RECTANGLE（与 Figma 一致）。锁：`tests/rect-container.test.ts` 7 例。
+2. **文本截断开关无效**：开关只写 `textTruncation` 不写 `maxLines`，「最大行」显示 `?? 2` 回退值却不回写 store，而 compile 判据要求 `maxLines > 0`。修：开启时一并写 `maxLines ?? 2`。锁：`tests/text-truncate.test.ts` 4 例 + 端到端复测出码出现 `-webkit-line-clamp: 2`。
+3. **噪点颜色参数空转**：NOISE 滤镜只用 `saturate(0)` 出灰度、不读 `effect.color`。修：有 color 时 `feFlood`+`feBlend multiply` 着色，无 color 保持灰度（向后兼容）。`reference.ts` 复用 `collectDefs` 单点双端生效。锁：`fr19-effects.test.ts` +1 例。
+
+**核查澄清 1 处假 FAIL**：填充层「上移」实测出码由 `red, green` 变 `green, red`，功能正常，属验证方法误判。
+
+**产出文档**：`docs/audit-report.md`（126 行）——结论速览、审计方法、3 缺陷详录、**Figma 对照缺口四分类报告**（A CSS 不可表达 6 项 / B 近似 7 项 / C 画布不预览 5 项 / D 真未实现 2 项 + Figma 有本项目全无 8 项）、诚实边界 6 条、复现命令。
+**checklist** 差异表新增 #21/#22/#23（已修复）与 #24（导出字体绝对路径，待修不阻断）。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **555/555**（40 文件，含本次新增 12 例）；`npm run build` OK；`npm run e2e` **19/19 ≥98%**；`npm run viewport` **76/76**；`audit-params` **51/51**；`user-flow` **12/12**。四份文档 U+FFFD 均 0。
+
+**报备**：
+- 深度审计 15 项「未实现」中 5 项系**验证脚本自身量纲/选择器限制**导致无法判定，未强行判 PASS（诚实记录于 audit-report §五）。
+- **Taro 通道、PDF/SVG 导出像素校验、跨浏览器（Firefox/Safari）** 未纳入本次范围，已列入诚实边界。
+- 本次未改动 `types.ts`（冻结文件）；3 处修复均为局部接线，`html.ts`/`reference.ts` 仍共用单一 `collectFxDefs` 未产生分支漂移。

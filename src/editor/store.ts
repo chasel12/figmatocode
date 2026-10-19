@@ -196,7 +196,19 @@ function effectiveParentId(state: EditorState): string {
   const id = selectedPrimary(state);
   const found = findById(state.page.root, id);
   if (!found) return state.page.root.id;
-  return isContainer(found.node) ? found.node.id : (found.parent?.id ?? state.page.root.id);
+  /**
+   * 注意：`isContainer()` 对 RECTANGLE 返回 true（它带 children 字段），
+   * 但**所有出码/布局路径都把 RECTANGLE 当叶子跳过递归**
+   * （compile.ts:196 / layout.ts:272 / html.ts:69 / taro.ts:36 / prototype.ts:136），
+   * 且 `findContainerAt()` 也显式排除 RECTANGLE 作落点容器。
+   *
+   * 若此处不排除，Palette「添加节点」会在选中矩形时把新节点塞进矩形内部——
+   * 画布可见（Canvas 按 isContainer 渲染子节点），但**出码静默丢弃**，
+   * 造成画布↔出码不一致（2026-10-18 审计实测：矩形+文本 → 产物只剩矩形）。
+   * 与 Figma 一致：矩形不可容纳子节点。
+   */
+  const canHost = isContainer(found.node) && found.node.type !== 'RECTANGLE';
+  return canHost ? found.node.id : (found.parent?.id ?? state.page.root.id);
 }
 
 function isDescendant(root: UINode, ancestorId: string, targetId: string): boolean {

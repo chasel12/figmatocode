@@ -68,6 +68,25 @@ describe('FR-19 Effects 8 类出码', () => {
     expect(ref).toContain(`id="fx-noise-${node.id}"`);
   });
 
+  /**
+   * 回归（2026-10-18 参数审计修复）：NOISE 的「颜色」参数必须进产物。
+   * 旧实现只用 saturate(0) 出灰度、完全不读 effect.color → 面板改色出码零变化。
+   * 现口径：有 color 时灰度噪点与实色 multiply 着色；无 color 时保持灰度（向后兼容）。
+   */
+  it('NOISE 带 color → 滤镜含 feFlood 着色；不带 color → 保持灰度且无 feFlood', () => {
+    const colored = styledNode('RECTANGLE', { effects: [{ kind: 'NOISE', radius: 4, density: 3, opacity: 0.4, color: '#ff00ff' }] });
+    const pageC = pageWith(colored);
+    const htmlC = generateHtml(pageC, compilePage(pageC));
+    expect(htmlC).toContain('flood-color="#ff00ff"');
+    expect(htmlC).toContain('mode="multiply"');
+
+    const plain = styledNode('RECTANGLE', { effects: [{ kind: 'NOISE', radius: 4, density: 3, opacity: 0.4 }] });
+    const pageP = pageWith(plain);
+    const htmlP = generateHtml(pageP, compilePage(pageP));
+    expect(htmlP).not.toContain('feFlood');
+    expect(htmlP).toContain('type="saturate" values="0"');
+  });
+
   it('visible=false 的效果被排除；blendMode → mix-blend-mode', () => {
     const css = cssOf({
       effects: [

@@ -1574,7 +1574,15 @@ export function PropertyPanel() {
               className={`radius-toggle ${S.textTruncation === 'ENDING' ? 'is-active' : ''}`}
               title="截断：超行末尾加省略号"
               onClick={() => {
-                setStyle({ textTruncation: S.textTruncation === 'ENDING' ? 'DISABLED' : 'ENDING' });
+                /**
+                 * 开启截断时必须**同时落 maxLines**（缺省 2），否则出码不生效：
+                 * compile.ts:620 的判据是 `textTruncation === 'ENDING' && maxLines > 0`，
+                 * 而「最大行」输入框只显示 `S.maxLines ?? 2` 的**回退值**、不回写 store。
+                 * 历史缺陷（2026-10-18 参数审计）：开关点亮、面板显示「2」，但产物无任何
+                 * -webkit-line-clamp —— 用户以为开了截断，实际无效。
+                 */
+                const on = S.textTruncation !== 'ENDING';
+                setStyle({ textTruncation: on ? 'ENDING' : 'DISABLED', maxLines: on ? (S.maxLines ?? 2) : S.maxLines });
                 commit();
               }}
             >

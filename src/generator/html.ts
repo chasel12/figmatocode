@@ -96,8 +96,19 @@ export function collectFxDefs(page: UIPage): string {
         const freq = (1 / Math.max(1, e.radius ?? 8)).toFixed(3);
         const oct = Math.min(5, Math.max(1, Math.round(e.density ?? 2)));
         const alpha = (e.opacity ?? 0.5).toFixed(2);
+        /**
+         * 噪点**着色**（2026-10-18 参数审计修复）：面板「噪点」有「颜色」控件并写入
+         * `effect.color`，但旧实现只用 `saturate(0)` 出灰度噪点、**完全不读 color**，
+         * 用户改颜色出码零变化（审计实锤差异）。
+         *
+         * 现口径：有 color 时把灰度噪点与实色 **multiply** 合成→得到该色调的颗粒
+         * （SVG 滤镜标准着色法）；无 color 时保持原灰度路径，**向后兼容**既有视觉与测试。
+         */
+        const tint = e.color
+          ? `<feColorMatrix in="n" type="saturate" values="0" result="mono"/><feFlood flood-color="${e.color}" result="c"/><feBlend in="mono" in2="c" mode="multiply" result="tinted"/>`
+          : `<feColorMatrix in="n" type="saturate" values="0" result="tinted"/>`;
         defs.push(
-          `<filter id="fx-noise-${n.id}" x="0%" y="0%" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="${freq}" numOctaves="${oct}" seed="7" result="n"/><feColorMatrix in="n" type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope="${alpha}"/></feComponentTransfer></filter>`,
+          `<filter id="fx-noise-${n.id}" x="0%" y="0%" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="${freq}" numOctaves="${oct}" seed="7" result="n"/>${tint}<feComponentTransfer><feFuncA type="linear" slope="${alpha}"/></feComponentTransfer></filter>`,
         );
       } else if (e.kind === 'TEXTURE') {
         const freq = (1 / Math.max(1, e.radius ?? 8)).toFixed(3);
