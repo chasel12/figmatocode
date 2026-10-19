@@ -1,190 +1,158 @@
 /**
- * 参数级四渠道覆盖审计（PM 追问专项，2026-10-18）。
- *
- * 目标：回答「右侧参数区每一个小参数是否在所有渠道都真实生效」——
- *   C1 面板：控件存在且可被 UI 操作；
- *   C2 数据：设值后 autosave 全工程 JSON（ui-compiler.autosave.v2）深 diff 非空；
- *   C3 出码：同一份读回的 project → **真实 compilePage** 的 CSS 串发生变化（node 侧 vite-node 直引 src）；
- *   C4 画布：节点屏幕区域的截图字节发生变化（所见即所得）。
- * 已知可复现项：8 类效果中 7 类 C4=false（差异 #18）——本审计同时验证其覆盖面。
- *
- * 隔离：每个控件一次 reload（addInitScript 注入 seed），控件索引在 seed 运行中冻结为 spec，
- *  每轮以 (分区标题, 控件下标, 标签文本) 三重校验后操作，标签漂移行记 SKIP 不猜。
- * 选择：seed 阶段在目标节点上预置「效果×2（含 NOISE 走 SVG 通道）+ 描边」，保证效果/描边分区有参数可枚举。
- *
- * 运行：npm run precanvasdiff && npm run build（dist/app 为 hook 构建）
- *       npx vite-node scripts/param-audit.ts
- * 产出：dist/param-audit/report.json + params.md + 逐控件 pre/post 画布区域截图
+ * 参数级四渠道覆盖审计 · 第二批（100% 收口批，2026-10-19）。
+ * 第一批（58 行，提交 4592ab4）后补齐：
+ *  · 三种靶节点：RECT（叠绿背景+多层填充+8 类效果+描边+导出预设）/ FRAME 容器（两子矩形→容器属性真实语义）/ TEXT（排版+内容）；
+ *  · 出码指纹升级为 compilePage CSS **＋ generateHtml**（文本内容等走 HTML 通道的参数不再假阴性）；
+ *  · 效果 8 类全量入册 → #18 画布覆盖面精确量化；
+ *  · 样式分区=按钮型控件（token 应用），不在原生控件枚举域，登记边界。
+ * 运行：npm run build && npm run precanvasdiff 后 `npx vite-node scripts/param-audit.ts`
+ * 产出：dist/param-audit/{report2.json,params2.md,shots2/}
  */
 import { chromium } from 'playwright';
 import { spawn, execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseProject } from '../src/editor/project';
 import { compilePage } from '../src/compiler/compile';
+import { generateHtml } from '../src/generator/html';
 
 const root = process.cwd();
-const PORT = 4281;
+const PORT = 4284;
 const outDir = join(root, 'dist', 'param-audit');
-const shotsDir = join(outDir, 'shots');
+const shotsDir = join(outDir, 'shots2');
 mkdirSync(shotsDir, { recursive: true });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const KEY = 'ui-compiler.autosave.v2';
 
-const BATCH1 = ['位置与尺寸', '布局', '图层', '填充', '描边', '效果'];
-
-/* ---------------- preview 服务 ---------------- */
-const server = spawn('npm', ['run', 'preview', '--', '--port', String(PORT), '--strictPort'], {
-  cwd: root, stdio: 'ignore', shell: true,
+/* ---------------- seed 工程（工厂构造，保证 hydration 兼容） ---------------- */
+const mkLayout = (x: number, y: number, w: number, h: number, over: Record<string, unknown> = {}) => ({
+  mode: 'ABSOLUTE', x, y, width: w, height: h, widthMode: 'FIXED', heightMode: 'FIXED',
+  padding: [0, 0, 0, 0], gap: 0, align: 'START', justify: 'START', ...over,
 });
+const mkLeaf = (id: string, name: string, layout: Record<string, unknown>, style: Record<string, unknown>) => ({
+  id, name, type: 'RECTANGLE', layout, style, children: [],
+});
+const seedRect = mkLeaf('audit-rect', '审计靶',
+  mkLayout(100, 90, 160, 100),
+  {
+    fills: [{ type: 'SOLID', color: '#e67e22', opacity: 0.45 }, { type: 'GRADIENT_LINEAR', angle: 45, stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#0000ff' }] }],
+    border: { width: 3, color: '#c0392b', align: 'INSIDE' },
+    exportSettings: [{ format: 'PNG', scale: 2, suffix: '@2x' }],
+    effects: [
+      { kind: 'DROP_SHADOW', x: 0, y: 6, blur: 12, spread: 2, color: 'rgba(0,0,0,0.35)' },
+      { kind: 'INNER_SHADOW', x: 0, y: 2, blur: 6, color: 'rgba(0,0,0,0.3)' },
+      { kind: 'LAYER_BLUR', radius: 6 },
+      { kind: 'BACKGROUND_BLUR', radius: 8 },
+      { kind: 'PROGRESSIVE_BLUR', radius: 10, startRadius: 2, offset: 40, beta: 0.6 },
+      { kind: 'NOISE', radius: 6, density: 0.5, color: '#888888' },
+      { kind: 'TEXTURE', radius: 4, density: 0.4, color: '#777777' },
+      { kind: 'GLASS', radius: 10, color: '#ffffff' },
+    ],
+  });
+const seedBg = mkLeaf('audit-bg', '审计背景', mkLayout(60, 60, 300, 220), { fills: [{ type: 'SOLID', color: '#2ecc71' }] });
+const seedFrame = {
+  id: 'audit-frame', name: '审计容器', type: 'FRAME',
+  layout: mkLayout(60, 340, 340, 150, { mode: 'HORIZONTAL', align: 'START', justify: 'START', gap: 10, padding: [8, 8, 8, 8] }),
+  style: { fills: [{ type: 'SOLID', color: '#f5eefc' }] },
+  children: [
+    mkLeaf('f-c1', '子一', { mode: 'FIXED', width: 80, height: 60, widthMode: 'FIXED', heightMode: 'FIXED' } as Record<string, unknown>, { fills: [{ type: 'SOLID', color: '#3498db' }] }),
+    mkLeaf('f-c2', '子二', { mode: 'FIXED', width: 80, height: 60, widthMode: 'FIXED', heightMode: 'FIXED' } as Record<string, unknown>, { fills: [{ type: 'SOLID', color: '#e74c3c' }] }),
+  ],
+};
+const seedText = {
+  id: 'audit-text', name: '审计文案', type: 'TEXT',
+  layout: mkLayout(60, 520, 300, 30),
+  style: { color: '#111111', fontSize: 16, fontWeight: 400, lineHeight: 22, textAlign: 'left' },
+  text: '审计文本 Audit Text',
+  children: [],
+};
+const seedStorage = JSON.stringify({
+  version: 2,
+  project: {
+    version: 2, name: '参数审计工程',
+    pages: [{ id: 'audit-page', name: '审计页', viewport: { width: 500, height: 600 }, root: { id: 'audit-root', name: '审计页', type: 'FRAME', layout: mkLayout(0, 0, 500, 600, { mode: 'VERTICAL' }), style: { fills: [{ type: 'SOLID', color: '#ffffff' }] }, children: [seedBg, seedRect, seedFrame, seedText] } }],
+    components: {}, tokens: [], flows: [],
+  },
+  currentPageId: 'audit-page',
+});
+
+/* ---------------- 服务 ---------------- */
+const server = spawn('npm', ['run', 'preview', '--', '--port', String(PORT), '--strictPort'], { cwd: root, stdio: 'ignore', shell: true });
 let ready = false;
 for (let i = 0; i < 60; i++) {
-  try {
-    const res = await fetch(`http://localhost:${PORT}/`);
-    if (res.ok) { ready = true; break; }
-  } catch { /* retry */ }
+  try { if ((await fetch(`http://localhost:${PORT}/`)).ok) { ready = true; break; } } catch { /* retry */ }
   await sleep(400);
 }
-if (!ready) { server.kill(); throw new Error('preview 未就绪（先跑 precanvasdiff/build 产出 dist/app）'); }
+if (!ready) { server.kill(); throw new Error('preview 未就绪'); }
 
-/* ---------------- 工具函数（页内） ---------------- */
-const walk = (n: any, fn: (x: any) => void) => { fn(n); (n.children ?? []).forEach((c: any) => walk(c, fn)); };
-const deepDiff = (a: any, b: any, path = '', out: string[] = []) => {
+/* ---------------- 通道工具 ---------------- */
+const deepDiff = (a: unknown, b: unknown, path = '', out: string[] = []): string[] => {
   if (out.length > 20) return out;
   if (a === b) return out;
-  if (typeof a !== typeof b || a == null || b == null) { out.push(path); return out; }
-  if (typeof a !== 'object') { out.push(path); return out; }
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const k of keys) deepDiff(a[k], b[k], path ? `${path}.${k}` : k, out);
+  if (typeof a !== typeof b || a == null || b == null || typeof a !== 'object') { out.push(path); return out; }
+  const ao = a as Record<string, unknown>; const bo = b as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(ao), ...Object.keys(bo)])) deepDiff(ao[k], bo[k], path ? `${path}.${k}` : k, out);
   return out;
 };
-/** 出码 CSS 指纹：真实 compilePage，取每个节点 style/css 字段序列化 */
-const compileFingerprint = (dataStr: string, pageName: string) => {
-  const { project } = parseProject(JSON.parse(dataStr));
-  const page = project.pages.find((p: any) => p.name === pageName) ?? project.pages[0];
-  const compiled: any = compilePage(page as any);
-  const parts: string[] = [];
-  for (const n of compiled.nodes ?? []) parts.push(`${n.className ?? n.id}|${JSON.stringify(n.css ?? n.style ?? '')}`);
-  return parts.join('\n');
+const fingerprint = (dataStr: string) => {
+  const proj = JSON.parse(dataStr).project;
+  const page = proj.pages[0];
+  const compiled = compilePage(page);
+  return JSON.stringify(compiled.nodes.map((n: { className: string; css: unknown }) => [n.className, n.css]))
+    + '@@HTML@@' + generateHtml(page, compiled);
 };
 
-/* ---------------- seed 运行：定靶、预置、枚举 ---------------- */
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [KEY, seedStorage]);
 const page = await ctx.newPage();
 
-async function loadFresh() {
-  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
-  await page.waitForSelector('.prop-heading', { timeout: 15000 });
-  await sleep(600);
-}
-async function selectNode(id: string) {
-  const row = page.locator(`[data-node-id="${id}"]`).first();
-  if (await row.count()) await row.click();
-  else throw new Error(`图层树找不到节点 ${id}`);
-  await sleep(300);
-}
-async function readData(): Promise<string> {
-  return (await page.evaluate((k) => localStorage.getItem(k), KEY)) ?? '';
-}
-
-await loadFresh();
-/* 默认页为空——用 R 工具自绘一个矩形，作为审计靶节点（走应用自身工厂，形状最真） */
-const canvasBox = await page.locator('.konvajs-content').boundingBox();
-if (!canvasBox) { server.kill(); throw new Error('画布容器 .konvajs-content 不存在'); }
-await page.mouse.click(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
-await sleep(200);
-await page.keyboard.press('r');
-await page.mouse.move(canvasBox.x + 140, canvasBox.y + 120);
-await page.mouse.down();
-await page.mouse.move(canvasBox.x + 300, canvasBox.y + 220, { steps: 6 });
-await page.mouse.up();
-await sleep(900);
-let dataStr = await readData();
-for (let i = 0; i < 6 && !dataStr; i++) { await sleep(500); dataStr = await readData(); }
-if (!dataStr) { server.kill(); throw new Error('autosave 无内容，无法定 seed 基线'); }
-let seed = JSON.parse(dataStr);
-const { project: seedProj } = parseProject(seed);
-const seedPage = seedProj.pages.find((p: any) => p.id === (seed.currentPageId ?? p.id)) ?? seedProj.pages[0];
-const pageName = seedPage.name;
-// 选靶：页内第一个叶子 RECTANGLE
-let target: any = null;
-walk(seedPage.root, (n: any) => { if (!target && n !== seedPage.root && !(n.children?.length) && n.type === 'RECTANGLE') target = n; });
-if (!target) { server.kill(); throw new Error('自绘矩形未出现在 seed 树（检查 R 工具/autosave）'); }
-const targetId = target.id;
-// 预置：描边 + 两类效果（DROP_SHADOW 应画布响应、NOISE 应不响应——管线自校验）+ 目标后方叠一块背景（让混合/透明度/阴影有像素参照）
-const patched = JSON.parse(dataStr);
-let pTarget: any = null;
-walk(patched, (n: any) => { if (n && typeof n === 'object' && n.id === targetId && !pTarget && n.type) pTarget = n; });
-if (pTarget) {
-  pTarget.style = pTarget.style ?? {};
-  pTarget.style.border = { width: 3, color: '#c0392b', align: 'INSIDE' };
-  pTarget.style.effects = [
-    { kind: 'DROP_SHADOW', x: 0, y: 6, blur: 12, spread: 2, color: 'rgba(0,0,0,0.35)' },
-    { kind: 'NOISE', radius: 6, density: 0.5, color: '#888888' },
-  ];
-  const bg = JSON.parse(JSON.stringify(pTarget));
-  bg.id = 'audit-bg'; bg.name = '审计背景';
-  bg.layout = { ...(bg.layout ?? {}), x: (pTarget.layout?.x ?? 0) - 60, y: (pTarget.layout?.y ?? 0) - 40, width: (pTarget.layout?.width ?? 160) + 120, height: (pTarget.layout?.height ?? 100) + 80 };
-  bg.style = { fills: [{ type: 'SOLID', color: '#2ecc71' }] };
-  let parent: any = null;
-  walk(patched, (n: any) => { if (!parent && Array.isArray(n?.children) && n.children.some((c: any) => c?.id === targetId)) parent = n; });
-  if (parent) {
-    const ti = parent.children.findIndex((c: any) => c?.id === targetId);
-    parent.children.splice(ti, 0, bg); // 插到目标之前 = 先画 → 视觉在后
-  }
-}
-seed = JSON.stringify(patched);
-await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [KEY, seed]);
-await page.reload();
-await page.waitForSelector('.prop-heading');
-await sleep(700);
-await selectNode(targetId);
-await sleep(400);
-
-/* 枚举：按分区抓控件规格 */
-const spec = await page.evaluate(() => {
-  const secs: { heading: string; controls: { idx: number; label: string; tag: string; itype?: string; value: string }[] }[] = [];
-  for (const sec of Array.from(document.querySelectorAll('.prop-section'))) {
-    const headEl = sec.querySelector('.prop-heading');
-    if (!headEl) continue;
-    const heading = (headEl.textContent ?? '').split('（')[0].trim();
-    const controls: any[] = [];
-    const nodes = Array.from(sec.querySelectorAll('input, select, textarea'));
-    nodes.forEach((el: any, idx) => {
-      let label = el.getAttribute('aria-label') ?? '';
-      if (!label) {
-        let p: HTMLElement | null = el.parentElement;
-        while (p && p !== sec && !label) { label = p.querySelector('.field-label')?.textContent?.trim() ?? ''; if (!label) label = p.previousElementSibling?.querySelector?.('.field-label')?.textContent?.trim() ?? ''; p = p.parentElement; }
+async function freshLoad(targetId: string) {
+  const perr: string[] = [];
+  const onPageErr = (e: Error) => perr.push(String(e.message).slice(0, 200));
+  page.on('pageerror', onPageErr);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load', timeout: 12000 });
+      await page.waitForSelector('.prop-heading', { timeout: 15000 });
+      break;
+    } catch (e) {
+      if (attempt === 1) {
+        const body = await page.evaluate(() => document.body?.innerHTML?.slice(0, 400)).catch(() => '(evaluator 失效)');
+        writeFileSync(join(outDir, 'diag-fail.html'), `<!-- ${perr.join('\n')} -->\n${body}`, 'utf8');
+        console.log('诊断：pageerrors=', perr.slice(0, 4), '\nbody head=', body.slice(0, 160));
       }
-      if (!label) label = el.name || el.title || `${heading}#${idx}`;
-      controls.push({ idx, label, tag: el.tagName.toLowerCase(), itype: el.type, value: String(el.value ?? '') });
-    });
-    secs.push({ heading, controls });
+      if (attempt === 1) throw e;
+      await sleep(2500);
+    }
   }
-  return secs;
-});
-writeFileSync(join(outDir, 'spec.json'), JSON.stringify(spec, null, 2), 'utf8');
-console.log('分区枚举：', spec.map((s) => `${s.heading}(${s.controls.length})`).join(' · '));
-
-/* 每轮校验控件身份：返回定位句柄 */
-async function locate(heading: string, c: (typeof spec)[0]['controls'][0]) {
-  const sec = page.locator('.prop-section', { has: page.locator(`.prop-heading:text-is("${heading}")`) });
-  const els = sec.locator('input, select, textarea');
-  const handle = els.nth(c.idx);
-  const label = await handle.getAttribute('aria-label');
-  const valueNow = await handle.inputValue().catch(() => '');
-  const labelOk = (label ?? c.label.slice(0, 10)).startsWith(c.label.slice(0, 6)) || label === null;
-  return { handle, ok: (await handle.count()) > 0 && labelOk, valueNow };
+  page.off('pageerror', onPageErr);
+  await sleep(550);
+  await page.locator(`[data-node-id="${targetId}"]`).first().click();
+  await sleep(250);
 }
+async function readData() { return (await page.evaluate((k) => localStorage.getItem(k), KEY)) ?? ''; }
 
-/* 区域截图 */
-async function nodeShot(tag: string): Promise<Buffer | null> {
-  const g = await page.evaluate((id) => (window as any).__UIC_E2E__?.geometryOf(id) ?? null, targetId);
-  const view = await page.evaluate(() => (window as any).__UIC_VIEW__?.() ?? null);
+const enumSection = (heading: string) => {
+  const secs = Array.from(document.querySelectorAll('.prop-section'));
+  const sec = secs.find(s => (s.querySelector('.prop-heading')?.textContent ?? '').split('（')[0].trim() === heading);
+  if (!sec) return { missing: true, controls: [] as { idx: number; label: string; tag: string; itype: string }[] };
+  const out: { idx: number; label: string; tag: string; itype: string }[] = [];
+  Array.from(sec.querySelectorAll('input, select, textarea')).forEach((el: any, idx: number) => {
+    let label: string = el.getAttribute('aria-label') ?? '';
+    if (!label) label = el.closest('.field-row')?.querySelector('.field-label')?.textContent?.trim() ?? '';
+    if (!label) { let p: any = el.parentElement; while (p && p !== sec && !label) { label = p.querySelector('.field-label')?.textContent?.trim() ?? ''; p = p.parentElement; } }
+    if (!label) label = el.name || el.title || heading + '#' + idx;
+    out.push({ idx, label, tag: el.tagName.toLowerCase(), itype: el.type || '' });
+  });
+  return { missing: false, controls: out };
+};
+
+async function nodeShot(targetId: string, tag: string): Promise<Buffer | null> {
+  const g = await page.evaluate((id) => (window as unknown as { __UIC_E2E__?: { geometryOf: (i: string) => unknown } }).__UIC_E2E__?.geometryOf(id) as { x: number; y: number; width: number; height: number } | null, targetId);
+  const view = await page.evaluate(() => ((window as unknown as { __UIC_VIEW__?: () => { scale: number; x: number; y: number } }).__UIC_VIEW__?.() ?? null));
   const content = await page.locator('.konvajs-content').boundingBox().catch(() => null);
   if (!g || !view || !content) return null;
-  const PAD = 48; // 阴影/模糊带外扩（8px 会截掉 DROP_SHADOW 的 y+blur+spread ≈20px 外晕 → 假「画布不响应」）
+  const PAD = 48;
   const clip = {
     x: Math.max(0, Math.min(1430, content.x + view.x + g.x * view.scale - PAD)),
     y: Math.max(0, Math.min(880, content.y + view.y + g.y * view.scale - PAD)),
@@ -195,49 +163,57 @@ async function nodeShot(tag: string): Promise<Buffer | null> {
     const buf = await page.screenshot({ clip });
     writeFileSync(join(shotsDir, `${tag}.png`), buf);
     return buf;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-/* ---------------- 审计主循环（BATCH1） ---------------- */
-type Row = {
-  section: string; label: string; tag: string; itype?: string;
-  before: string; after: string;
-  C1_panel: boolean; C2_data: boolean; C3_compile: boolean; C4_canvas: boolean;
-  paths: string[]; note: string;
-};
+type Row = { section: string; target: string; label: string; itype: string; before: string; after: string; C2_data: boolean; C3_code: boolean; C4_canvas: boolean; canvasUnmeasurable?: boolean; paths: string[]; note: string };
 const rows: Row[] = [];
 
-for (const sectionSpec of spec.filter((s) => BATCH1.includes(s.heading))) {
-  for (const c of sectionSpec.controls) {
-    const row: Row = { section: sectionSpec.heading, label: c.label, tag: c.tag, itype: c.itype, before: '', after: '', C1_panel: false, C2_data: false, C3_compile: false, C4_canvas: false, paths: [], note: '' };
+const PLAN: { heading: string; target: string; tname: string }[] = [
+  { heading: '位置与尺寸', target: 'audit-rect', tname: '矩形' },
+  { heading: '位置与尺寸', target: 'audit-frame', tname: '容器' },
+  { heading: '布局', target: 'audit-frame', tname: '容器' },
+  { heading: '图层', target: 'audit-rect', tname: '矩形' },
+  { heading: '填充', target: 'audit-rect', tname: '矩形' },
+  { heading: '效果', target: 'audit-rect', tname: '矩形' },
+  { heading: '导出', target: 'audit-rect', tname: '矩形' },
+  { heading: '排版', target: 'audit-text', tname: '文本' },
+  { heading: '内容', target: 'audit-text', tname: '文本' },
+];
+
+for (const plan of PLAN) {
+  await freshLoad(plan.target);
+  const spec = await page.evaluate(enumSection, plan.heading) as { missing: boolean; controls: { idx: number; label: string; tag: string; itype: string }[] };
+  if (spec.missing) { rows.push({ section: plan.heading, target: plan.tname, label: '-', itype: '-', before: '', after: '', C2_data: false, C3_code: false, C4_canvas: false, paths: [], note: 'ERROR：分区未出现（靶节点不匹配？）' }); continue; }
+  if (!spec.controls.length) { rows.push({ section: plan.heading, target: plan.tname, label: '-', itype: '-', before: '', after: '', C2_data: false, C3_code: false, C4_canvas: false, paths: [], note: 'NOTE：该分区无原生控件（按钮型交互，审计边界外）' }); continue; }
+
+  for (const c of spec.controls) {
+    const row: Row = { section: plan.heading, target: plan.tname, label: c.label, itype: c.itype || c.tag, before: '', after: '', C2_data: false, C3_code: false, C4_canvas: false, paths: [], note: '' };
+    rows.push(row);
     try {
-      await page.reload(); await page.waitForSelector('.prop-heading'); await sleep(550);
-      await selectNode(targetId); await sleep(250);
-      const { handle, ok, valueNow } = await locate(sectionSpec.heading, c);
-      row.before = valueNow;
-      if (!ok) { row.note = 'SKIP：控件身份漂移（重载后标签/索引不符，不猜）'; rows.push(row); continue; }
-      row.C1_panel = await handle.isEnabled();
-      if (!row.C1_panel) { row.note = 'SKIP：disabled 态'; rows.push(row); continue; }
+      await freshLoad(plan.target);
+      const sec = page.locator('.prop-section', { has: page.locator(`.prop-heading:text-is("${plan.heading}")`) });
+      const handle = sec.locator('input, select, textarea').nth(c.idx);
+      if (!(await handle.count())) { row.note = 'SKIP：重载后控件消失'; continue; }
+      const cur = await handle.evaluate((el: HTMLInputElement) => ({ v: el.value, checked: el.checked, type: el.type }));
+      row.before = String(cur.v ?? cur.checked);
+      if (!(await handle.isEnabled())) { row.note = 'SKIP：disabled 态'; continue; }
 
       const preData = await readData();
-      const preCss = compileFingerprint(preData, pageName);
-      const preShot = await nodeShot(`${sectionSpec.heading}#${c.idx}-pre`);
-      if (!preShot) row.note = '画布通道不可用（hook/几何/选区缺失）→ C4 记不定';
+      const preFp = fingerprint(preData);
+      const preShot = await nodeShot(plan.target, `${plan.heading}-${row.target}#${c.idx}-pre`);
+      if (!preShot) row.note = '画布通道不可测（几何/hook 缺失）';
 
-      /* 设一个肯定不同的值（按类型） */
       if (c.tag === 'select') {
         const nOpts = await handle.locator('option').count();
-        if (nOpts < 2) { row.note = 'SKIP：select 仅一个选项'; rows.push(row); continue; }
+        if (nOpts < 2) { row.note = 'SKIP：单选项 select'; continue; }
         const selIdx = await handle.evaluate((el: HTMLSelectElement) => el.selectedIndex);
-        const targetIdx = selIdx >= nOpts - 1 ? 0 : selIdx + 1;
-        await handle.selectOption({ index: targetIdx });
-        row.after = (await handle.evaluate((el: HTMLSelectElement) => el.options[el.selectedIndex]?.text ?? '')) ?? '';
-      } else if (c.itype === 'checkbox') {
+        await handle.selectOption({ index: selIdx >= nOpts - 1 ? 0 : selIdx + 1 });
+        row.after = await handle.evaluate((el: HTMLSelectElement) => el.options[el.selectedIndex]?.text ?? '');
+      } else if (cur.type === 'checkbox') {
         await handle.click();
-        row.after = String(await handle.isChecked().catch(() => ''));
-      } else if (c.itype === 'color') {
+        row.after = String(!(cur as { checked: boolean }).checked);
+      } else if (cur.type === 'color') {
         await handle.evaluate((el: HTMLInputElement) => {
           const v = el.value.toLowerCase() === '#7f3fd2' ? '#1fa77a' : '#7f3fd2';
           Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(el, v);
@@ -246,77 +222,77 @@ for (const sectionSpec of spec.filter((s) => BATCH1.includes(s.heading))) {
         });
         row.after = await handle.inputValue().catch(() => '');
       } else if (c.tag === 'textarea') {
-        await handle.fill(`${valueNow || 'x'}+`); await page.keyboard.press('Enter');
-        row.after = await handle.inputValue().catch(() => '');
+        await handle.fill(`${cur.v || 'x'}+审计`);
+        await page.keyboard.press('Enter');
+        row.after = '⟂追加';
       } else {
         const info = await handle.evaluate((el: HTMLInputElement) => ({
           min: el.min !== '' ? parseFloat(el.min) : -1000,
           max: el.max !== '' ? parseFloat(el.max) : 1000,
           step: el.step ? parseFloat(el.step) : 1,
           cur: parseFloat(el.value),
+          isRange: el.type === 'range',
         }));
-        if (!Number.isFinite(info.max - info.min) || info.max <= info.min) { row.note = 'SKIP：数值域异常'; rows.push(row); continue; }
         const span = info.max - info.min;
         const curN = Number.isFinite(info.cur) ? info.cur : info.min;
-        let nv = curN + (info.itype === 'range' || span <= 20 ? span * 0.3 : 5);
+        let nv = curN + (info.isRange || span <= 20 ? span * 0.3 : 5);
         if (nv > info.max) nv = curN - span * 0.3;
-        if (Math.abs(nv - curN) < info.step / 2) nv = info.min + span * 0.5; // 兜底取中点
+        if (Math.abs(nv - curN) < info.step / 2) nv = info.min + span * 0.5;
         nv = Math.round(Math.min(info.max, Math.max(info.min, nv)) / info.step) * info.step;
-        if (nv === curN) { row.note = `SKIP：域内无处可设（${info.min}~${info.max}）`; rows.push(row); continue; }
+        if (nv === curN) { row.note = `SKIP：域内无处可设（${info.min}~${info.max}）`; continue; }
         await handle.evaluate((el: HTMLInputElement, v: number) => {
-          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-          setter?.call(el, String(Math.round(v * 1000) / 1000));
+          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(el, String(Math.round(v * 1000) / 1000));
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         }, nv);
         await page.keyboard.press('Enter');
         row.after = String(Math.round(nv * 1000) / 1000);
       }
-      await sleep(800); // autosave debounce 500ms
+      await sleep(800);
 
       const postData = await readData();
       row.C2_data = postData !== preData;
-      if (row.C2_data) row.paths = deepDiff(JSON.parse(preData), JSON.parse(postData)).slice(0, 6);
-      row.C3_compile = compileFingerprint(postData || preData, pageName) !== preCss;
-      const postShot = await nodeShot(`${sectionSpec.heading}#${c.idx}-post`);
+      if (row.C2_data) row.paths = deepDiff(JSON.parse(preData), JSON.parse(postData)).slice(0, 5);
+      row.C3_code = fingerprint(postData || preData) !== preFp;
+      const postShot = await nodeShot(plan.target, `${plan.heading}-${row.target}#${c.idx}-post`);
+      row.canvasUnmeasurable = !preShot || !postShot;
       row.C4_canvas = !!(preShot && postShot && !preShot.equals(postShot));
-      rows.push(row);
-    } catch (e: any) {
-      row.note = `ERROR：${String(e?.message ?? e).slice(0, 90)}`;
-      rows.push(row);
+    } catch (e: unknown) {
+      row.note = `ERROR：${String(e instanceof Error ? e.message : e).slice(0, 80)}`;
     }
   }
-  const done = rows.filter((r) => r.C1_panel && !r.note.startsWith('SKIP')).length;
-  console.log(`· 分区「${sectionSpec.heading}」完成（累计有效行 ${done}）`);
+  const sec = rows.filter((r) => r.section === plan.heading && r.target === plan.tname);
+  console.log(`· ${plan.heading}[${plan.tname}] 完成 ${sec.length} 行`);
 }
 
 /* ---------------- 报表 ---------------- */
-const valid = rows.filter((r) => !r.note.startsWith('SKIP') && !r.note.startsWith('ERROR'));
+const acted = rows.filter((r) => r.C2_data || r.C3_code || r.C4_canvas);
 const stats = {
-  总行数: rows.length, 有效行: valid.length,
-  SKIP_disabled: rows.filter((r) => r.note.startsWith('SKIP') && r.C1_panel === false && !r.before).length,
-  SKIP_identity: rows.filter((r) => r.note.startsWith('SKIP：控件身份')).length,
+  总行数: rows.length,
+  有效枚举行: acted.length,
+  三渠道全通: acted.filter((r) => r.C2_data && r.C3_code && r.C4_canvas).length,
+  数据出码通画布不响应: acted.filter((r) => r.C2_data && r.C3_code && !r.C4_canvas && !r.canvasUnmeasurable).length,
+  数据通未进码: acted.filter((r) => r.C2_data && !r.C3_code).length,
+  画布不可测: rows.filter((r) => r.canvasUnmeasurable && !r.note.startsWith('SKIP')).length,
+  SKIP或NOTE: rows.filter((r) => (r.note.startsWith('SKIP') || r.note.startsWith('NOTE')) && !r.C2_data).length,
   ERROR: rows.filter((r) => r.note.startsWith('ERROR')).length,
-  四全绿: valid.filter((r) => r.C2_data && r.C3_compile && r.C4_canvas).length,
-  画布不响应数据出码皆有效: valid.filter((r) => r.C2_data && r.C3_compile && !r.C4_canvas).length,
-  数据未动: valid.filter((r) => !r.C2_data).length,
-  数据动而未进码: valid.filter((r) => r.C2_data && !r.C3_compile).length,
 };
 const md: string[] = [
-  '# 参数级四渠道覆盖审计 · 第一批（6 分区）',
-  '', `> 专项基线：HEAD=${execSync('git rev-parse --short HEAD').toString().trim()}+未提交工作区（并发 WIP：PropertyPanel/Canvas/store）· 端口 ${PORT} · C2=autosave JSON 深diff / C3=真 compilePage / C4=节点区域像素字节`,
+  '# 参数级四渠道审计 · 第二批（收口批）',
   '',
-  '| # | 分区 | 控件 | 类型 | 前值→后值 | C2 数据 | C3 出码 | C4 画布 | 变更路径/备注 |',
+  `> 基线：HEAD=${execSync('git rev-parse --short HEAD').toString().trim()}＋未提交并发 WIP（PropertyPanel/NumField，17:22 mtime）· 端口 ${PORT} · 出码指纹=compilePage CSS+generateHtml · C4=靶节点区域像素（PAD48，绿底参照）`,
+  '',
+  '| # | 分区 | 靶 | 控件 | 前→后 | C2 数据 | C3 码 | C4 画布 | 备注/路径 |',
   '|---|---|---|---|---|---|---|---|---|',
 ];
 rows.forEach((r, i) => {
-  md.push(`| ${i + 1} | ${r.section} | ${r.label} | ${r.itype ?? r.tag} | ${String(r.before).slice(0, 14)}→${String(r.after).slice(0, 14)} | ${r.C2_data ? '✅' : '❌'} | ${r.C3_compile ? '✅' : '❌'} | ${r.C4_canvas ? '✅' : '❌'} | ${r.note || r.paths.join(';').slice(0, 90)} |`);
+  md.push(`| ${i + 1} | ${r.section} | ${r.target} | ${r.label} | ${String(r.before).slice(0, 12)}→${String(r.after).slice(0, 12)} | ${r.C2_data ? '✅' : '—'} | ${r.C3_code ? '✅' : '—'} | ${r.canvasUnmeasurable ? '▦' : r.C4_canvas ? '✅' : '❌'} | ${r.note || r.paths.join(';').slice(0, 80)} |`);
 });
 md.push('', '```json\n' + JSON.stringify(stats, null, 2) + '\n```');
-writeFileSync(join(outDir, 'params.md'), md.join('\n'), 'utf8');
-writeFileSync(join(outDir, 'report.json'), JSON.stringify({ stats, rows }, null, 2), 'utf8');
-console.log('\n=== 汇总 ===', JSON.stringify(stats, null, 2));
-console.log('报表：' + join(outDir, 'params.md'));
+writeFileSync(join(outDir, 'params2.md'), md.join('\n'), 'utf8');
+writeFileSync(join(outDir, 'report2.json'), JSON.stringify({ stats, rows }, null, 2), 'utf8');
+console.log('\n=== 第二批汇总 ===', JSON.stringify(stats, null, 2));
+console.log('报表：' + join(outDir, 'params2.md'));
 
 await browser.close();
 server.kill();

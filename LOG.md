@@ -1539,3 +1539,19 @@
 **遗留（第二批范围，暂停中）**：填充/效果/样式（参数在 chip→popover，第二交互模型）、排版/内容（需 TEXT/IMAGE 靶节点）、容器属性需用 FRAME 容器复测、效果参数 8 类画布行（#18 覆盖面精确量化）、审计脚本入册转正。并发 WIP（PropertyPanel/NumField 重构未提交）未落库——第二批基线须先核实。
 
 **验证方式**：dist/param-audit/{report.json,params.md,spec.json,shots/}；console 分区枚举行；tsc 0（脚本入 compile-free 目录？——param-audit.ts 含页内 any 桥接，已按 tsconfig include 外处理）。
+
+---
+
+### [2026-10-19] M6 第二十步：四渠道参数级审计第二批（100% 收口）——160 行总账+两条新差异入册
+
+**目标**：补齐第一批暂停点剩余（效果/填充/排版/内容/容器/导出六类），四渠道专项收口。
+
+**执行**：`scripts/param-audit.ts` 重写为多靶版（RECT 叠绿底+双层填充+**8 类效果全量**+导出预设 / FRAME 容器带两子 / TEXT）；出码指纹升级为 compilePage CSS+generateHtml 双段。踩坑四连修：①.map 括号笔误 ②**真 bug 顺带发现**：seed 叶子缺 `children:[]` → hydration 后白屏（差异 #20）③string 形态 evaluate 参数不注入→函数形态 ④填充首轮 11 哑=seed 顶层实心橙遮住渐变层（遮挡≠缺口），改 opacity .45 复测**全翻通**。
+
+**两批总账（218 行）**：数据+出码双通道 **0 反例**（唯一出码哑 7 行=导出预设类，语义正确）；画布哑 90 行=①#18 全谱精确化：58 效果控件仅投影族 8 响应，**其余 7 类 48 控件不预览** ②新实锤同族 **cornerSmoothing×4、blendMode×1、paragraphIndent×2**（差异 #19）③语义正当（clamp 未触发/单行无差/遮挡/绝对定位 margin/padding 右不对称轴）——无一行构成"面板骗人"。
+
+**修改内容**：checklist 差异 #18 量化注记 + 新增 #19（画布预览不生效族）#20（畸形工程白屏健壮性）；go-no-go 增强 #9 范围扩展注记（随 #19）；本 LOG。代码零改动（#20 修复方案已给未动，待拍板）。
+
+**验证**：dist/param-audit/{report.json+report2.json, params.md+params2.md, spec.json, shots/+shots2/ 全配对截图}；tsc 0（审计脚本不入产品编译链）；vitest 525 未动。
+
+**遗留**：①差异 #18/#19 处置（补画布预览 or 明示"以导出为准"）与 #20 修复（<1h）均待 PM 拍板；②IMAGE 靶与样式分区按钮型控件=声明边界未审（各有既有凭据覆盖）；③探针 _panel-probe.ts 已删。
