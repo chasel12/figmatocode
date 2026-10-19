@@ -1604,3 +1604,19 @@
 - 深度审计 15 项「未实现」中 5 项系**验证脚本自身量纲/选择器限制**导致无法判定，未强行判 PASS（诚实记录于 audit-report §五）。
 - **Taro 通道、PDF/SVG 导出像素校验、跨浏览器（Firefox/Safari）** 未纳入本次范围，已列入诚实边界。
 - 本次未改动 `types.ts`（冻结文件）；3 处修复均为局部接线，`html.ts`/`reference.ts` 仍共用单一 `collectFxDefs` 未产生分支漂移。
+---
+
+### [2026-10-18] 审计收尾：深度审计定稿 146/152（96.1%）+ HUG 垂直对置灰防护
+
+**背景**：深度审计子代理完成末轮（绑定构建指纹 `index-BvAHcIvd.js @ 2026-10-19T12:00:32Z`，期间有并行重建故以其末轮数字为准）：**152 条断言 / 146 通过 = 96.1%**，0 页面错误，5 条口径说明行不计分；**defects=0**（截断与噪点两枚缺陷由本轨修复后，子代理独立复测已通过）。子代理另修正自己一处假 FAIL（填充层排序用 hex 比对、被层透明度转 rgba 干扰）。
+
+**新增修复（第 4 项，UX 静默空转防护）**：文本「垂直对」在「高模式=自动高度(HUG)」下可点但出码无变化。
+- **判定：行为本身正确**——`compile.ts:635` 要求 `heightMode==='FIXED' && height!=null`；自动高度无多余竖直空间，语义为空，Figma 同样在 auto-height 下禁用该控件。
+- **真问题在 UI**：控件保持可点且无提示 → 与截断开关同类「静默空转」体验缺口。
+- **修复**：`SelectField` 增加 `disabled`/`title` 可选属性；HUG 下置灰 + tooltip「垂直对齐仅在『高度模式=固定』时生效（自动高度无多余竖直空间，同 Figma 口径）」。实测 HUG 下 `disabled=true`，切固定高度后恢复。
+
+**文档更新 `docs/audit-report.md`**：深度审计数字改为 146/152（96.1%）并补 `buildStamp` 说明；§2.2 补三条可复用测试工程经验（分区去重名查找 / range 原生 setter 绕 React tracker / autosave 快照反查 store 防「控件变了 store 没变」误判）；§三 增第 4 项修复；§五 诚实边界扩至 8 条（新增「断言口径非像素级」与「面板不暴露的控件测不到」）；新增 §5.1 补充观察 4 条（`calc(50% + -146.5px)` 可读性、`corner-shape: squircle` 仅 Chrome 139+ 无回退、POLYGON/STAR 走 SVG path 属已报备口径、描边 style 无入口）。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **555/555**；`npm run build` OK；`npm run e2e` **19/19 ≥98%**；`npm run viewport` **76/76**；`audit-params-deep` 复跑 **146/152 = 96.1%**（14 未实现 / 0 缺陷）；文档 U+FFFD 0。
+
+**报备**：`计算值 calc(50% + -146.5px)` 与 `corner-shape` 兼容性两条属**观察不是缺陷**，未改代码，仅入册供后续排期决策。

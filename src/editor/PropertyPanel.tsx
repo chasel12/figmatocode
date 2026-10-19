@@ -126,13 +126,23 @@ function SelectField<T extends string>({
   value,
   options,
   onChange,
+  disabled,
+  title,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (v: T) => void;
+  /** 语义上不适用时置灰（如 HUG 文本的「垂直对」），配合 title 说明原因 */
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value as T)}>
+    <select
+      value={value}
+      disabled={disabled}
+      title={title}
+      onChange={(e) => onChange(e.target.value as T)}
+    >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
@@ -1530,9 +1540,23 @@ export function PropertyPanel() {
             />
           </Row>
           <Row label="垂直对">
+            {/**
+             * 垂直对齐仅对「高度固定」的文本生效（compile.ts:635-646 要求
+             * `heightMode==='FIXED' && height != null`）——HUG 文本没有多余竖直空间，
+             * 对齐语义为空，这与 Figma 一致（Figma 在 auto-height 下也禁用此控件）。
+             *
+             * 但若仍保持可点而不给提示，用户改完会发现**产物毫无变化**（静默空转），
+             * 属 2026-10-18 审计发现的同类 UX 缺口。故 HUG 下置灰 + tooltip 说明。
+             */}
             <SelectField
               value={S.textAlignVertical ?? 'TOP'}
               options={TEXT_ALIGN_V_OPTIONS}
+              disabled={L.heightMode !== 'FIXED' || L.height == null}
+              title={
+                L.heightMode !== 'FIXED' || L.height == null
+                  ? '垂直对齐仅在「高度模式=固定」时生效（自动高度无多余竖直空间，同 Figma 口径）'
+                  : undefined
+              }
               onChange={(v) => setStyle({ textAlignVertical: v })}
             />
           </Row>

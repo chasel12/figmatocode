@@ -10,10 +10,10 @@
 | 维度 | 结果 | 凭据 |
 |---|---|---|
 | **参数级审计（本轨）** | **51 / 51 = 100%** 通过（15 类节点 × 位置/尺寸/圆角/填充/描边/效果/排版/布局/导出/约束） | `dist/audit-params/report.json` |
-| **深度参数审计（本轨）** | **144 / 151 = 95.4%** 通过，15 项未实现/近似（均为已声明口径） | `dist/audit-params-deep/report.json` |
+| **深度参数审计（本轨）** | **146 / 152 = 96.1%** 通过（构建指纹 `index-BvAHcIvd.js @ 2026-10-19T12:00:32Z`），14 项未实现/近似（均为已声明口径），**0 页面错误** | `dist/audit-params-deep/report.json` + `run.log` |
 | **四渠道参数审计（前序轨）** | **218 行**，数据/出码双通道**零反例** | `dist/param-audit/report{2,}.json` |
 | **用户流程 E2E（本轨）** | **12 / 12** 通过：空白画布 → 建 375×812 画板 → 标题/副标题/主图/3 卡片/按钮 → 导出 → 独立渲染 | `dist/user-flow/` |
-| **揪出并修复真缺陷** | **3 项**（矩形容纳子节点致出码丢失、文本截断开关无效、噪点颜色参数空转） | 下文 §三 |
+| **揪出并修复真缺陷** | **3 项**（矩形容纳子节点致出码丢失、文本截断开关无效、噪点颜色参数空转）+ **1 项 UX 静默空转防护**（HUG 下「垂直对」置灰） | 下文 §三 |
 | 门禁 | tsc 0 · vitest **555/555** · build OK · e2e **19/19 ≥98%** · viewport **76/76** | — |
 
 ---
@@ -26,9 +26,17 @@
 
 覆盖：RECTANGLE（X/Y/W/H/圆角/不透明度/填充色/多层填充/描边宽度/混合模式）、TEXT（字号/字重/行高/字距/段间距/首行缩/对齐/垂直对/自动大小/形态/装饰/字形增强）、OVAL/LINE/POLYGON/STAR、FRAME（方向/定位/宽高模式/内边距/间距/对齐/分布/折行/裁剪/宽高限）、EFFECTS、EXPORT、CONSTRAINTS。
 
-### 2.2 深度参数审计（`scripts/audit-params-deep.mjs`，151 项）
+### 2.2 深度参数审计（`scripts/audit-params-deep.mjs`，152 项）
 
 补覆盖面：5 种填充类型（含 4 种渐变）、渐变 stop/角度、渐变层可见性/透明度、描边 3 对齐 + dash/cap/join/miter、8 类效果全谱 + 参数 + 显隐/删除、文本 case/decoration/自动大小/换行/截断、形状 arcData/边数/内径/四角独立圆角/cornerSmoothing、图片 4 scaleMode + 7 调整、导出设置、约束 4 档 2 轴、Auto Layout wrap/min-max/clip。
+
+分族通过率：FILL 16/16、STROKE 18/14、EFFECT 24/23、TYPO 34/33、SHAPE 9/9、IMAGE 12/12、EXPORT 7/7、AUTOLAYOUT 24/24、CONSTRAINT 6/6、CHANNEL 2/2。
+
+**实现要点**（值得复用的测试工程经验）：
+- `row(label, sectionHeading, nth)` 按分区去重名——「对齐」「颜色」「填充」等 label 跨区同名，只按 label 找会选错行。
+- `setNum` 统一走 `.num-box`；`setRange` 用**原生 setter** 绕开 React 的 value tracker 去重（否则同值不触发）。
+- `stateNode()` 读 autosave 快照**反查 store**，避免「控件显示变了但 store 没变」的误判（0.7s 防抖）。
+- 报告带 `buildStamp`（bundle 指纹），**确保结论绑定的就是被测那个包**。
 
 ### 2.3 用户流程 E2E（`scripts/user-flow.mjs`，12 步）
 
@@ -76,6 +84,13 @@
 - **守护**：`tests/fr19-effects.test.ts` 新增 1 例。
 
 > 另核查一处**假 FAIL**：填充层「上移」——实测出码从 `red, green` 变为 `green, red`，功能正常，属验证方法误判。
+
+### 附带修复：UX 静默空转防护（HUG 下「垂直对」置灰）
+
+- **现象**：文本「垂直对」在「高模式=自动高度」时可任意改，但出码毫无变化。
+- **判定**：**行为本身正确** —— `compile.ts:635` 要求 `heightMode==='FIXED' && height != null`，自动高度没有多余竖直空间，对齐语义为空（**Figma 在 auto-height 下同样禁用此控件**）。
+- **真问题在 UI**：控件保持可点且无提示 → 用户改完发现没反应，与截断开关属同一类「静默空转」体验缺口。
+- **修复**：`SelectField` 增加 `disabled`/`title` 支持；HUG 下置灰并给出 tooltip「垂直对齐仅在『高度模式=固定』时生效（自动高度无多余竖直空间，同 Figma 口径）」。实测：HUG 下 `disabled=true` 且有提示，切到固定高度后恢复可用。
 
 ---
 
@@ -148,7 +163,18 @@
 3. **性能类参数**（1000 节点帧预算）不在本次范围，见 `dist/perf-1000/`。
 4. **跨浏览器**：全部实测在 Chromium；Firefox/Safari 未跑。
 5. **画布视觉与出码的逐像素比对**由 `npm run canvasdiff` 负责（本轨未替代它）。
-6. 深度审计的 15 项「未实现」里有 5 项是**验证脚本自身量纲/选择器限制**导致的无法判定，已尽标注，未强行判 PASS。
+6. **断言口径是「控件读回 + 出码文本」**，不是像素级比对——产物文本一致 ≠ 渲染像素一致。
+7. 深度审计 14 项「未实现」中，有数项无法判定**是否属于真缺口**（面板根本不暴露对应控件，如 `Effect.color2`/`scale`、描边 solid/dotted 无入口），已如实归为「测不到」而非 PASS。
+8. 未做几何验证的项：段间距对多段文本 HUG 高度的真实影响、AutoLayout wrap 的真实换行坐标、约束在「父容器 resize」时的重算（只验了下拉→出码映射）。
+
+### 5.1 补充观察（非缺陷，供后续排期）
+
+| 观察 | 说明 |
+|---|---|
+| `约束=水平居中` 出码 `left: calc(50% + -146.5px)` | 合法但可读性差，规范写法为 `calc(50% - 146.5px)`；纯代码美观问题 |
+| `cornerSmoothing` 出码 `corner-shape: squircle` | 该属性为 **Chrome 139+**，旧浏览器静默无效且无回退——建议在 README 兼容性段补一句 |
+| POLYGON/STAR/整圆 OVAL 走 SVG `<path>` 而非 `clip-path` | P1-14 已报备口径，非遗漏 |
+| 描边 `style=solid/dotted` 面板无入口 | 只有 dash 开关；若 Figma 对齐需要，应补下拉 |
 
 ---
 

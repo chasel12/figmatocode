@@ -27,7 +27,7 @@
  */
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 if (!process.env.PLAYWRIGHT_BROWSERS_PATH && existsSync('E:\\ms-playwright')) {
@@ -40,6 +40,20 @@ mkdirSync(outDir, { recursive: true });
 const PORT = 4271;
 const URL = `http://localhost:${PORT}/`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 被测构建指纹：dist/app/assets 最新 mtime（并行会话可能中途重建，报告里必须能归因到具体构建） */
+function buildStamp() {
+  try {
+    const dir = join(root, 'dist', 'app', 'assets');
+    if (!existsSync(dir)) return 'dist/app/assets 不存在';
+    const files = readdirSync(dir).map((f) => ({ f, m: statSync(join(dir, f)).mtimeMs }));
+    if (!files.length) return '空目录';
+    const newest = files.sort((a, b) => b.m - a.m)[0];
+    return `${newest.f} @ ${new Date(newest.m).toISOString()}`;
+  } catch (e) {
+    return String(e?.message ?? e);
+  }
+}
 
 /* ---------- 记录器 ---------- */
 
@@ -1168,6 +1182,12 @@ try {
     c = await getCode();
     record('TYPO', '首行缩', '首行缩进 24', /text-indent:\s*24px/.test(blockOf(c.html, 'text-1')), `控件读回=${pi.back} → 出码=${(blockOf(c.html, 'text-1').match(/text-indent:[^;]*/) ?? ['无'])[0]}`);
 
+    /* 文本颜色（与填充/描边同用 ColorField，但出码走 color:） */
+    const tcol = await setText('颜色', '#123456', { sec: '排版' });
+    c = await getCode();
+    const tb = blockOf(c.html, 'text-1');
+    record('TYPO', '颜色', '文本色 #123456', /(?:^|;)\s*color:\s*#123456/.test(tb), `控件=${tcol.back} → 出码=${(tb.match(/(?:^|;)\s*color:\s*[^;]*/) ?? ['无'])[0]}`);
+
     /* 水平对齐 4 值 */
     for (const [opt, want] of [
       ['居中', 'center'],
@@ -1879,6 +1899,7 @@ const fail = asserts.length - pass;
 const report = {
   generatedAt: new Date().toISOString(),
   port: PORT,
+  buildStamp: buildStamp(),
   total: asserts.length,
   pass,
   fail,
