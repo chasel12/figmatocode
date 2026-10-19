@@ -49,7 +49,7 @@ export type EditorAction =
   | { type: 'SELECT_MANY'; ids: string[] }
   | { type: 'SET_TOOL'; tool: Tool }
   | { type: 'ADD_NODE'; kind: NodeKind; parentId?: string; index?: number }
-  | { type: 'UPDATE_LAYOUT'; id: string; patch: Partial<LayoutSchema>; transient?: boolean }
+  | { type: 'UPDATE_LAYOUT'; id: string; patch: Partial<LayoutSchema>; transient?: boolean; childrenXY?: { id: string; x: number; y: number }[] }
   | { type: 'UPDATE_LAYOUT_MULTI'; patches: { id: string; patch: Partial<LayoutSchema> }[]; transient?: boolean }
   | { type: 'UPDATE_STYLE'; id: string; patch: Partial<StyleSchema>; transient?: boolean }
   | { type: 'UPDATE_TEXT'; id: string; text: string; transient?: boolean }
@@ -333,7 +333,9 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       let changed = false;
       for (const id of state.selectedIds) {
         const found = findById(nextPage.root, id);
-        if (!found?.parent || found.parent.layout.mode !== 'ABSOLUTE') continue;
+        if (!found?.parent) continue;
+        // 绝对定位父级 / 流父内脱流子项（子 mode=ABSOLUTE，FR-36）均可方向键微调
+        if (found.parent.layout.mode !== 'ABSOLUTE' && found.node.layout.mode !== 'ABSOLUTE') continue;
         if (found.node.locked) continue;
         found.node.layout.x = (found.node.layout.x ?? 0) + action.dx;
         found.node.layout.y = (found.node.layout.y ?? 0) + action.dy;
@@ -434,6 +436,16 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = findById(nextPage.root, action.id);
       if (!found) return state;
       Object.assign(found.node.layout, action.patch);
+      // 伴随子项坐标补丁：容器切「绝对定位」时按当前视觉位置固化直接子项 x/y（避免塌到左上角）
+      if (action.childrenXY?.length) {
+        for (const c of action.childrenXY) {
+          const child = findById(nextPage.root, c.id);
+          if (child) {
+            child.node.layout.x = c.x;
+            child.node.layout.y = c.y;
+          }
+        }
+      }
       return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
 
@@ -565,8 +577,14 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       }
       const node = found.node;
       if (action.patch) Object.assign(node.layout, action.patch);
-      // FR-36：拖入流式容器 → 退出 Ignore auto layout（进流，恢复切走前方向，缺省纵向）
-      if (parent.node.layout.mode !== 'ABSOLUTE' && node.layout.mode === 'ABSOLUTE') {
+      // FR-36：拖入其他流式容器 → 退出 Ignore auto layout（进流，恢复切走前方向，缺省纵向）
+      // 同父级内的重排/坐标补丁不改 mode——流父内的脱流子项原地保持自由摆放（Figma 语义）
+      if (
+        parent.node.layout.mode !== 'ABSOLUTE' &&
+        node.layout.mode === 'ABSOLUTE' &&
+        found.parent &&
+        found.parent.id !== action.parentId
+      ) {
         node.layout.mode = node.layout.prevMode ?? 'VERTICAL';
         delete node.layout.prevMode;
         delete node.layout.x;

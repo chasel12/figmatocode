@@ -126,6 +126,21 @@ describe('M1 store actions', () => {
     expect(next).toBe(flow); // 无操作
   });
 
+  it('NUDGE 支持流父内脱流子项（Ignore auto layout，FR-36）', () => {
+    let flow = initialState(createPage('flow'), 'p');
+    flow = editorReducer(flow, { type: 'ADD_NODE', kind: 'RECTANGLE' });
+    const id = flow.selectedIds[0];
+    flow = editorReducer(flow, {
+      type: 'UPDATE_LAYOUT',
+      id,
+      patch: { prevMode: 'VERTICAL', mode: 'ABSOLUTE', x: 40, y: 80 },
+    });
+    const next = editorReducer(flow, { type: 'NUDGE', dx: 5, dy: -3 });
+    const layout = findById(next.page.root, id)!.node.layout;
+    expect(layout.x).toBe(45);
+    expect(layout.y).toBe(77);
+  });
+
   it('TOGGLE_LOCK 加锁/解锁', () => {
     const { state, r1 } = seededAbs();
     let s = editorReducer(state, { type: 'SELECT_MANY', ids: [r1] });

@@ -25,11 +25,11 @@ const e2eTail = e2eLog.split('\n').filter((l) => l.trim()).slice(-6).join('\n');
 const SHOTS = [
   ['01-初始状态.png', '打开编辑器（空项目）'],
   ['02-打开demo页.png', '打开 demo 页 03-商品列表（图层树 53 行）'],
-  ['03-添加节点与图层树.png', 'Palette 点击添加 Frame/Text/Button/Image → 57 行'],
+  ['03-添加节点与图层树.png', 'Palette 点击添加 框架/文本/按钮/图片 → 57 行'],
   ['04-图片src编辑.png', '属性面板输入图片 src（data URI 即时上画布）'],
   ['05-粘贴后.png', 'Ctrl+C / Ctrl+V 粘贴 → 58 行'],
   ['06-撤销粘贴.png', 'Ctrl+Z 撤销 → 回到 57 行'],
-  ['07-Diff差异明细.png', 'Pixel Diff：98.90% PASS + 差异明细表（60 区域 / 12 节点定位）'],
+  ['07-Diff差异明细.png', '像素比对：98.90% 通过 + 差异明细表（60 区域 / 12 节点定位）'],
   ['08-生成代码.png', '生成代码 Modal（Taro TSX + ZIP 导出）'],
 ];
 

@@ -206,7 +206,7 @@ async function protoRowCount() {
   return page.locator('.proto-row').count();
 }
 async function openProtoTab() {
-  await sideTab('Prototype');
+  await sideTab('原型');
   await sleep(300);
 }
 
@@ -250,8 +250,8 @@ try {
   const pages0 = await page.locator('.page-row').count();
   // page1：两个 Frame（Frame 工具拖画，ABSOLUTE 子项、左右分开——连接线/Present 几何需要）
   const snapPre = await snapIds();
-  await dragShape('Frame', 0.42, 0.12, 0.52, 0.3);
-  await dragShape('Frame', 0.6, 0.12, 0.7, 0.3);
+  await dragShape('框架', 0.42, 0.12, 0.52, 0.3);
+  await dragShape('框架', 0.6, 0.12, 0.7, 0.3);
   const frameIds1 = await newIdsSince(snapPre);
   const frame1 = frameIds1[0];
   const frame2 = frameIds1[1];
@@ -270,7 +270,7 @@ try {
   await page.keyboard.press('Escape');
   await sleep(200);
   await sideTab('资产');
-  await page.click('[title="添加 Frame"]');
+  await page.click('[title="添加 框架"]');
   await sleep(250);
   const snapP2 = await snapIds();
   // 切回 page1：内容组切换 + 各页节点持久
@@ -379,7 +379,7 @@ try {
   await protoSel(0, '过渡').selectOption({ value: 'DISSOLVE' });
   await sleep(250);
   const durVisible = await protoRow(0).locator('.proto-field').filter({ hasText: '时长' }).count();
-  await protoRow(0).locator('.proto-field').filter({ hasText: '时长' }).locator('input').fill('1200');
+  await protoRow(0).locator('.proto-field').filter({ hasText: '时长' }).locator('.num-box').fill('1200');
   await protoSel(0, '缓动').selectOption({ value: 'EASE_OUT' });
   await sleep(200);
   const transMeta = await page.evaluate(() => {
@@ -656,7 +656,7 @@ try {
   await openProtoTab();
   // 现有行目标=Frame2（Navigate）；再复制一行用于删除演示 → 直接把目标改到将被删除的节点：新建专用 Frame
   await sideTab('资产');
-  await page.click('[title="添加 Frame"]');
+  await page.click('[title="添加 框架"]');
   await sleep(300);
   const frameDel = (await newIdsSince(new Set())).slice(-1)[0];
   await pickLayer(frame1);
@@ -719,7 +719,7 @@ try {
   // Konva canvas 锚点=假 FAIL 根因；本版直接拖首锚点验证 d 变化。
   await pickLayer(vec1 ?? vecNode?.id);
   await blur();
-  await sideTab('Design');
+  await sideTab('设计');
   await sleep(250);
   let canReedit = false;
   let reeditNote = '';
@@ -760,7 +760,7 @@ try {
   const shB = (await newIdsSince(snapB2))[0];
   await pickLayer(shA);
   await pickLayer(shB, true);
-  await page.click('.menu-btn:has-text("Object")');
+  await page.click('.menu-btn:has-text("对象")');
   await sleep(250);
   const unionBtn = page.locator('.menu-dropdown .menu-item:has-text("布尔：合并")');
   const unionEnabled = await unionBtn.isEnabled().catch(() => false);
@@ -786,7 +786,7 @@ try {
   const shD = (await newIdsSince(snapD))[0];
   await pickLayer(shC);
   await pickLayer(shD, true);
-  await page.click('.menu-btn:has-text("Object")');
+  await page.click('.menu-btn:has-text("对象")');
   await sleep(250);
   const subBtn = page.locator('.menu-dropdown .menu-item:has-text("布尔：减去")');
   const subEnabled = await subBtn.isEnabled().catch(() => false);
@@ -805,7 +805,7 @@ try {
   {
     await pickLayer(unionNode?.id);
     await blur();
-    await sideTab('Design');
+    await sideTab('设计');
     await sleep(250);
     const vx = await viewInfo();
     const gU = vx.view ? (await snapFull()).nodes.find((n) => n.id === unionNode?.id) ?? null : null;
@@ -842,18 +842,18 @@ try {
 
   // ========================= S10 · P1-06 蒙版 =========================
   const snapM = await snapIds();
-  await dragShape('Frame', 0.28, 0.42, 0.36, 0.5); // 工具拖画=ABSOLUTE+FIXED 宽高（W/H 可编辑）
+  await dragShape('框架', 0.28, 0.42, 0.36, 0.5); // 工具拖画=ABSOLUTE+FIXED 宽高（W/H 可编辑）
   const createdM = await newIdsSince(snapM);
   const maskFrame = createdM[createdM.length - 1];
   await pickLayer(maskFrame);
   await sideTab('资产');
   await sleep(200);
-  await page.click('[title="添加 Rectangle"]');
+  await page.click('[title="添加 矩形"]');
   await sleep(200);
   await pickLayer(maskFrame); // RECTANGLE 也是容器（effectiveParent 会落进矩形），逐个加子项前先回选 maskFrame
   await sideTab('资产');
   await sleep(150);
-  await page.click('[title="添加 Oval"]');
+  await page.click('[title="添加 椭圆"]');
   await sleep(250);
   await pickLayer(maskFrame);
   const selStatus = (await page.evaluate(() => document.querySelector('.canvas-status')?.innerText ?? '')).replace(/\n/g, '/');
@@ -867,7 +867,7 @@ try {
   let viaMenu = false;
   // 双入口核验+兜底：快捷键未生效时查 Object 菜单项（enabled/title 直接反映 reducer 前置条件）
   await pickLayer(maskFrame);
-  await page.click('.menu-btn:has-text("Object")');
+  await page.click('.menu-btn:has-text("对象")');
   await sleep(250);
   {
     const mi = page.locator('.menu-dropdown .menu-item:has-text("用做蒙版"), .menu-dropdown .menu-item:has-text("用作蒙版")').first();
@@ -892,7 +892,7 @@ try {
   const numField = (label) =>
     page.locator('.prop-section:has(.prop-heading:has-text("位置与尺寸")) .field-row').filter({ has: page.locator(`.field-label:text-is("${label}")`) }).locator('input[type="number"]');
   await pickLayer(maskFrame);
-  await sideTab('Design');
+  await sideTab('设计');
   await sleep(200);
   {
     const wF = numField('W');
@@ -930,7 +930,7 @@ try {
   await sleep(200);
   const snapR = await snapIds();
   await sideTab('资产');
-  await page.click('[title="添加 Rectangle"]');
+  await page.click('[title="添加 矩形"]');
   await sleep(250);
   const rectA = (await newIdsSince(snapR))[0];
   await pickLayer(rectA);
@@ -982,7 +982,7 @@ try {
   // ========================= S12 · P1-14 圆/多边形出码切 SVG =========================
   // 给 Oval（S9 画的）设置描边 dash/cap/join
   await pickLayer(oval1);
-  await sideTab('Design');
+  await sideTab('设计');
   await sleep(250);
   const strokeSec = page.locator('.prop-section').filter({ has: page.locator('.prop-heading', { hasText: '描边' }) });
   await strokeSec.locator('.field-row').filter({ has: page.locator('.field-label', { hasText: '宽度' }) }).locator('input[type="number"]').first().fill('3');
@@ -1072,14 +1072,14 @@ try {
   // ========================= S13 · P0-48 原型出码双模式 =========================
   // 准备触发用交互：用 Frame 工具拖画两个小 Frame（ABSOLUTE 子项，可设 X/Y；新加=顶层可点）
   const snapT = await snapIds();
-  await dragShape('Frame', 0.52, 0.78, 0.58, 0.86);
+  await dragShape('框架', 0.52, 0.78, 0.58, 0.86);
   const trigNav = (await newIdsSince(snapT)).slice(-1)[0];
   const snapT2 = await snapIds();
-  await dragShape('Frame', 0.6, 0.78, 0.66, 0.86);
+  await dragShape('框架', 0.6, 0.78, 0.66, 0.86);
   const trigOv = (await newIdsSince(snapT2)).slice(-1)[0];
   const posXY = async (id, xv, yv) => {
     await pickLayer(id);
-    await sideTab('Design');
+    await sideTab('设计');
     await sleep(200);
     // 置顶层（Shift+] 快捷）：确保导出页中该触发帧中心不被后加节点遮挡
     await page.keyboard.press('Shift+]');

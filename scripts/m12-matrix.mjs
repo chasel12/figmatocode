@@ -100,7 +100,7 @@ const zoomSel = () => page.locator('.status-zoom select');
 
 async function openPage(name) {
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(pagesDir, name, 'page.json'));
@@ -494,7 +494,7 @@ try {
 
   // P0-17 工具字母 V/H/F/R/O/L/T/P
   {
-    const keys = [['v', '移动'], ['h', '抓手'], ['f', 'Frame'], ['r', '矩形'], ['o', '椭圆'], ['l', '直线'], ['t', '文本'], ['p', '钢笔']];
+    const keys = [['v', '移动'], ['h', '抓手'], ['f', '框架'], ['r', '矩形'], ['o', '椭圆'], ['l', '直线'], ['t', '文本'], ['p', '钢笔']];
     const seen = [];
     let allOk = true;
     for (const [k, label] of keys) {

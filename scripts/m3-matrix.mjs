@@ -64,7 +64,7 @@ async function sectionExists(head) {
 }
 async function openPage(name) {
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(pagesDir, name, 'page.json'));
@@ -117,7 +117,7 @@ try {
   const toolTitles = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.tool-strip .tool-btn')).map((b) => b.title),
   );
-  const needTools = ['移动', '抓手', 'Frame', '矩形', '椭圆', '直线', '文本'];
+  const needTools = ['移动', '抓手', '框架', '矩形', '椭圆', '直线', '文本'];
   const toolsOk = needTools.every((t) => toolTitles.some((x) => x.startsWith(t))) && toolTitles.length >= 13;
   await page.screenshot({ path: join(outDir, 'p034-工具轨.png'), clip: { x: 400, y: 700, width: 700, height: 250 } });
   record('P0-34', `工具轨全集（${toolTitles.length} 工具）`, toolsOk, toolTitles.join('/'));
@@ -164,7 +164,7 @@ try {
   const iStroke = order.indexOf('描边');
   const iFx = order.indexOf('效果');
   const iTypo = order.indexOf('排版');
-  const iExp = order.indexOf('Export');
+  const iExp = order.indexOf('导出');
   const orderOk = [iPos, iLayout, iFill, iStroke, iFx, iTypo, iExp].every((i) => i >= 0)
     && iPos < iLayout && iLayout < iFill && iFill < iStroke && iStroke < iFx && iFx < iTypo && iTypo < iExp;
   record('P0-26', 'Design 分区次序', orderOk, seq);
@@ -186,17 +186,17 @@ try {
     record('P0-35', '添加填充层', false, '未找到添加按钮');
   }
   const strokeText = await sectionText('描边');
-  record('P0-36', '描边三对齐/dash 字段', !!strokeText && /Inside|Center|Outside/i.test(strokeText), (strokeText || '').slice(0, 80));
+  record('P0-36', '描边三对齐/dash 字段', !!strokeText && /内侧|居中|外侧/.test(strokeText), (strokeText || '').slice(0, 80));
   await page.screenshot({ path: join(outDir, 'p036-描边.png') });
 
   // ---- P0-25 七菜单 ----
-  const menus = ['File', 'Edit', 'View', 'Object', 'Text', 'Plugins', 'Help'];
+  const menus = ['文件', '编辑', '视图', '对象', '文本', '插件', '帮助'];
   const menuCounts = {};
   for (const m of menus) {
     await page.click(`.menu-btn:has-text("${m}")`);
     await sleep(150);
     menuCounts[m] = await page.locator('.menu-dropdown .menu-item').count();
-    if (m === 'File') await page.screenshot({ path: join(outDir, 'p025-File菜单.png') });
+    if (m === '文件') await page.screenshot({ path: join(outDir, 'p025-文件菜单.png') });
     await page.keyboard.press('Escape');
     await sleep(120);
   }
@@ -226,7 +226,8 @@ try {
     const sel = hit.closest('.prop-section').querySelector('select');
     return sel ? Array.from(sel.options).map((o) => o.textContent.trim()).join('/') : null;
   });
-  const scaleOk = !!scaleInfo && /Fill/.test(scaleInfo) && /Fit/.test(scaleInfo) && /Crop/.test(scaleInfo) && /Tile/.test(scaleInfo);
+  const scaleOk =
+    !!scaleInfo && /填满|Fill/.test(scaleInfo) && /适应|Fit/.test(scaleInfo) && /裁剪|Crop/.test(scaleInfo) && /平铺|Tile/.test(scaleInfo);
   record('P0-23', '图片 scaleMode 四模式', scaleOk, scaleInfo || '未找到 scaleMode 下拉');
   await page.screenshot({ path: join(outDir, 'p023-图片scaleMode.png') });
 

@@ -54,7 +54,7 @@ try {
 
   // 打开 demo 页 03（有真实子节点，供框选/成组）
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles('dist/pages/03-商品列表/page.json');

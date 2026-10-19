@@ -8,13 +8,13 @@ import type { UINode } from '../src/schema/types';
 resetIdSeq(0);
 
 describe('FR-14 设备预设（P0-20 断言）', () => {
-  it('四档尺寸逐一锁定：iPhone 15 Pro / SE / iPad / Desktop', () => {
+  it('四档尺寸逐一锁定：iPhone 15 Pro / SE / iPad / 桌面', () => {
     expect(FRAME_PRESETS).toHaveLength(4);
-    expect(FRAME_PRESETS.map((p) => p.label)).toEqual(['iPhone 15 Pro', 'iPhone SE', 'iPad', 'Desktop']);
+    expect(FRAME_PRESETS.map((p) => p.label)).toEqual(['iPhone 15 Pro', 'iPhone SE', 'iPad', '桌面']);
     expect(FRAME_PRESETS[0]).toEqual({ label: 'iPhone 15 Pro', w: 393, h: 852 });
     expect(FRAME_PRESETS[1]).toEqual({ label: 'iPhone SE', w: 375, h: 667 });
     expect(FRAME_PRESETS[2]).toEqual({ label: 'iPad', w: 820, h: 1180 });
-    expect(FRAME_PRESETS[3]).toEqual({ label: 'Desktop', w: 1440, h: 900 });
+    expect(FRAME_PRESETS[3]).toEqual({ label: '桌面', w: 1440, h: 900 });
   });
 });
 

@@ -405,14 +405,14 @@ function articleCard(tag: string, title: string, excerpt: string): Spec {
 
 function articleListPage(): UIPage {
   return makePage(
-    '11 Card 列表',
+    '11 卡片列表',
     [
       navbar('资讯'),
       hstack('分类', ['推荐', '热门', '科技', '设计'].map((t, i) => txt(t, { fontSize: 14, fontWeight: i === 0 ? 600 : 400, color: i === 0 ? C.primary : C.dim }, { widthMode: 'HUG', heightMode: 'HUG', padding: [6, 12, 6, 12] })), { gap: 4, padding: [10, 16, 10, 16], widthMode: 'FILL' }, { background: C.card }),
       body([
         articleCard('科技', '结构化 UI 编译的工程实践', '如何把设计数据编译成高还原前端代码，本文给出完整链路与踩坑记录。'),
-        articleCard('设计', 'Auto Layout 与 Flex 的映射表', '把设计工具的布局语义无损映射到 CSS，是还原度的关键所在。'),
-        articleCard('科技', 'Pixel Diff 驱动的自动修复', '用像素级对比定位布局误差，再回写编译器参数。'),
+        articleCard('设计', '自动布局与 Flex 的映射表', '把设计工具的布局语义无损映射到 CSS，是还原度的关键所在。'),
+        articleCard('科技', '像素比对驱动的自动修复', '用像素级对比定位布局误差，再回写编译器参数。'),
       ]),
     ],
     { rootStyle: { background: C.bg } },
@@ -425,7 +425,7 @@ function tabPage(): UIPage {
     vstack(label, [txt(icon, { fontSize: 18, color: active ? C.primary : C.faint, textAlign: 'center' }, { widthMode: 'FILL' }), txt(label, { fontSize: 10, color: active ? C.primary : C.faint, textAlign: 'center' }, { widthMode: 'FILL' })], { gap: 2, widthMode: 'FILL', align: 'CENTER' });
 
   return makePage(
-    '12 Tab 页面',
+    '12 页签页面',
     [
       navbar('发现'),
       body([
@@ -483,7 +483,7 @@ function longTextPage(): UIPage {
         hstack('元信息', [txt('UI Compiler 团队', { fontSize: 12, color: C.dim }), txt('2026-10-01', { fontSize: 12, color: C.faint, textAlign: 'right' }, { widthMode: 'FILL' })], { justify: 'SPACE_BETWEEN', widthMode: 'FILL' }),
         rect({ widthMode: 'FILL', heightMode: 'FIXED', height: 160 }, { background: '#E8EAED', borderRadius: 10 }, '头图'),
         txt(
-          '传统截图转代码方案依赖视觉猜测，生成的布局往往在间距与响应式上不稳定。结构化 UI 编译把设计数据先解析为统一的 UI AST，再交给确定性的 Layout Compiler 处理位置、尺寸与伸缩关系，最后由 Code Generator 输出目标框架代码。这条链路里的每一步都可测试、可回归，Pixel Diff 则提供像素级的验收标准。',
+          '传统截图转代码方案依赖视觉猜测，生成的布局往往在间距与响应式上不稳定。结构化 UI 编译把设计数据先解析为统一的 UI AST，再交给确定性的 Layout Compiler 处理位置、尺寸与伸缩关系，最后由 Code Generator 输出目标框架代码。这条链路里的每一步都可测试、可回归，像素比对则提供像素级的验收标准。',
           { fontSize: 14, color: C.text, lineHeight: 24 },
           { widthMode: 'FILL' },
         ),

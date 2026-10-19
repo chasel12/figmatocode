@@ -63,9 +63,9 @@ function kindsPage(): UIPage {
     frame(
       '容器组',
       [
-        frame('Frame', [txt('Frame', { fontSize: 11, color: C.dim })], { widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 44, align: 'CENTER', justify: 'CENTER' }, { background: '#EEF2FF', borderRadius: 8 }),
-        { kind: 'SECTION', name: 'Section 分组', layout: { widthMode: 'FIXED', heightMode: 'FIXED', width: 130, height: 44 }, style: {} } as Spec,
-        { kind: 'SLICE', name: 'Slice 导出区', layout: { widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 44 }, style: {} } as Spec,
+        frame('框架', [txt('框架', { fontSize: 11, color: C.dim })], { widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 44, align: 'CENTER', justify: 'CENTER' }, { background: '#EEF2FF', borderRadius: 8 }),
+        { kind: 'SECTION', name: '分区分组', layout: { widthMode: 'FIXED', heightMode: 'FIXED', width: 130, height: 44 }, style: {} } as Spec,
+        { kind: 'SLICE', name: '切片导出区', layout: { widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 44 }, style: {} } as Spec,
       ],
       { mode: 'HORIZONTAL', widthMode: 'FILL', heightMode: 'HUG', gap: 10, align: 'CENTER' },
     ),
@@ -73,16 +73,16 @@ function kindsPage(): UIPage {
     frame(
       '内容组',
       [
-        txt('Text 文本', { fontSize: 13, color: C.text }, { widthMode: 'HUG', heightMode: 'HUG' }),
+        txt('文本', { fontSize: 13, color: C.text }, { widthMode: 'HUG', heightMode: 'HUG' }),
         {
           kind: 'BUTTON',
-          text: 'Button',
+          text: '按钮',
           layout: { widthMode: 'FIXED', heightMode: 'FIXED', width: 80, height: 32, align: 'CENTER', justify: 'CENTER' },
           style: { background: C.primary, color: '#FFFFFF', fontSize: 12, borderRadius: 6, textAlign: 'center' },
         },
         {
           kind: 'IMAGE',
-          name: 'Image',
+          name: '图片',
           src: "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' rx='8' fill='%234f46e5'/%3E%3Cpath d='M16 46 L28 30 L38 42 L46 34 L56 46 Z' fill='%23fff'/%3E%3C/svg%3E",
           layout: { widthMode: 'FIXED', heightMode: 'FIXED', width: 64, height: 64 },
           style: { borderRadius: 8 },
@@ -92,7 +92,7 @@ function kindsPage(): UIPage {
     ),
 
     frame(
-      '组件组（Component / Instance / Variant）',
+      '组件组（组件 / 实例 / 变体）',
       [
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 40 }, { background: '#9747FF', borderRadius: 8 }, 'Primary（主组件）'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 40 }, { background: '#B98CFF', borderRadius: 8 }, 'Primary/Hover（变体）'),
@@ -156,7 +156,7 @@ function matrixPage(): UIPage {
 
     // stroke 三对齐（INSIDE / CENTER / OUTSIDE）
     frame(
-      'Stroke 三对齐',
+      '描边三对齐',
       [
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 48 }, { background: '#FFFFFF', borderRadius: 8, border: { width: 3, color: '#1677FF', align: 'INSIDE' } }, 'Inside'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 72, height: 48 }, { background: '#FFFFFF', borderRadius: 8, border: { width: 3, color: '#22C55E', align: 'CENTER' } }, 'Center'),
@@ -187,7 +187,7 @@ function matrixPage(): UIPage {
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40 }, { background: 'rgba(22,119,255,0.25)', borderRadius: 6, effects: [{ kind: 'BACKGROUND_BLUR', radius: 6 }] }, 'BgBlur'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40 }, { background: '#FFFFFF', borderRadius: 6, effects: [{ kind: 'PROGRESSIVE_BLUR', radius: 4, startRadius: 1 }] }, 'Prog'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40 }, { background: '#FFFFFF', borderRadius: 6, effects: [{ kind: 'NOISE', radius: 8, density: 3, opacity: 0.4 }] }, 'Noise'),
-        rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40 }, { background: '#FFFFFF', borderRadius: 6, effects: [{ kind: 'TEXTURE', radius: 6, density: 2, color: '#1677FF', opacity: 0.5 }] }, 'Texture'),
+        rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40 }, { background: '#FFFFFF', borderRadius: 6, effects: [{ kind: 'TEXTURE', radius: 6, density: 2, color: '#1677FF', opacity: 0.5 }] }, '纹理'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40 }, { background: 'rgba(255,255,255,0.35)', borderRadius: 6, effects: [{ kind: 'GLASS', radius: 6, opacity: 0.6 }] }, 'Glass'),
       ],
       { mode: 'HORIZONTAL', widthMode: 'FILL', heightMode: 'HUG', wrap: 'WRAP', gap: 8, gapCross: 8, align: 'CENTER' },
@@ -209,7 +209,7 @@ function matrixPage(): UIPage {
 
     // AutoLayout 组合（多组：方向 × wrap × 对齐/分布）
     frame(
-      'AutoLayout 组合',
+      '自动布局组合',
       [
         vstack('V/START/gap12', [txt('v1', { fontSize: 10, color: C.text }), txt('v2', { fontSize: 10, color: C.text })], { gap: 12, widthMode: 'FILL', align: 'START' as never, padding: [8, 8, 8, 8] }, { background: '#EFF6FF', borderRadius: 6 }),
         hstack('H/CENTER/gap8', [txt('h1', { fontSize: 10, color: C.text }), txt('h2', { fontSize: 10, color: C.text })], { gap: 8, widthMode: 'FILL', justify: 'CENTER' as never, padding: [8, 8, 8, 8] }, { background: '#F0FDF4', borderRadius: 6 }),
@@ -237,7 +237,7 @@ function matrixPage(): UIPage {
 
     // blend 抽样：叠放必须用**绝对定位**（flow 兄弟重叠违反 viewport-check 的 no-overlap 不变量）
     frame(
-      'Blend 抽样',
+      '混合抽样',
       [
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40, mode: 'ABSOLUTE', x: 0, y: 0 }, { background: '#1677FF', borderRadius: 6 }, 'base'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40, mode: 'ABSOLUTE', x: 26, y: 0 }, { background: '#EF4444', borderRadius: 6, blendMode: 'MULTIPLY' }, 'multiply'),

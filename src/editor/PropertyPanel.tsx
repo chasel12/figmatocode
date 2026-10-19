@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import type {
   AlignMode,
   BlendMode,
@@ -19,6 +18,7 @@ import type {
 } from '../schema/types';
 import { BLEND_MODES, hasText, isContainer } from '../schema/types';
 import { findById } from '../schema/factory';
+import { NumField } from './NumericField';
 import { useEditor } from './store';
 import { useCanvasGeometry } from './canvasContext';
 import { canvasBus } from './canvasBus';
@@ -32,7 +32,7 @@ import { FRAME_PRESETS } from './framePresets';
 function FramePresets() {
   return (
     <div className="prop-section frame-presets">
-      <div className="prop-heading">Frame 预设（点击创建于视口中心）</div>
+      <div className="prop-heading">框架预设（点击在视口中心创建）</div>
       <div className="preset-grid">
         {FRAME_PRESETS.map((p) => (
           <button
@@ -121,57 +121,6 @@ function ImageAdjustSection({ node }: { node: UINode }) {
   );
 }
 
-function NumField({
-  value,
-  onInput,
-  onCommit,
-  onClear,
-  min,
-  max,
-  suffix,
-  disabled,
-}: {
-  value: number | undefined;
-  onInput: (v: number) => void;
-  onCommit: () => void;
-  /** FR-36：输入清空时回调（删字段，如 min/max 约束） */
-  onClear?: () => void;
-  min?: number;
-  max?: number;
-  suffix?: string;
-  disabled?: boolean;
-}) {
-  const [text, setText] = useState(value != null ? String(value) : '');
-  useEffect(() => {
-    setText(value != null ? String(value) : '');
-  }, [value]);
-
-  return (
-    <span className="num-field">
-      <input
-        type="number"
-        value={text}
-        min={min}
-        max={max}
-        disabled={disabled}
-        onChange={(e) => {
-          setText(e.target.value);
-          if (e.target.value === '') {
-            if (onClear) onClear();
-            return;
-          }
-          const n = Number(e.target.value);
-          if (!Number.isNaN(n)) onInput(n);
-        }}
-        onBlur={onCommit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') onCommit();
-        }}
-      />
-      {suffix && <span className="num-suffix">{suffix}</span>}
-    </span>
-  );
-}
 
 function SelectField<T extends string>({
   value,
@@ -277,7 +226,7 @@ const TEXT_ALIGN_V_OPTIONS: { value: 'TOP' | 'CENTER' | 'BOTTOM'; label: string 
 
 const LINE_H_MODE_OPTIONS: { value: 'AUTO' | 'PIXELS' | 'PERCENT'; label: string }[] = [
   { value: 'PIXELS', label: 'px' },
-  { value: 'AUTO', label: 'Auto' },
+  { value: 'AUTO', label: '自动' },
   { value: 'PERCENT', label: '%' },
 ];
 
@@ -300,12 +249,47 @@ const TEXT_DEC_OPTIONS: { value: NonNullable<StyleSchema['textDecoration']>; lab
   { value: 'STRIKETHROUGH', label: '删除线' },
 ];
 
+/** FR-34 混合模式中文标签（ BlendMode 枚举一对一；CSS 值仍由 schema 单源承载） */
+const BLEND_LABELS: Record<string, string> = {
+  NORMAL: '正常',
+  DARKEN: '变暗',
+  MULTIPLY: '正片叠底',
+  COLOR_BURN: '颜色加深',
+  LIGHTEN: '变亮',
+  SCREEN: '滤色',
+  COLOR_DODGE: '颜色减淡',
+  OVERLAY: '叠加',
+  SOFT_LIGHT: '柔光',
+  HARD_LIGHT: '强光',
+  DIFFERENCE: '差值',
+  EXCLUSION: '排除',
+  HUE: '色相',
+  SATURATION: '饱和度',
+  COLOR: '颜色',
+  LUMINOSITY: '明度',
+};
+
 /** FR-15 Auto resize 3 模式（联动 layout widthMode/heightMode） */
 const AUTO_RESIZE_OPTIONS: { value: 'WIDTH_AND_HEIGHT' | 'HEIGHT' | 'FIXED'; label: string }[] = [
   { value: 'WIDTH_AND_HEIGHT', label: '自动宽高' },
   { value: 'HEIGHT', label: '定宽自动高' },
   { value: 'FIXED', label: '固定尺寸' },
 ];
+
+/**
+ * 由渲染几何反推 x/y（相对父内容区原点、扣自身 margin，与引擎 assign/layout 落位口径一致）。
+ * 用于切「绝对定位」时保持当前视觉位置，避免节点跳到 (0,0)。
+ */
+function absXYFromGeometry(
+  g: { x: number; y: number },
+  pg: { x: number; y: number },
+  parentPadding: number[] | undefined,
+  selfMargin: number[] | undefined,
+): { x: number; y: number } {
+  const p = parentPadding ?? [0, 0, 0, 0];
+  const m = selfMargin ?? [0, 0, 0, 0];
+  return { x: Math.round(g.x - pg.x - p[3] - m[3]), y: Math.round(g.y - pg.y - p[0] - m[0]) };
+}
 
 /**
  * FR-28：多选时属性面板顶部显示对齐/等距分布按钮。
@@ -417,6 +401,40 @@ export function PropertyPanel() {
   const setStyle = (patch: Partial<typeof S>, transient = false) =>
     dispatch({ type: 'UPDATE_STYLE', id: node.id, patch, transient });
 
+  /** 切「绝对定位」：保留当前视觉位置（x/y 由渲染几何反推）；容器切流→绝对时按当前排版固化直接子项 x/y（与节点变更同一历史记录） */
+  const switchToAbsolute = (): void => {
+    const ownPatch: Partial<typeof L> = { mode: 'ABSOLUTE' };
+    if (parent && parent.layout.mode !== 'ABSOLUTE') {
+      ownPatch.prevMode = L.mode === 'ABSOLUTE' ? L.prevMode : L.mode;
+    }
+    if (L.x == null || L.y == null) {
+      const g = geometry?.[node.id];
+      const pg = parent ? geometry?.[parent.id] : undefined;
+      if (g && pg) {
+        const xy = absXYFromGeometry(g, pg, parent!.layout.padding, L.margin);
+        ownPatch.x = xy.x;
+        ownPatch.y = xy.y;
+      } else {
+        ownPatch.x = L.x ?? 0;
+        ownPatch.y = L.y ?? 0;
+      }
+    }
+    const childrenXY: { id: string; x: number; y: number }[] = [];
+    if (L.mode !== 'ABSOLUTE' && isContainer(node) && node.type !== 'RECTANGLE') {
+      const cg = geometry?.[node.id];
+      if (cg) {
+        for (const c of node.children) {
+          if (c.layout.x != null && c.layout.y != null) continue;
+          const g2 = geometry?.[c.id];
+          if (!g2) continue;
+          const xy = absXYFromGeometry(g2, cg, L.padding, c.layout.margin);
+          childrenXY.push({ id: c.id, ...xy });
+        }
+      }
+    }
+    dispatch({ type: 'UPDATE_LAYOUT', id: node.id, patch: ownPatch, ...(childrenXY.length ? { childrenXY } : {}) });
+  };
+
   const pad = L.padding ?? [0, 0, 0, 0];
   const mar = L.margin ?? [0, 0, 0, 0];
 
@@ -428,13 +446,14 @@ export function PropertyPanel() {
 
       <div className="prop-section">
         <div className="prop-heading">位置与尺寸</div>
-        {absParent && (
+        {/* X/Y：绝对定位父级子项 / 流父内脱流子项（子 mode=ABSOLUTE）均可直接编辑 */}
+        {(absParent || L.mode === 'ABSOLUTE') && (
           <>
             <Row label="X">
-              <NumField value={L.x ?? 0} onInput={(v) => setLayout({ x: v }, true)} onCommit={commit} />
+              <NumField value={L.x ?? 0} min={-1000} max={2400} onInput={(v) => setLayout({ x: v }, true)} onCommit={commit} />
             </Row>
             <Row label="Y">
-              <NumField value={L.y ?? 0} onInput={(v) => setLayout({ y: v }, true)} onCommit={commit} />
+              <NumField value={L.y ?? 0} min={-1000} max={2400} onInput={(v) => setLayout({ y: v }, true)} onCommit={commit} />
             </Row>
           </>
         )}
@@ -478,6 +497,8 @@ export function PropertyPanel() {
           <NumField
             value={L.width}
             suffix="px"
+            min={0}
+            max={2400}
             disabled={L.widthMode !== 'FIXED'}
             onInput={(v) => setLayout({ width: v }, true)}
             onCommit={commit}
@@ -487,6 +508,8 @@ export function PropertyPanel() {
           <NumField
             value={L.height}
             suffix="px"
+            min={0}
+            max={2400}
             disabled={L.heightMode !== 'FIXED'}
             onInput={(v) => setLayout({ height: v }, true)}
             onCommit={commit}
@@ -498,8 +521,11 @@ export function PropertyPanel() {
               {(S.borderRadius as [number, number, number, number]).map((rv, i) => (
                 <NumField
                   key={i}
+                  label={(['左上', '右上', '右下', '左下'] as const)[i]}
                   value={rv}
                   suffix="px"
+                  min={0}
+                  max={500}
                   onInput={(v) => {
                     const arr = [...(S.borderRadius as [number, number, number, number])];
                     arr[i] = v;
@@ -513,6 +539,8 @@ export function PropertyPanel() {
             <NumField
               value={typeof S.borderRadius === 'number' ? S.borderRadius : undefined}
               suffix="px"
+              min={0}
+              max={500}
               onInput={(v) => setStyle({ borderRadius: v }, true)}
               onCommit={commit}
             />
@@ -635,7 +663,14 @@ export function PropertyPanel() {
         <div className="prop-heading">布局</div>
         {isContainer(node) && node.type !== 'RECTANGLE' && (!parent || parent.layout.mode === 'ABSOLUTE' || L.mode !== 'ABSOLUTE') && (
           <Row label="方向">
-            <SelectField value={L.mode} options={MODE_OPTIONS} onChange={(v) => setLayout({ mode: v })} />
+            <SelectField
+              value={L.mode}
+              options={MODE_OPTIONS}
+              onChange={(v) => {
+                if (v === 'ABSOLUTE' && L.mode !== 'ABSOLUTE') switchToAbsolute();
+                else setLayout({ mode: v });
+              }}
+            />
           </Row>
         )}
         {parent && parent.layout.mode !== 'ABSOLUTE' && (
@@ -648,7 +683,7 @@ export function PropertyPanel() {
               ]}
               onChange={(v) => {
                 if (v === 'ABSOLUTE') {
-                  setLayout({ prevMode: L.mode === 'ABSOLUTE' ? L.prevMode : L.mode, mode: 'ABSOLUTE', x: L.x ?? 0, y: L.y ?? 0 });
+                  switchToAbsolute();
                 } else {
                   setLayout({ mode: L.prevMode ?? 'VERTICAL', prevMode: undefined, x: undefined, y: undefined });
                 }
@@ -677,6 +712,8 @@ export function PropertyPanel() {
                 <NumField
                   value={L.minWidth}
                   suffix="min"
+                  min={0}
+                  max={2000}
                   onInput={(v) => setLayout({ minWidth: v }, true)}
                   onClear={() => setLayout({ minWidth: undefined })}
                   onCommit={commit}
@@ -684,6 +721,8 @@ export function PropertyPanel() {
                 <NumField
                   value={L.maxWidth}
                   suffix="max"
+                  min={0}
+                  max={2000}
                   onInput={(v) => setLayout({ maxWidth: v }, true)}
                   onClear={() => setLayout({ maxWidth: undefined })}
                   onCommit={commit}
@@ -695,6 +734,8 @@ export function PropertyPanel() {
                 <NumField
                   value={L.minHeight}
                   suffix="min"
+                  min={0}
+                  max={2000}
                   onInput={(v) => setLayout({ minHeight: v }, true)}
                   onClear={() => setLayout({ minHeight: undefined })}
                   onCommit={commit}
@@ -702,6 +743,8 @@ export function PropertyPanel() {
                 <NumField
                   value={L.maxHeight}
                   suffix="max"
+                  min={0}
+                  max={2000}
                   onInput={(v) => setLayout({ maxHeight: v }, true)}
                   onClear={() => setLayout({ maxHeight: undefined })}
                   onCommit={commit}
@@ -714,10 +757,13 @@ export function PropertyPanel() {
           <>
             <Row label="内边距">
               <span className="pad-grid">
-                {[0, 1, 2, 3].map((i) => (
+                {(['上', '右', '下', '左'] as const).map((lbl, i) => (
                   <NumField
                     key={i}
+                    label={lbl}
                     value={pad[i]}
+                    min={0}
+                    max={200}
                     onInput={(v) => {
                       const next: [number, number, number, number] = [...pad] as [number, number, number, number];
                       next[i] = v;
@@ -730,7 +776,7 @@ export function PropertyPanel() {
             </Row>
             {L.mode !== 'ABSOLUTE' && (
               <Row label="间距">
-                <NumField value={L.gap ?? 0} suffix="gap" onInput={(v) => setLayout({ gap: v }, true)} onCommit={commit} />
+                <NumField value={L.gap ?? 0} suffix="gap" min={0} max={200} onInput={(v) => setLayout({ gap: v }, true)} onCommit={commit} />
               </Row>
             )}
             {L.mode !== 'ABSOLUTE' && (
@@ -757,6 +803,8 @@ export function PropertyPanel() {
                     <NumField
                       value={L.gapCross ?? L.gap ?? 0}
                       suffix="gap"
+                      min={0}
+                      max={200}
                       onInput={(v) => setLayout({ gapCross: v }, true)}
                       onCommit={commit}
                     />
@@ -768,7 +816,7 @@ export function PropertyPanel() {
               <button
                 type="button"
                 className={`radius-toggle ${L.clipContent ? 'is-active' : ''}`}
-                title="clip content：溢出隐藏"
+                title="裁剪溢出：内容超出容器时隐藏"
                 onClick={() => {
                   setLayout({ clipContent: !L.clipContent });
                   commit();
@@ -781,10 +829,13 @@ export function PropertyPanel() {
         )}
         <Row label="外边距">
           <span className="pad-grid">
-            {[0, 1, 2, 3].map((i) => (
+            {(['上', '右', '下', '左'] as const).map((lbl, i) => (
               <NumField
                 key={i}
+                label={lbl}
                 value={mar[i]}
+                min={0}
+                max={200}
                 onInput={(v) => {
                   const next: [number, number, number, number] = [...mar] as [number, number, number, number];
                   next[i] = v;
@@ -811,17 +862,18 @@ export function PropertyPanel() {
           >
             {BLEND_MODES.map((m) => (
               <option key={m} value={m}>
-                {m.replace(/_/g, ' ')}
+                {BLEND_LABELS[m] ?? m}
               </option>
             ))}
           </select>
         </Row>
         <Row label="不透明度">
           <NumField
-            value={S.opacity ?? 1}
+            value={Math.round((S.opacity ?? 1) * 100)}
             min={0}
-            max={1}
-            onInput={(v) => setStyle({ opacity: Math.min(1, Math.max(0, v)) }, true)}
+            max={100}
+            suffix="%"
+            onInput={(v) => setStyle({ opacity: Math.min(1, Math.max(0, v / 100)) }, true)}
             onCommit={commit}
           />
         </Row>
@@ -1036,8 +1088,10 @@ export function PropertyPanel() {
               {(['border-top', 'border-right', 'border-bottom', 'border-left'] as const).map((k, idx) => (
                 <NumField
                   key={k}
+                  label={(['上', '右', '下', '左'] as const)[idx]}
                   value={S.border?.widths?.[idx] ?? 0}
                   min={0}
+                  max={40}
                   suffix="w"
                   onInput={(v) => {
                     const widths = [...(S.border?.widths ?? [0, 0, 0, 0])] as [number, number, number, number];
@@ -1052,6 +1106,8 @@ export function PropertyPanel() {
             <NumField
               value={S.border?.width ?? 0}
               suffix="w"
+              min={0}
+              max={40}
               onInput={(v) =>
                 setStyle({ border: { width: v, color: S.border?.color ?? '#000000', style: S.border?.style ?? 'solid', ...pickBorderKeys(S.border) } }, true)
               }
@@ -1087,9 +1143,9 @@ export function PropertyPanel() {
           <SelectField
             value={S.border?.align ?? 'INSIDE'}
             options={[
-              { value: 'INSIDE', label: 'Inside（内）' },
-              { value: 'CENTER', label: 'Center（中）' },
-              { value: 'OUTSIDE', label: 'Outside（外）' },
+              { value: 'INSIDE', label: '内侧' },
+              { value: 'CENTER', label: '居中' },
+              { value: 'OUTSIDE', label: '外侧' },
             ]}
             onChange={(v) => setStyle({ border: { ...defaultBorder(S.border), align: v as 'INSIDE' | 'CENTER' | 'OUTSIDE' } }, true)}
           />
@@ -1108,12 +1164,16 @@ export function PropertyPanel() {
           <NumField
             value={S.border?.dash?.[0] ?? 0}
             suffix="d"
+            min={0}
+            max={100}
             onInput={(v) => setStyle({ border: { ...defaultBorder(S.border), ...(v > 0 ? { dash: [v, S.border?.dash?.[1] ?? v] as [number, number] } : { dash: undefined }) } }, true)}
             onCommit={commit}
           />
           <NumField
             value={S.border?.dash?.[1] ?? 0}
             suffix="g"
+            min={0}
+            max={100}
             onInput={(v) => setStyle({ border: { ...defaultBorder(S.border), ...(S.border?.dash ? { dash: [S.border.dash[0], Math.max(0, v)] as [number, number] } : {}) } }, true)}
             onCommit={commit}
           />
@@ -1122,14 +1182,14 @@ export function PropertyPanel() {
           <SelectField
             value={S.border?.cap ?? 'NONE'}
             options={[
-              { value: 'NONE', label: 'None' },
-              { value: 'ROUND', label: 'Round' },
-              { value: 'SQUARE', label: 'Square' },
-              { value: 'ARROW_LINES', label: 'Line arrow' },
-              { value: 'ARROW_TRIANGLED', label: 'Triangle' },
-              { value: 'ARROW_DIAMOND', label: 'Diamond' },
-              { value: 'ARROW_POLYGON', label: 'Polygon' },
-              { value: 'ARROW_CIRCLE', label: 'Circle' },
+              { value: 'NONE', label: '无端点' },
+              { value: 'ROUND', label: '圆角' },
+              { value: 'SQUARE', label: '方角' },
+              { value: 'ARROW_LINES', label: '线形箭头' },
+              { value: 'ARROW_TRIANGLED', label: '三角箭头' },
+              { value: 'ARROW_DIAMOND', label: '菱形箭头' },
+              { value: 'ARROW_POLYGON', label: '多边形箭头' },
+              { value: 'ARROW_CIRCLE', label: '圆形箭头' },
             ]}
             onChange={(v) => setStyle({ border: { ...defaultBorder(S.border), cap: v as NonNullable<BorderSchema['cap']> } }, true)}
           />
@@ -1138,9 +1198,9 @@ export function PropertyPanel() {
           <SelectField
             value={S.border?.join ?? 'MITER'}
             options={[
-              { value: 'MITER', label: 'Miter' },
-              { value: 'ROUND', label: 'Round' },
-              { value: 'BEVEL', label: 'Bevel' },
+              { value: 'MITER', label: '尖角' },
+              { value: 'ROUND', label: '圆角' },
+              { value: 'BEVEL', label: '斜切' },
             ]}
             onChange={(v) => setStyle({ border: { ...defaultBorder(S.border), join: v as NonNullable<BorderSchema['join']> } }, true)}
           />
@@ -1173,13 +1233,32 @@ export function PropertyPanel() {
             [next[i], next[j]] = [next[j], next[i]];
             commitEffects(next);
           };
-          const effNum = (e: Effect, i: number, key: keyof Effect, label: string, def: number, suffix?: string) => (
+          /** 效果参数滑条区间（key 由 effNum 调用点传入） */
+          const EFF_RANGES: Record<string, [number, number]> = {
+            x: [-100, 100],
+            y: [-100, 100],
+            blur: [0, 100],
+            spread: [0, 50],
+            radius: [0, 200],
+            startRadius: [0, 200],
+            density: [0, 20],
+            opacity: [0, 100],
+            refraction: [0, 200],
+            depth: [0, 100],
+            dispersion: [0, 50],
+            highlight: [0, 100],
+            saturation: [0, 300],
+            particleSize: [0, 40],
+          };
+          const effNum = (e: Effect, i: number, key: keyof Effect, label: string, def: number, suffix?: string, pct = false) => (
             <label className="eff-field" key={`${i}-${String(key)}`}>
               <span>{label}</span>
               <NumField
-                value={(e[key] as number | undefined) ?? def}
+                value={pct ? Math.round(((e[key] as number | undefined) ?? def) * 100) : (e[key] as number | undefined) ?? def}
+                min={EFF_RANGES[String(key)]?.[0] ?? 0}
+                max={EFF_RANGES[String(key)]?.[1] ?? 100}
                 suffix={suffix}
-                onInput={(v) => commitEffects(effects.map((x, j) => (j === i ? { ...x, [key]: v } : x)))}
+                onInput={(v) => commitEffects(effects.map((x, j) => (j === i ? { ...x, [key]: pct ? v / 100 : v } : x)))}
                 onCommit={commit}
               />
             </label>
@@ -1257,7 +1336,7 @@ export function PropertyPanel() {
                       <>
                         {effNum(e, i, 'radius', '粒径', 8)}
                         {effNum(e, i, 'density', '密度', 2)}
-                        {effNum(e, i, 'opacity', '强度', 0.5)}
+                        {effNum(e, i, 'opacity', '强度', 0.5, undefined, true)}
                         <label className="eff-field">
                           <span>颜色</span>
                           <input
@@ -1388,10 +1467,16 @@ export function PropertyPanel() {
         <div className="prop-section">
           <div className="prop-heading">排版</div>
           <Row label="字号">
-            <NumField value={S.fontSize ?? 16} suffix="px" onInput={(v) => setStyle({ fontSize: v }, true)} onCommit={commit} />
+            <NumField value={S.fontSize ?? 16} suffix="px" min={1} max={200} onInput={(v) => setStyle({ fontSize: v }, true)} onCommit={commit} />
           </Row>
           <Row label="字重">
-            <NumField value={S.fontWeight ?? 400} onInput={(v) => setStyle({ fontWeight: v }, true)} onCommit={commit} />
+            <NumField
+              value={S.fontWeight ?? 400}
+              min={100}
+              max={900}
+              onInput={(v) => setStyle({ fontWeight: v }, true)}
+              onCommit={commit}
+            />
           </Row>
           <Row label="行高">
             <span className="pad-grid">
@@ -1403,6 +1488,8 @@ export function PropertyPanel() {
               <NumField
                 value={S.lineHeight ?? (S.lineHeightMode === 'PERCENT' ? 140 : Math.round((S.fontSize ?? 16) * 1.4))}
                 suffix={S.lineHeightMode === 'PERCENT' ? '%' : 'px'}
+                min={0}
+                max={S.lineHeightMode === 'PERCENT' ? 500 : 300}
                 disabled={S.lineHeightMode === 'AUTO'}
                 onInput={(v) => setStyle({ lineHeight: v }, true)}
                 onCommit={commit}
@@ -1419,16 +1506,18 @@ export function PropertyPanel() {
               <NumField
                 value={S.letterSpacing ?? 0}
                 suffix={S.letterSpacingMode === 'PERCENT' ? '%' : 'px'}
+                min={S.letterSpacingMode === 'PERCENT' ? 0 : -20}
+                max={S.letterSpacingMode === 'PERCENT' ? 300 : 200}
                 onInput={(v) => setStyle({ letterSpacing: v }, true)}
                 onCommit={commit}
               />
             </span>
           </Row>
           <Row label="段间距">
-            <NumField value={S.paragraphSpacing ?? 0} suffix="px" onInput={(v) => setStyle({ paragraphSpacing: v }, true)} onCommit={commit} />
+            <NumField value={S.paragraphSpacing ?? 0} suffix="px" min={0} max={200} onInput={(v) => setStyle({ paragraphSpacing: v }, true)} onCommit={commit} />
           </Row>
           <Row label="首行缩">
-            <NumField value={S.paragraphIndent ?? 0} suffix="px" onInput={(v) => setStyle({ paragraphIndent: v }, true)} onCommit={commit} />
+            <NumField value={S.paragraphIndent ?? 0} suffix="px" min={0} max={400} onInput={(v) => setStyle({ paragraphIndent: v }, true)} onCommit={commit} />
           </Row>
           <Row label="颜色">
             <ColorField value={S.color ?? '#111111'} onInput={(v) => setStyle({ color: v }, true)} onCommit={commit} />
@@ -1483,7 +1572,7 @@ export function PropertyPanel() {
             <button
               type="button"
               className={`radius-toggle ${S.textTruncation === 'ENDING' ? 'is-active' : ''}`}
-              title="Truncate：超行截断加省略号"
+              title="截断：超行末尾加省略号"
               onClick={() => {
                 setStyle({ textTruncation: S.textTruncation === 'ENDING' ? 'DISABLED' : 'ENDING' });
                 commit();
@@ -1494,7 +1583,7 @@ export function PropertyPanel() {
           </Row>
           {S.textTruncation === 'ENDING' && (
             <Row label="最大行">
-              <NumField value={S.maxLines ?? 2} onInput={(v) => setStyle({ maxLines: v }, true)} onCommit={commit} />
+              <NumField value={S.maxLines ?? 2} min={1} max={20} onInput={(v) => setStyle({ maxLines: v }, true)} onCommit={commit} />
             </Row>
           )}
           <Row label="形态">
@@ -1511,7 +1600,7 @@ export function PropertyPanel() {
               onChange={(v) => setStyle({ textDecoration: v })}
             />
           </Row>
-          <Row label="OpenType">
+          <Row label="字形增强">
             <span className="pad-grid">
               {(['liga', 'kern', 'dlig'] as const).map((k) => (
                 <button
@@ -1532,9 +1621,9 @@ export function PropertyPanel() {
         </div>
       )}
 
-      {/* Export（FR-24 节点导出设置：format/scale/suffix 列表 + ZIP 导出） */}
+      {/* 导出（FR-24 节点导出设置：format/scale/suffix 列表 + ZIP 导出） */}
       <div className="prop-section">
-        <div className="prop-heading">Export</div>
+        <div className="prop-heading">导出</div>
         {(() => {
           const settings = node.exportSettings ?? [];
           const commitSettings = (next: typeof settings): void =>
@@ -1598,7 +1687,7 @@ export function PropertyPanel() {
               <button type="button" className="mini-btn add-layer-btn" onClick={() => commitSettings([...settings, { format: 'PNG', scale: 1 }])}>
                 + 添加导出设置
               </button>
-              {!settings.length && <div className="props-note">无导出设置（File → 导出所选将跳过该节点）</div>}
+              {!settings.length && <div className="props-note">无导出设置（文件 → 导出所选将跳过该节点）</div>}
             </>
           );
         })()}
@@ -1625,7 +1714,7 @@ export function PropertyPanel() {
           </Row>
         )}
         {node.type === 'IMAGE' && (
-          <Row label="src">
+          <Row label="图片源">
             <input
               type="text"
               placeholder="图片 URL 或 data:image/...;base64,..."
@@ -1640,10 +1729,10 @@ export function PropertyPanel() {
             <SelectField
               value={node.style?.imageScaleMode ?? 'FILL'}
               options={[
-                { value: 'FILL', label: 'Fill（填充）' },
-                { value: 'FIT', label: 'Fit（适应）' },
-                { value: 'CROP', label: 'Crop（裁剪）' },
-                { value: 'TILE', label: 'Tile（平铺）' },
+                { value: 'FILL', label: '填满' },
+                { value: 'FIT', label: '适应' },
+                { value: 'CROP', label: '裁剪' },
+                { value: 'TILE', label: '平铺' },
               ]}
               onChange={(v) => dispatch({ type: 'UPDATE_STYLE', id: node.id, patch: { imageScaleMode: v as 'FILL' | 'FIT' | 'CROP' | 'TILE' }, transient: true })}
             />

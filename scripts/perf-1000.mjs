@@ -154,7 +154,7 @@ try {
 
   // File → 打开 载入 1000 节点页（与 walkthrough 同路径）
   const fcPromise = pg.waitForEvent('filechooser');
-  await pg.click('.menu-btn:has-text("File")');
+  await pg.click('.menu-btn:has-text("文件")');
   await pg.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(PERF_DIR, 'page.json'));

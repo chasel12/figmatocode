@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useEditor } from './store';
 import { findById } from '../schema/factory';
+import { NumField } from './NumericField';
 import { nextInteractionId } from './tools/connections';
 import type {
   PrototypeActionKind,
@@ -198,11 +199,13 @@ export function PrototypePanel() {
             {it.trigger === 'AFTER_TIMEOUT' && (
               <div className="proto-field">
                 <span className="proto-label">延时</span>
-                <input
-                  type="number"
-                  min={0}
+                <NumField
+                  className="proto-num"
                   value={it.timeoutMs ?? 300}
-                  onChange={(e) => patchAt(idx, { timeoutMs: Math.max(0, Number(e.target.value) || 0) })}
+                  min={0}
+                  max={5000}
+                  onInput={(v) => patchAt(idx, { timeoutMs: Math.max(0, v) })}
+                  onCommit={() => {}}
                 />
                 <span className="proto-unit">ms</span>
               </div>
@@ -286,11 +289,13 @@ export function PrototypePanel() {
               <>
                 <div className="proto-field">
                   <span className="proto-label">时长</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumField
+                    className="proto-num"
                     value={t.duration ?? 300}
-                    onChange={(e) => patchAt(idx, { transition: { ...t, duration: Math.max(0, Number(e.target.value) || 0) } })}
+                    min={0}
+                    max={2000}
+                    onInput={(v) => patchAt(idx, { transition: { ...t, duration: Math.max(0, v) } })}
+                    onCommit={() => {}}
                   />
                   <span className="proto-unit">ms</span>
                 </div>

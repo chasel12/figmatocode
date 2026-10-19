@@ -24,9 +24,9 @@ type MenuItemDef =
 export const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'select', label: '移动', key: 'V', icon: '↖' },
   { id: 'hand', label: '抓手', key: 'H', icon: '✋' },
-  { id: 'frame', label: 'Frame', key: 'F', icon: '▣' },
-  { id: 'section', label: 'Section', key: '', icon: '◫' },
-  { id: 'slice', label: 'Slice', key: '', icon: '◨' },
+  { id: 'frame', label: '框架', key: 'F', icon: '▣' },
+  { id: 'section', label: '分区', key: '', icon: '◫' },
+  { id: 'slice', label: '切片', key: '', icon: '◨' },
   { id: 'rect', label: '矩形', key: 'R', icon: '▭' },
   { id: 'ellipse', label: '椭圆', key: 'O', icon: '⬭' },
   { id: 'line', label: '直线', key: 'L', icon: '╱' },
@@ -48,9 +48,10 @@ export function Toolbar() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
-      return (localStorage.getItem(THEME_KEY) as Theme) === 'light' ? 'light' : 'dark';
+      // 白天（浅色）为出厂默认：仅当历史存储为 dark 时保持深色
+      return (localStorage.getItem(THEME_KEY) as Theme) === 'dark' ? 'dark' : 'light';
     } catch {
-      return 'dark';
+      return 'light';
     }
   });
   const [zoom, setZoom] = useState(1);
@@ -94,7 +95,7 @@ export function Toolbar() {
     dispatch({ type: 'NEW_PAGE' });
   };
 
-  // FR-24：主题覆盖全部面板（CSS 变量切换），默认深色
+  // FR-24：主题覆盖全部面板（CSS 变量切换），默认白天（浅色）
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
@@ -114,7 +115,7 @@ export function Toolbar() {
 
   const menus: MenuDef[] = [
     {
-      id: 'File',
+      id: '文件',
       items: [
         { label: '新建项目', shortcut: 'Ctrl+N', onClick: newPage },
         { label: '打开…', shortcut: 'Ctrl+O', onClick: () => fileRef.current?.click() },
@@ -134,7 +135,7 @@ export function Toolbar() {
       ],
     },
     {
-      id: 'Edit',
+      id: '编辑',
       items: [
         { label: '撤销', shortcut: 'Ctrl+Z', disabled: !canUndo, onClick: () => dispatch({ type: 'UNDO' }) },
         { label: '重做', shortcut: 'Ctrl+Y', disabled: !canRedo, onClick: () => dispatch({ type: 'REDO' }) },
@@ -161,7 +162,7 @@ export function Toolbar() {
       ],
     },
     {
-      id: 'View',
+      id: '视图',
       items: [
         { label: '放大', shortcut: 'Ctrl+=', onClick: () => canvasBus.send({ op: 'zoomIn' }) },
         { label: '缩小', shortcut: 'Ctrl+-', onClick: () => canvasBus.send({ op: 'zoomOut' }) },
@@ -178,7 +179,7 @@ export function Toolbar() {
       ],
     },
     {
-      id: 'Object',
+      id: '对象',
       items: [
         {
           label: '上移一层',
@@ -236,7 +237,7 @@ export function Toolbar() {
       ],
     },
     {
-      id: 'Text',
+      id: '文本',
       items: [
         { label: '左对齐', shortcut: 'Ctrl+Shift+L', onClick: () => dispatch({ type: 'UPDATE_STYLE', id: state.selectedIds[0] ?? '', patch: { textAlign: 'left' } }) },
         { label: '居中对齐', shortcut: 'Ctrl+Shift+E', onClick: () => dispatch({ type: 'UPDATE_STYLE', id: state.selectedIds[0] ?? '', patch: { textAlign: 'center' } }) },
@@ -248,7 +249,7 @@ export function Toolbar() {
       ],
     },
     {
-      id: 'Plugins',
+      id: '插件',
       items: [
         { label: '管理插件…', disabled: true, note: '本版不支持（插件体系未开放）' },
         { label: '运行上一个插件', disabled: true, note: '本版不支持（插件体系未开放）' },
@@ -256,7 +257,7 @@ export function Toolbar() {
       ],
     },
     {
-      id: 'Help',
+      id: '帮助',
       items: [
         { label: '快捷键', shortcut: 'Ctrl+Shift+?', onClick: () => setShowShortcuts(true) },
         { divider: true },
@@ -450,7 +451,7 @@ export function Toolbar() {
           生成代码
         </button>
         <button className="btn btn-accent" onClick={() => setShowDiff(true)}>
-          Pixel Diff
+          像素比对
         </button>
         <button
           type="button"

@@ -332,13 +332,13 @@ export function Editor() {
                   className={`side-tab ${rightTab === 'design' ? 'is-active' : ''}`}
                   onClick={() => setRightTab('design')}
                 >
-                  Design
+                  设计
                 </button>
                 <button
                   className={`side-tab ${rightTab === 'prototype' ? 'is-active' : ''}`}
                   onClick={() => setRightTab('prototype')}
                 >
-                  Prototype
+                  原型
                 </button>
               </div>
               {rightTab === 'design' ? <PropertyPanel /> : <PrototypePanel />}

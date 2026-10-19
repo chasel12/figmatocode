@@ -45,7 +45,7 @@ export function DiffModal({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal diff-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <div className="modal-title">Pixel Diff · reference（设计几何） vs render（编译 CSS）</div>
+          <div className="modal-title">像素比对 · 参照图（设计几何） vs 渲染图（编译 CSS）</div>
           <button className="btn btn-ghost" onClick={onClose}>
             关闭
           </button>
@@ -59,7 +59,7 @@ export function DiffModal({ onClose }: { onClose: () => void }) {
             <div className="diff-summary">
               <div className={`diff-score ${passed ? 'is-pass' : 'is-fail'}`}>
                 <span className="diff-number">{pct}%</span>
-                <span className="diff-label">Pixel Similarity</span>
+                <span className="diff-label">像素相似度</span>
               </div>
               <div className="diff-meta">
                 <div>目标阈值：{(SIMILARITY_TARGET * 100).toFixed(0)}%</div>
@@ -67,12 +67,12 @@ export function DiffModal({ onClose }: { onClose: () => void }) {
                   差异像素：{result.diffPixels} / {result.width * result.height}
                 </div>
                 <div>画布：{result.width} × {result.height}</div>
-                <div className={passed ? 'is-pass' : 'is-fail'}>{passed ? 'PASS' : 'NEED FIX'}</div>
+                <div className={passed ? 'is-pass' : 'is-fail'}>{passed ? '通过' : '需修复'}</div>
               </div>
               <div className="diff-tabs">
                 {(['diff', 'reference', 'render'] as const).map((v) => (
                   <button key={v} className={`tab ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)}>
-                    {v === 'diff' ? '差异热图' : v === 'reference' ? 'reference' : 'render'}
+                    {v === 'diff' ? '差异热图' : v === 'reference' ? '参照图' : '渲染图'}
                   </button>
                 ))}
               </div>

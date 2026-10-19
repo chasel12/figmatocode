@@ -701,8 +701,8 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
 
     const renderOne = (key: string, layerProps: Record<string, unknown>): React.ReactNode => {
       if (polyPts) {
-        // 统一点集闭合描画（与出码 clip-path 同 helper 口径）
-        return <Line key={key} {...layerProps} points={polyPts} closed hitStrokeWidth={Math.max(style.border?.width ?? 1, 10)} />;
+        // 统一点集闭合描画（与出码 clip-path 同 helper 口径）；points 为节点局部 0..w/0..h，需挂到节点几何原点
+        return <Line key={key} {...layerProps} x={geom.x} y={geom.y} points={polyPts} closed hitStrokeWidth={Math.max(style.border?.width ?? 1, 10)} />;
       }
       if (arcData && arcN && (arcN.sweep < 360 || arcData.innerRadius > 0)) {
         const rx = Math.max(geom.width / 2, 0.5);
@@ -1025,8 +1025,10 @@ export function Canvas() {
     const geom = geometry[id];
     if (!found || !found.parent || !geom) return delta;
     const parent = found.parent;
+    const node = found.node;
 
-    if (parent.layout.mode === 'ABSOLUTE') {
+    // 自由拖动：绝对定位父级 / 流父内脱流子项（子 mode=ABSOLUTE，FR-36）
+    if (parent.layout.mode === 'ABSOLUTE' || node.layout.mode === 'ABSOLUTE') {
       if (!snapOn || altKey) {
         setGuidesGated(NO_GUIDES);
         return delta;
@@ -1090,6 +1092,20 @@ export function Canvas() {
 
     const center = { x: finalRect.x + finalRect.width / 2, y: finalRect.y + finalRect.height / 2 };
     const target = findContainerAt(geometry, state.page.root, center, collectSubtreeIds(state.page.root, id));
+
+    // FR-36：脱流子项（Ignore auto layout）拖动不重排——落点仍在原父级（或未命中容器）时
+    // 保持绝对定位、仅更新 x/y（Figma 语义）；拖入其他容器才走 MOVE_NODE（流父进流/绝对父带坐标）
+    if (node.layout.mode === 'ABSOLUTE' && (!target || target.id === parent.id)) {
+      const pg = geometry[parent.id];
+      if (!pg) return;
+      const origin = contentOrigin(pg, parent.layout);
+      const x = Math.round(finalRect.x - origin.x - ml);
+      const y = Math.round(finalRect.y - origin.y - mt);
+      if (x === Math.round(geom.x) && y === Math.round(geom.y)) return;
+      dispatch({ type: 'UPDATE_LAYOUT', id, patch: { x, y } });
+      return;
+    }
+
     if (!target) return;
     const index = dropIndex(target, geometry, center, id);
     if (target.layout.mode === 'ABSOLUTE') {

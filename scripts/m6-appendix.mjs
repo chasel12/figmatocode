@@ -183,7 +183,7 @@ page.on('dialog', (d) => d.accept());
 
 async function openDemoPage(dirName) {
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(pagesDir, dirName, 'page.json'));
@@ -308,13 +308,13 @@ try {
   /* ---------------- 附 C：7 菜单可用性 ---------------- */
 
   const C_MENUS = [
-    { menu: 'File', available: ['新建', '打开', '保存'], disabledAllowed: [] },
-    { menu: 'Edit', available: ['撤销', '重做', '复制', '粘贴', '全选'], disabledAllowed: ['查找'] },
-    { menu: 'View', available: ['放大', '缩小'], disabledAllowed: ['标尺', '网格'] },
-    { menu: 'Object', available: ['置', '组合', '锁定', '布尔', '蒙版'], disabledAllowed: ['轮廓'] },
-    { menu: 'Text', available: ['对齐'], disabledAllowed: ['大写', '小写', '段落'] },
-    { menu: 'Plugins', available: [], disabledAllowed: ['管理插件', '运行', '开发插件'] },
-    { menu: 'Help', available: ['快捷键'], disabledAllowed: ['帮助中心', '关于'] },
+    { menu: '文件', available: ['新建', '打开', '保存'], disabledAllowed: [] },
+    { menu: '编辑', available: ['撤销', '重做', '复制', '粘贴', '全选'], disabledAllowed: ['查找'] },
+    { menu: '视图', available: ['放大', '缩小'], disabledAllowed: ['标尺', '网格'] },
+    { menu: '对象', available: ['置', '组合', '锁定', '布尔', '蒙版'], disabledAllowed: ['轮廓'] },
+    { menu: '文本', available: ['对齐'], disabledAllowed: ['大写', '小写', '段落'] },
+    { menu: '插件', available: [], disabledAllowed: ['管理插件', '运行', '开发插件'] },
+    { menu: '帮助', available: ['快捷键'], disabledAllowed: ['帮助中心', '关于'] },
   ];
 
   for (const m of C_MENUS) {

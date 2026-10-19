@@ -17,21 +17,35 @@ function cssOf(node: UINode): Record<string, string> {
 }
 
 describe('FR-16 形状 helper（画布/出码同口径）', () => {
-  it('polygonUnitPoints：3 边顶朝上（首点 50,0）、n 点闭合', () => {
+  it('polygonUnitPoints：3 边顶朝上（首点 50,0）、极点归一化触外接框', () => {
     const p3 = polygonUnitPoints(3);
     expect(p3).toHaveLength(3);
     expect(p3[0][0]).toBeCloseTo(50, 5);
     expect(p3[0][1]).toBeCloseTo(0, 5);
+    const xs = p3.map((p) => p[0]);
+    const ys = p3.map((p) => p[1]);
+    // 极点触四边——画布 Line 与选择框（geometry 外接矩形）重合，样式和框一致
+    expect(Math.min(...xs)).toBeCloseTo(0, 5);
+    expect(Math.max(...xs)).toBeCloseTo(100, 5);
+    expect(Math.max(...ys)).toBeCloseTo(100, 5);
     expect(polygonUnitPoints(6)).toHaveLength(6);
     expect(polygonUnitPoints(2)).toHaveLength(3); // 下限 3
   });
 
-  it('starUnitPoints：5 角 10 点、外 50 内 50*inner、交替', () => {
+  it('starUnitPoints：5 角 10 点、外内交替、归一化触外接框四边', () => {
     const s = starUnitPoints(5, 0.5);
     expect(s).toHaveLength(10);
-    expect(s[0][1]).toBeCloseTo(0, 5);
-    const r1 = Math.hypot(s[1][0] - 50, s[1][1] - 50);
-    expect(r1).toBeCloseTo(25, 4); // 内点半径=50*0.5
+    expect(s[0][1]).toBeCloseTo(0, 5); // 顶角触顶
+    const xs = s.map((p) => p[0]);
+    const ys = s.map((p) => p[1]);
+    expect(Math.min(...xs)).toBeCloseTo(0, 5);
+    expect(Math.max(...xs)).toBeCloseTo(100, 5);
+    expect(Math.max(...ys)).toBeCloseTo(100, 5);
+    for (let i = 0; i < s.length; i += 2) {
+      const dOuter = Math.hypot(s[i][0] - 50, s[i][1] - 50);
+      const dInner = Math.hypot(s[(i + 1) % s.length][0] - 50, s[(i + 1) % s.length][1] - 50);
+      expect(dOuter).toBeGreaterThan(dInner); // 外点恒比相邻内点距中心远（归一后仍交替）
+    }
   });
 
   it('flattenPx：百分比点集按宽高展开', () => {

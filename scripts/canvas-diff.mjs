@@ -106,7 +106,7 @@ try {
 async function runOne(name) {
   // File → 打开 page.json（与 walkthrough 同一入口，走 LOAD_PAGE 真实链路）
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(pagesDir, name, 'page.json'));

@@ -2,13 +2,13 @@ import type { NodeKind } from '../schema/types';
 import { useEditor } from './store';
 
 const ITEMS: { kind: NodeKind; label: string; icon: string }[] = [
-  { kind: 'FRAME', label: 'Frame', icon: '▣' },
-  { kind: 'TEXT', label: 'Text', icon: 'T' },
-  { kind: 'IMAGE', label: 'Image', icon: '🖼' },
-  { kind: 'BUTTON', label: 'Button', icon: '◉' },
-  { kind: 'RECTANGLE', label: 'Rectangle', icon: '▭' },
-  { kind: 'OVAL', label: 'Oval', icon: '⬭' },
-  { kind: 'LINE', label: 'Line', icon: '╱' },
+  { kind: 'FRAME', label: '框架', icon: '▣' },
+  { kind: 'TEXT', label: '文本', icon: 'T' },
+  { kind: 'IMAGE', label: '图片', icon: '🖼' },
+  { kind: 'BUTTON', label: '按钮', icon: '◉' },
+  { kind: 'RECTANGLE', label: '矩形', icon: '▭' },
+  { kind: 'OVAL', label: '椭圆', icon: '⬭' },
+  { kind: 'LINE', label: '直线', icon: '╱' },
 ];
 
 export function Palette() {

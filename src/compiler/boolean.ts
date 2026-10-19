@@ -137,7 +137,7 @@ export const BOOLEAN_OP_LABEL: Record<BooleanOp, string> = {
   EXCLUDE: '排除',
 };
 
-/** 结果节点默认名：Figma 同名「Union / Intersect / Subtract / Exclude」 */
+/** 结果节点默认名：Figma 同名「Union / Intersect / Subtract / Exclude」（自动命名属内容数据，不随 UI 语言切换） */
 export const BOOLEAN_OP_NAME: Record<BooleanOp, string> = {
   UNION: 'Union',
   INTERSECT: 'Intersect',

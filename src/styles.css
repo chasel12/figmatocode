@@ -21,9 +21,25 @@
   --status-bg: rgba(15, 17, 21, 0.82);
   --menu-shadow: rgba(0, 0, 0, 0.4);
   --danger: #ff6b6b;
+  /* 选中态 / 蒙层 / 警示（原硬编码色入变量，白天模式可读性） */
+  --sel-bg: rgba(22, 119, 255, 0.18);
+  --sel-soft-bg: rgba(22, 119, 255, 0.1);
+  --canvas-hint-bg: rgba(15, 17, 21, 0.75);
+  --overlay-bg: rgba(0, 0, 0, 0.45);
+  --overlay-strong: rgba(0, 0, 0, 0.6);
+  --warn: #e0a35f;
+  --tk-paint-bg: #2b3550;
+  --tk-paint-fg: #8fb4ff;
+  --tk-text-bg: #3a2b40;
+  --tk-text-fg: #e0a8ff;
+  --tk-effect-bg: #2b4038;
+  --tk-effect-fg: #7fe0bd;
+  --tk-grid-bg: #403a2b;
+  --tk-grid-fg: #e0cf7f;
+  --broken: #b4552d;
 }
 
-/* FR-24 浅色主题：覆盖全部面板/画布背景/控件（data-theme 由 Toolbar 切换，默认深色） */
+/* FR-24 浅色主题：覆盖全部面板/画布背景/控件（data-theme 由 Toolbar 切换，默认白天/浅色） */
 [data-theme='light'] {
   --bg: #f0f2f5;
   --panel: #ffffff;
@@ -42,6 +58,21 @@
   --status-bg: rgba(255, 255, 255, 0.88);
   --menu-shadow: rgba(31, 35, 41, 0.18);
   --danger: #d93026;
+  --sel-bg: rgba(22, 119, 255, 0.14);
+  --sel-soft-bg: rgba(22, 119, 255, 0.08);
+  --canvas-hint-bg: rgba(255, 255, 255, 0.85);
+  --overlay-bg: rgba(31, 35, 41, 0.35);
+  --overlay-strong: rgba(31, 35, 41, 0.45);
+  --warn: #b45309;
+  --tk-paint-bg: #e3edff;
+  --tk-paint-fg: #1662c4;
+  --tk-text-bg: #f6e8ff;
+  --tk-text-fg: #8a3ecb;
+  --tk-effect-bg: #e0f7ef;
+  --tk-effect-fg: #0f9b70;
+  --tk-grid-bg: #fff6df;
+  --tk-grid-fg: #9a7b0a;
+  --broken: #c2410c;
 }
 
 * {
@@ -302,7 +333,7 @@ body {
 }
 
 .layer-row.is-selected {
-  background: rgba(22, 119, 255, 0.18);
+  background: var(--sel-bg);
   color: var(--text);
 }
 
@@ -353,7 +384,7 @@ body {
   bottom: 42px;
   color: var(--text-dim);
   font-size: 11px;
-  background: rgba(15, 17, 21, 0.75);
+  background: var(--canvas-hint-bg);
   padding: 4px 8px;
   border-radius: 6px;
   pointer-events: none;
@@ -594,10 +625,11 @@ body {
 }
 
 .field-label {
-  width: 44px;
+  width: 52px;
   color: var(--text-dim);
   font-size: 12px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .field-body {
@@ -633,38 +665,115 @@ body {
   width: 72px;
 }
 
+/* ============ P1 数控评审：滑条 + 数值二合一（组件 NumField，src/editor/NumericField.tsx） ============ */
 .num-field {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  min-width: 0;
+}
+
+/* 多格网格（pad/radius）里的单字标签：上/右/下/左、左上… */
+.num-label {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.num-field .num-range {
+  flex: 1 1 56px;
+  min-width: 26px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  outline: none;
+  overflow: visible;
+}
+
+.num-field .num-range:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.num-field .num-box {
+  flex: none;
+  width: 44px;
+  padding: 4px 3px;
+  text-align: center;
+}
+
+/* .num-box 基础外观（Assets/Proto 等非 .field-body 场景也有 chrome；.field-body 规则叠加一致） */
+input.num-box {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 5px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+input.num-box:focus {
+  border-color: var(--primary);
 }
 
 .num-suffix {
+  flex: none;
   color: var(--text-dim);
   font-size: 10px;
 }
 
+.num-field .num-range:disabled,
+.num-field .num-box:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 数值输入一律无原生上下按钮：拖调走滑条、精确值走文本框 */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .pad-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 6px;
   width: 100%;
 }
 
-.pad-grid .num-field input {
-  width: 100% !important;
+.pad-grid .num-field {
+  width: 100%;
+  min-width: 0;
+}
+
+.pad-grid .num-field .num-range {
+  flex: 1 1 40px;
 }
 
 /* FR-16 独立圆角四格（Figma 独立圆角切换） */
 .radius-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 6px;
   flex: 1;
+  min-width: 0;
 }
 
-.radius-grid .num-field input {
-  width: 100% !important;
+.radius-grid .num-field {
+  width: 100%;
+  min-width: 0;
 }
 
 .radius-toggle {
@@ -705,6 +814,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-wrap: wrap;
+  row-gap: 3px;
 }
 
 .fill-layer-head select {
@@ -770,15 +881,19 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-wrap: wrap;
+  row-gap: 3px;
 }
 
+/* 停靠点行：滑条调 位置/透明度，颜色独占一整行避免挤压 */
 .fill-stop .num-field {
-  width: 58px;
-  flex-shrink: 0;
+  width: 92px;
+  flex: 1 1 92px;
+  min-width: 0;
 }
 
 .fill-stop .color-field {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
 }
 
@@ -821,7 +936,8 @@ body {
 }
 
 .eff-field .num-field {
-  width: 56px;
+  width: 88px;
+  min-width: 0;
 }
 
 .eff-field input[type='text'] {
@@ -835,7 +951,7 @@ body {
 .shortcuts-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay-bg);
   z-index: 400;
   display: flex;
   align-items: center;
@@ -930,7 +1046,7 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1014,7 +1130,7 @@ body {
 }
 
 .diff-status.is-error {
-  color: #f87171;
+  color: var(--danger);
 }
 
 .diff-summary {
@@ -1313,7 +1429,7 @@ body {
 }
 
 .page-row.is-current {
-  background: rgba(22, 119, 255, 0.14);
+  background: var(--sel-bg);
   color: var(--text);
 }
 
@@ -1421,7 +1537,7 @@ body {
 .layer-row.drop-inside {
   outline: 1.5px solid var(--primary);
   outline-offset: -1px;
-  background: rgba(22, 119, 255, 0.1);
+  background: var(--sel-soft-bg);
 }
 
 /* ========== M2 Frame 预设（P0-20） ========== */
@@ -1599,24 +1715,24 @@ body {
 }
 
 .assets-token-kind.is-paint {
-  background: #2b3550;
-  color: #8fb4ff;
+  background: var(--tk-paint-bg);
+  color: var(--tk-paint-fg);
 }
 
 .assets-token-kind.is-text {
-  background: #3a2b40;
-  color: #e0a8ff;
+  background: var(--tk-text-bg);
+  color: var(--tk-text-fg);
 }
 
 /* FR-27 四类：Effect / Grid 图标底色 */
 .assets-token-kind.is-effect {
-  background: #2b4038;
-  color: #7fe0bd;
+  background: var(--tk-effect-bg);
+  color: var(--tk-effect-fg);
 }
 
 .assets-token-kind.is-grid {
-  background: #403a2b;
-  color: #e0cf7f;
+  background: var(--tk-grid-bg);
+  color: var(--tk-grid-fg);
 }
 
 .assets-token-meta {
@@ -1664,20 +1780,31 @@ body {
   cursor: pointer;
 }
 
+/* P1-09 起该 class 挂在 NumField 根节点上（滑条+数值胶囊） */
 .assets-token-num {
-  width: 44px;
+  width: 68px;
+  min-width: 0;
   flex: none;
   padding: 1px 3px;
-  font-size: 11px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 3px;
-  color: var(--text);
+}
+
+.assets-token-num .num-range {
+  flex: 1 1 22px;
+  height: 18px;
+}
+
+.assets-token-num .num-box {
+  width: 30px;
+  padding: 1px 1px;
+  font-size: 10px;
 }
 
 /* P1-03：画布不表达近似项的提示 */
 .props-warn {
-  color: #e0a35f;
+  color: var(--warn);
 }
 
 /* ---- FR-29 变体区 ---- */
@@ -1793,7 +1920,7 @@ body {
 }
 
 .proto-row.is-broken {
-  border-color: #b4552d;
+  border-color: var(--broken);
 }
 
 .proto-row-head {
@@ -1817,7 +1944,7 @@ body {
 
 .proto-broken-tag {
   font-size: 10px;
-  color: #e08a5f;
+  color: var(--warn);
 }
 
 .proto-del {
@@ -1828,6 +1955,12 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+/* 延时/时长滑条行：NumField 占满剩余宽度 */
+.proto-field .num-field {
+  flex: 1;
+  min-width: 0;
 }
 
 .proto-label {

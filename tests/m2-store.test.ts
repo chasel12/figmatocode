@@ -198,6 +198,70 @@ describe('FR-29 图层拖拽重排（MOVE_NODE）', () => {
     state = editorReducer(state, { type: 'UNDO' });
     expect(state.page.root.children.map((c) => c.id)).toEqual(ids);
   });
+
+  it('同父级拖动/重排保持 Ignore auto layout（流父内脱流子项不退流，FR-36）', () => {
+    let state = seeded();
+    state = seedChildren(state, 1);
+    const r = state.page.root.children[1].id;
+    state = editorReducer(state, {
+      type: 'UPDATE_LAYOUT',
+      id: r,
+      patch: { prevMode: 'VERTICAL', mode: 'ABSOLUTE', x: 10, y: 20 },
+    });
+    state = editorReducer(state, { type: 'MOVE_NODE', id: r, parentId: state.page.root.id, index: 0 });
+    const layout = findById(state.page.root, r)!.node.layout;
+    expect(layout.mode).toBe('ABSOLUTE');
+    expect(layout.x).toBe(10);
+    expect(layout.y).toBe(20);
+    expect(layout.prevMode).toBe('VERTICAL');
+  });
+
+  it('拖入其他流式容器退出 Ignore auto layout（恢复 prevMode，清 x/y/prevMode）', () => {
+    let state = seeded();
+    state = seedChildren(state, 1);
+    const frameId = state.page.root.children[0].id; // seedChildren 后选中态是新增 RECTANGLE，FRAME 取树中第一个
+    const r = state.page.root.children[1].id;
+    state = editorReducer(state, {
+      type: 'UPDATE_LAYOUT',
+      id: r,
+      patch: { prevMode: 'HORIZONTAL', mode: 'ABSOLUTE', x: 10, y: 20 },
+    });
+    state = editorReducer(state, { type: 'MOVE_NODE', id: r, parentId: frameId, index: 0 });
+    const frame = findById(state.page.root, frameId)!.node;
+    if (!isContainer(frame)) throw new Error('frame 应为容器');
+    const moved = frame.children.find((c) => c.id === r)!;
+    expect(moved.layout.mode).toBe('HORIZONTAL');
+    expect(moved.layout.x).toBeUndefined();
+    expect(moved.layout.y).toBeUndefined();
+    expect(moved.layout.prevMode).toBeUndefined();
+  });
+});
+
+describe('FR-36 切「绝对定位」子项坐标固化（UPDATE_LAYOUT.childrenXY）', () => {
+  it('容器切 ABSOLUTE 时伴随子项 x/y 固化，单条历史可一次撤销', () => {
+    let state = seeded();
+    state = seedChildren(state, 2);
+    const ids = state.page.root.children.map((c) => c.id);
+    const before = state.past.length;
+    state = editorReducer(state, {
+      type: 'UPDATE_LAYOUT',
+      id: state.page.root.id,
+      patch: { mode: 'ABSOLUTE' },
+      childrenXY: [
+        { id: ids[1], x: 5, y: 6 },
+        { id: ids[2], x: 7, y: 8 },
+      ],
+    });
+    expect(state.page.root.layout.mode).toBe('ABSOLUTE');
+    expect(findById(state.page.root, ids[1])!.node.layout.x).toBe(5);
+    expect(findById(state.page.root, ids[1])!.node.layout.y).toBe(6);
+    expect(findById(state.page.root, ids[2])!.node.layout.x).toBe(7);
+    expect(findById(state.page.root, ids[2])!.node.layout.y).toBe(8);
+    expect(state.past.length).toBe(before + 1);
+    state = editorReducer(state, { type: 'UNDO' });
+    expect(state.page.root.layout.mode).not.toBe('ABSOLUTE');
+    expect(findById(state.page.root, ids[1])!.node.layout.x).toBeUndefined();
+  });
 });
 
 describe('FR-29 双击重命名（UPDATE_NAME）', () => {

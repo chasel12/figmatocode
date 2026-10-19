@@ -21,7 +21,7 @@ export const TOOL_KEYS: Record<string, string> = {
 export const SHORTCUT_TABLE: ShortcutEntry[] = [
   { group: '工具', keys: 'V', desc: '移动 / 选择' },
   { group: '工具', keys: 'H', desc: '抓手平移（按住空格亦可）' },
-  { group: '工具', keys: 'F', desc: 'Frame 容器' },
+  { group: '工具', keys: 'F', desc: '框架容器' },
   { group: '工具', keys: 'R', desc: '矩形' },
   { group: '工具', keys: 'O', desc: '椭圆' },
   { group: '工具', keys: 'L', desc: '直线' },

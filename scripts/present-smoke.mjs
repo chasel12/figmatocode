@@ -97,7 +97,7 @@ try {
   }
   await sleep(300);
 
-  await page.click('.side-tab:has-text("Prototype")');
+  await page.click('.side-tab:has-text("原型")');
   await sleep(300);
   await page.click('.proto-add');
   await sleep(300);
@@ -212,7 +212,7 @@ try {
     await page.mouse.up();
     await sleep(500);
     // 切 Prototype 面板数交互行（Frame 保持选中；拖线合成 click 已抑制，选区不变）
-    await page.click('.side-tab:has-text("Prototype")');
+    await page.click('.side-tab:has-text("原型")');
     await sleep(400);
     const protoAfter = await page.locator('.proto-row').count();
     step('拖连接点创建 Navigate 交互', protoAfter > protoBefore, `交互行 ${protoBefore} → ${protoAfter}`);

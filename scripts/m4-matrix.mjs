@@ -131,7 +131,7 @@ function record(id, name, ok, note = '', shot = '') {
 
 async function openPage(name) {
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(pagesDir, name, 'page.json'));
@@ -274,7 +274,7 @@ try {
   // ================= P0-37 节点 Export PNG@2x/SVG/ZIP（FR-24）=================
   {
     await clickLayerRow(2);
-    const expSec = '.prop-section:has(.prop-heading:has-text("Export"))';
+    const expSec = '.prop-section:has(.prop-heading:has-text("导出"))';
     await page.locator(`${expSec} .mini-btn:has-text("添加导出设置")`).click();
     await sleep(250); // PNG 1x
     await page.locator(`${expSec} .mini-btn:has-text("添加导出设置")`).click();
@@ -283,7 +283,7 @@ try {
     await fmtSel.nth(1).selectOption('SVG');
     await sleep(250);
     const svg1x = await page.evaluate(() => {
-      const sec = Array.from(document.querySelectorAll('.prop-heading')).find((h) => h.textContent.trim() === 'Export')?.closest('.prop-section');
+      const sec = Array.from(document.querySelectorAll('.prop-heading')).find((h) => h.textContent.trim() === '导出')?.closest('.prop-section');
       const rows = sec ? Array.from(sec.querySelectorAll('.fill-layer')) : [];
       const scaleRow = rows[1] ? rows[1].querySelectorAll('select.panel-select') : [];
       const scale = scaleRow[scaleRow.length - 1];
@@ -302,7 +302,7 @@ try {
     await sleep(250);
     await page.screenshot({ path: join(outDir, 'p037-export设置.png') });
     const dlPromise = page.waitForEvent('download', { timeout: 20000 });
-    await page.click('.menu-btn:has-text("File")');
+    await page.click('.menu-btn:has-text("文件")');
     await page.click('.menu-dropdown .menu-item:has-text("导出所选")');
     const dl = await dlPromise;
     const zipPath = join(outDir, 'p037-export.zip');
@@ -528,7 +528,7 @@ try {
   // ================= P1-10 tokens.css 导出结构（FR-28）=================
   {
     const dlPromise = page.waitForEvent('download', { timeout: 20000 });
-    await page.click('.menu-btn:has-text("File")');
+    await page.click('.menu-btn:has-text("文件")');
     await page.click('.menu-dropdown .menu-item:has-text("导出所选")');
     const dl = await dlPromise;
     const zipPath = join(outDir, 'p110-tokens.zip');

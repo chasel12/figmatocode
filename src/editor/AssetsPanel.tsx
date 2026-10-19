@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useEditor } from './store';
+import { NumField } from './NumericField';
 import { currentVariantProps, variantGroupOf, variantPropertyNames, variantValueNames, variantsInGroup } from './variants';
 import type { ComponentDef } from '../schema/types';
 import type { StyleTokenKind } from '../schema/types';
@@ -258,7 +259,7 @@ export function AssetsPanel() {
             </button>
             <button
               className="mini-btn"
-              title="为选中节点创建 Layout grid 样式"
+                title="为选中节点创建布局网格样式"
               disabled={isRoot}
               onClick={() =>
                 dispatch({
@@ -310,34 +311,34 @@ export function AssetsPanel() {
                       />
                     )}
                     {t.kind === 'TEXT' && (
-                      <input
+                      <NumField
                         className="assets-token-num"
-                        type="number"
-                        min={1}
                         title="字号（引用者同步更新）"
                         value={t.style.fontSize ?? 16}
-                        onChange={(e) =>
-                          dispatch({ type: 'UPDATE_TOKEN', id: t.id, style: { fontSize: Math.max(1, Number(e.target.value) || 1) } })
-                        }
+                        min={1}
+                        max={200}
+                        onInput={(v) => dispatch({ type: 'UPDATE_TOKEN', id: t.id, style: { fontSize: Math.max(1, v) } })}
+                        onCommit={() => {}}
                       />
                     )}
                     {t.kind === 'EFFECT' && (
-                      <span className="assets-token-meta" title="效果条数（改值请用右栏 Effects 分区）">
+                      <span className="assets-token-meta"                 title="效果条数（改值请用右栏效果分区）">
                         {(t.style.effects ?? []).length} 项
                       </span>
                     )}
                     {t.kind === 'GRID' && (
-                      <input
+                      <NumField
                         className="assets-token-num"
-                        type="number"
-                        min={1}
-                        title="Grid 小格边长（px）"
+                        title="网格小格边长（px）"
                         value={(t.grids ?? [])[0]?.sectionSize ?? (t.grids ?? [])[0]?.gutter ?? 16}
-                        onChange={(e) => {
-                          const size = Math.max(1, Number(e.target.value) || 1);
+                        min={1}
+                        max={200}
+                        onInput={(v) => {
+                          const size = Math.max(1, v);
                           // GRID 承载在 token.grids（非 style），故 UPDATE_TOKEN 走 grids 分支
                           dispatch({ type: 'UPDATE_TOKEN', id: t.id, grids: (t.grids ?? []).map((g, i) => (i === 0 ? { ...g, sectionSize: size, gutter: size } : g)) });
                         }}
+                        onCommit={() => {}}
                       />
                     )}
                     <button

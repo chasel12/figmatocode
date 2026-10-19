@@ -50,7 +50,7 @@ try {
   step('打开编辑器', true);
 
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(process.cwd(), 'dist', 'pages', '03-商品列表', 'page.json'));
@@ -62,10 +62,10 @@ try {
   step('打开 demo 页 03-商品列表', loadedRows >= 10, `图层行数=${loadedRows}`);
 
   await page.click('.side-tab:has-text("资产")');
-  await page.click('[title="添加 Frame"]');
-  await page.click('[title="添加 Text"]');
-  await page.click('[title="添加 Button"]');
-  await page.click('[title="添加 Image"]');
+  await page.click('[title="添加 框架"]');
+  await page.click('[title="添加 文本"]');
+  await page.click('[title="添加 按钮"]');
+  await page.click('[title="添加 图片"]');
   await sleep(300);
   await page.click('.side-tab:has-text("图层")');
   await sleep(200);
@@ -104,13 +104,13 @@ try {
   // FR-14：工具轨拖画 Section（Page 顶层）与 Slice（虚线圈定框）——创建走查
   const beforeSS = await page.locator('.layer-row').count();
   const stageBox = await page.locator('.konvajs-content').boundingBox();
-  await page.click('.tool-strip [title="Section"]');
+  await page.click('.tool-strip [title="分区"]');
   await page.mouse.move(stageBox.x + 140, stageBox.y + 140);
   await page.mouse.down();
   await page.mouse.move(stageBox.x + 340, stageBox.y + 300, { steps: 8 });
   await page.mouse.up();
   await sleep(300);
-  await page.click('.tool-strip [title="Slice"]');
+  await page.click('.tool-strip [title="切片"]');
   await page.mouse.move(stageBox.x + 380, stageBox.y + 160);
   await page.mouse.down();
   await page.mouse.move(stageBox.x + 500, stageBox.y + 260, { steps: 6 });
@@ -129,7 +129,7 @@ try {
     `图层 ${beforeSS} → ${afterSS}，Section=${secRows} Slice=${sliceRows}`,
   );
 
-  await page.click('.toolbar button:has-text("Pixel Diff")');
+  await page.click('.toolbar button:has-text("像素比对")');
   await page.waitForSelector('.diff-modal .diff-details', { timeout: 20000 });
   await page.waitForFunction(() => {
     const el = document.querySelector('.diff-modal .diff-number');

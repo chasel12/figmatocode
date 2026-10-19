@@ -58,7 +58,7 @@ try {
   const rightTabs = await page.locator('.sidebar-right .side-tab').allInnerTexts();
   step(
     '三栏 + 菜单栏 + 工具条结构',
-    menubar === 7 && tools === 13 && leftTabs.join(',') === '页面,图层,资产' && rightTabs.join(',') === 'Design,Prototype',
+    menubar === 7 && tools === 13 && leftTabs.join(',') === '页面,图层,资产' && rightTabs.join(',') === '设计,原型',
     `menu=${menubar} tools=${tools} left=${leftTabs.join('/')} right=${rightTabs.join('/')}`,
   );
   // 断言报备：FR-40 落地后 Prototype tab 已启用（原为占位禁用），故本步改为
@@ -66,14 +66,14 @@ try {
   step(
     '占位禁用：分享（Prototype 已启用）',
     (await page.locator('.toolbar button:has-text("分享")').isDisabled()) &&
-      !(await page.locator('.sidebar-right .side-tab:has-text("Prototype")').isDisabled()),
+      !(await page.locator('.sidebar-right .side-tab:has-text("原型")').isDisabled()),
   );
 
   // 1b) 7 菜单全集 + Help 快捷键面板（FR-33 / FR-9）
   const menuTexts = await page.locator('.menubar .menu-btn').allInnerTexts();
   step(
-    '7 菜单全集（File/Edit/View/Object/Text/Plugins/Help）',
-    ['File', 'Edit', 'View', 'Object', 'Text', 'Plugins', 'Help'].every((m) => menuTexts.includes(m)),
+    '7 菜单全集（文件/编辑/视图/对象/文本/插件/帮助）',
+    ['文件', '编辑', '视图', '对象', '文本', '插件', '帮助'].every((m) => menuTexts.includes(m)),
     menuTexts.join('/'),
   );
   await page.keyboard.press('Control+Shift+?');
@@ -84,14 +84,14 @@ try {
   await page.keyboard.press('Escape');
   await sleep(120);
   step('Esc 关闭快捷键面板', !(await page.locator('.shortcuts-dialog').isVisible()));
-  await page.click('.menu-btn:has-text("Plugins")');
+  await page.click('.menu-btn:has-text("插件")');
   const pluginDisabled = await page.locator('.menu-dropdown .menu-item:disabled').count();
   const pluginNote = await page.locator('.menu-dropdown .menu-item:disabled').first().getAttribute('title');
   step('Plugins 菜单整组置灰 + tooltip 标注', pluginDisabled === 3 && !!pluginNote, `disabled=${pluginDisabled}, note=${pluginNote}`);
   await page.keyboard.press('Escape');
 
   // 2) File 菜单：打开/合起/禁用项（FR-25；FR-24 起「导出所选」启用，禁用项仅剩导入占位 ≥1）
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   const menuVisible = await page.locator('.menu-dropdown').isVisible();
   const items = await page.locator('.menu-dropdown .menu-item').allInnerTexts();
   const disabledItems = await page.locator('.menu-dropdown .menu-item:disabled').count();
@@ -117,7 +117,7 @@ try {
 
   // 4) 打开 demo 页 03（真实子节点）
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles('dist/pages/03-商品列表/page.json');
@@ -126,9 +126,9 @@ try {
   step('打开 demo 页 03', baseRows >= 10, `rows=${baseRows}`);
 
   // 5) 工具切换（FR-27）：点 Frame 工具 → active 高亮
-  await page.click('.tool-btn[title^="Frame"]');
+  await page.click('.tool-btn[title^="框架"]');
   await sleep(80);
-  const frameActive = await page.locator('.tool-btn[title^="Frame"]').evaluate((el) => el.classList.contains('is-active'));
+  const frameActive = await page.locator('.tool-btn[title^="框架"]').evaluate((el) => el.classList.contains('is-active'));
   step('工具条切换 Frame（is-active）', frameActive);
 
   // 6) Frame 预设 iPhone SE 375×667（P0-20）
@@ -142,7 +142,7 @@ try {
   step('预设创建 iPhone SE（+1 层）', afterPreset === baseRows + 1 && seName.includes('iPhone SE'), `${baseRows} → ${afterPreset}, name=${seName}`);
 
   // 7) 画布拖画创建（FR-14 / P0-20）
-  await page.click('.tool-btn[title^="Frame"]');
+  await page.click('.tool-btn[title^="框架"]');
   await sleep(60);
   const box = await page.locator('.canvas-wrap').boundingBox();
   const sx = box.x + box.width * 0.55;
@@ -251,18 +251,19 @@ try {
   step('多选显示对齐/分布条', alignVisible && alignBtns >= 8, `buttons=${alignBtns}`);
   await page.keyboard.press('Escape');
 
-  // 12) 主题切换往返（FR-24）
+  // 12) 主题切换往返（FR-24）：出厂默认浅色（白天），第一击切深色，第二击切回浅色
   const bgBefore = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   await page.click('.btn-theme');
   await sleep(120);
   const themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
-  const bgLight = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  const persisted = await page.evaluate(() => localStorage.getItem('ui-compiler.theme'));
-  step('切换浅色主题', themeAttr === 'light' && bgLight !== bgBefore && persisted === 'light', `bg ${bgBefore} → ${bgLight}`);
+  const bgDark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const persistedFirst = await page.evaluate(() => localStorage.getItem('ui-compiler.theme'));
+  step('默认浅色 → 切换深色主题', themeAttr === 'dark' && bgDark !== bgBefore && persistedFirst === 'dark', `bg ${bgBefore} → ${bgDark}`);
   await page.click('.btn-theme');
   await sleep(120);
   const themeBack = await page.evaluate(() => document.documentElement.dataset.theme);
-  step('切回深色主题', themeBack === 'dark', themeBack);
+  const bgBack = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  step('再次点击切回浅色（出厂默认）', themeBack === 'light' && bgBack === bgBefore, themeBack);
 
   step('无页面错误', errors.length === 0, errors.slice(0, 3).join(' | '));
 } catch (e) {

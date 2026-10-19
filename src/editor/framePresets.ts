@@ -3,5 +3,5 @@ export const FRAME_PRESETS: { label: string; w: number; h: number }[] = [
   { label: 'iPhone 15 Pro', w: 393, h: 852 },
   { label: 'iPhone SE', w: 375, h: 667 },
   { label: 'iPad', w: 820, h: 1180 },
-  { label: 'Desktop', w: 1440, h: 900 },
+  { label: '桌面', w: 1440, h: 900 },
 ];

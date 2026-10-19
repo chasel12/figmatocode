@@ -2,7 +2,24 @@
 
 const TAU = Math.PI * 2;
 
-/** 正多边形点集（百分比 0-100）：顶点朝上、顺时针 */
+/** 对称点集归一化到 [0,100]²：极点（顶角/边中点）触外接框四边——与 Figma「拖画即贴合选框」口径一致 */
+function normalizeToBox(pts: [number, number][]): [number, number][] {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of pts) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const sx = maxX - minX > 0 ? 100 / (maxX - minX) : 1;
+  const sy = maxY - minY > 0 ? 100 / (maxY - minY) : 1;
+  return pts.map(([x, y]) => [(x - minX) * sx, (y - minY) * sy]);
+}
+
+/** 正多边形点集（百分比 0-100）：顶点朝上、顺时针、归一化到外接框 */
 export function polygonUnitPoints(count: number): [number, number][] {
   const n = Math.max(3, Math.round(count));
   const pts: [number, number][] = [];
@@ -10,10 +27,10 @@ export function polygonUnitPoints(count: number): [number, number][] {
     const a = -Math.PI / 2 + (i * TAU) / n;
     pts.push([50 + 50 * Math.cos(a), 50 + 50 * Math.sin(a)]);
   }
-  return pts;
+  return normalizeToBox(pts);
 }
 
-/** 星形点集（百分比 0-100）：外点 50、内点 50*inner，交替、顶朝上 */
+/** 星形点集（百分比 0-100）：外点 50、内点 50*inner，交替、顶朝上、归一化到外接框 */
 export function starUnitPoints(count: number, inner: number): [number, number][] {
   const n = Math.max(3, Math.min(60, Math.round(count)));
   const r = Math.max(0, Math.min(1, inner));
@@ -23,7 +40,7 @@ export function starUnitPoints(count: number, inner: number): [number, number][]
     const a = -Math.PI / 2 + (i * Math.PI) / n;
     pts.push([50 + radius * Math.cos(a), 50 + radius * Math.sin(a)]);
   }
-  return pts;
+  return normalizeToBox(pts);
 }
 
 /** 单位点集 → clip-path polygon() 串（百分比） */

@@ -48,7 +48,7 @@ try {
 
   // 打开含 VECTOR 的样片页（17-样片-图层种类）
   const fcPromise = page.waitForEvent('filechooser');
-  await page.click('.menu-btn:has-text("File")');
+  await page.click('.menu-btn:has-text("文件")');
   await page.click('.menu-dropdown .menu-item:has-text("打开")');
   const fc = await fcPromise;
   await fc.setFiles(join(process.cwd(), 'dist', 'pages', '17-样片-图层种类', 'page.json'));
@@ -94,39 +94,69 @@ try {
     step('取到 VECTOR 基线 d', d0.length > 0, `d=${d0.slice(0, 48)}`);
 
     if (view && stageBox0) {
-      // 锚点 page 坐标 = 节点几何原点；stage 变换：screen = stageBox + view.{x,y} + page*scale
-      const anchorScreen = await page.evaluate((v) => {
-        const snap = window.__UIC_E2E__?.snapshot?.();
-        if (!snap?.children?.length) return null;
-        // 找第一个 VECTOR 节点的几何原点
-        const vec = snap.children.find((c) => c.type === 'VECTOR') ?? snap.children.find((c) => c.width > 0);
-        if (!vec) return null;
-        return { x: vec.x, y: vec.y };
-      }, view);
+      // 自校准命中阶梯：构造多套锚点屏幕坐标候选，逐个试拖；只有真命中锚点才会改变 d
+      //（拖整节点=平移、点空=改选中，均不改 d，天然免疫误报）。命中即停并验证 Ctrl+Z。
+      const mFirst = d0.match(/M\s*(-?[\d.]+)\s+(-?[\d.]+)/);
+      const selId = await page.evaluate(() => document.querySelector('.layer-row.is-selected')?.getAttribute('data-node-id') ?? null);
+      const konvaInfo = await page.evaluate(() => {
+        const stage = window.Konva?.stages?.[0];
+        if (!stage) return null;
+        const dots = stage.find('Circle').filter((c) => c.radius() < 8);
+        if (!dots.length) return null;
+        const p = dots[0].getAbsolutePosition();
+        return { x: p.x, y: p.y, stageX: stage.x(), stageY: stage.y(), scale: stage.scaleX() };
+      });
+      const snap = await page.evaluate(() => window.__UIC_E2E__?.snapshot?.() ?? null);
+      const deepFind = (o, id) => {
+        if (!o || typeof o !== 'object' || !id) return null;
+        if (Array.isArray(o)) { for (const it of o) { const f = deepFind(it, id); if (f) return f; } return null; }
+        if (o.id === id) return o;
+        for (const v of Object.values(o)) { const f = deepFind(v, id); if (f) return f; }
+        return null;
+      };
+      const gNode = deepFind(snap, selId);
+      const gGeom = selId ? await page.evaluate((id) => window.__UIC_E2E__?.geometryOf?.(id) ?? null, selId) : null;
+      console.log(`[p104] selId=${selId} konva=${JSON.stringify(konvaInfo)} snapNode=${JSON.stringify(gNode)} geom=${JSON.stringify(gGeom)}`);
 
-      if (anchorScreen) {
-        const sx = stageBox0.x + view.x + anchorScreen.x * view.scale;
-        const sy = stageBox0.y + view.y + anchorScreen.y * view.scale;
-        await page.mouse.move(sx, sy);
+      const candidates = [];
+      if (konvaInfo) {
+        candidates.push({ tag: 'K1', x: stageBox0.x + konvaInfo.x, y: stageBox0.y + konvaInfo.y });
+        candidates.push({ tag: 'K2', x: stageBox0.x + view.x + konvaInfo.x * view.scale, y: stageBox0.y + view.y + konvaInfo.y * view.scale });
+      }
+      for (const [tag, g] of [['S1', gNode], ['G1', gGeom]]) {
+        if (g && mFirst) {
+          const px = g.x + Number(mFirst[1]);
+          const py = g.y + Number(mFirst[2]);
+          candidates.push({ tag, x: stageBox0.x + view.x + px * view.scale, y: stageBox0.y + view.y + py * view.scale });
+        }
+      }
+
+      let hit = null;
+      for (const c of candidates) {
+        await vecRow.click();
+        await sleep(400);
+        await page.mouse.move(c.x, c.y);
         await sleep(200);
         await page.mouse.down();
-        await page.mouse.move(sx + 45, sy + 35, { steps: 10 });
+        await page.mouse.move(c.x + 45, c.y + 35, { steps: 10 });
         await page.mouse.up();
         await sleep(700);
-        await page.screenshot({ path: join(OUT, '02-拖拽后.png') });
-
-        const d1 = await dOf();
-        step('拖拽后 d 存在', d1.length > 0, `d=${d1.slice(0, 48)}`);
-        step('锚点拖拽改变了路径', d1 !== d0, d1 === d0 ? `未命中锚点（screen=${Math.round(sx)},${Math.round(sy)}）` : '路径已更新');
-
-        // 撤销应恢复原 d
+        await page.screenshot({ path: join(OUT, `02-拖拽后-${c.tag}.png`) });
+        const dTry = await dOf();
+        if (dTry.length > 0 && dTry !== d0) {
+          hit = c;
+          await page.keyboard.press('Control+z');
+          await sleep(600);
+          const d2 = await dOf();
+          step('锚点拖拽改变了路径', true, `${c.tag} 命中 screen=(${Math.round(c.x)},${Math.round(c.y)})，d 已变 ✓`);
+          step('Ctrl+Z 撤销回到原路径', d2 === d0, d2 === d0 ? '' : `d2=${d2.slice(0, 40)}`);
+          break;
+        }
+        console.log(`[p104] 候选 ${c.tag}(${Math.round(c.x)},${Math.round(c.y)}) 未改 d，换下一候选`);
         await page.keyboard.press('Control+z');
-        await sleep(600);
-        const d2 = await dOf();
-        step('Ctrl+Z 撤销回到原路径', d2 === d0, d2 === d0 ? '' : `d2=${d2.slice(0, 40)}`);
-      } else {
-        step('锚点定位（需 e2e 通道）', false, 'snapshot 未含 VECTOR 几何');
+        await sleep(300);
       }
+      if (!hit) step('锚点拖拽改变了路径', false, `候选全未命中：${candidates.map((c) => `${c.tag}@${Math.round(c.x)},${Math.round(c.y)}`).join(' ; ')}`);
     } else {
       // e2e 通道未挂载（VITE_E2E_HOOK 构建）——退化为「锚点渲染可见性」检查：
       // 选中 VECTOR 后画布应渲染锚点圆（Konva Circle），由此证明 P1-04 入口存在。
