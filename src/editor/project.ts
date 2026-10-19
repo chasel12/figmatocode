@@ -76,6 +76,22 @@ function parseV1(data: unknown): UIPage | null {
 }
 
 /**
+ * 差异 #20 健壮性护栏（2026-10-19 四渠道审计发现）：外部/手改 v2 文件叶子节点缺 `children` 数组时，
+ * 画布 NodeView 按容器迭代 children 会抛错白屏。应用自产 JSON 恒带该字段，故历轮未暴露。
+ * 统一在解析出口补齐为 `[]`（不改变语义：是否容器按 type 判定，与本补丁前一致）。
+ */
+function ensureChildren(project: UIProject): UIProject {
+  const fix = (node: unknown): void => {
+    const n = node as { children?: unknown };
+    if (!n || typeof n !== 'object') return;
+    if (!Array.isArray(n.children)) n.children = [];
+    (n.children as unknown[]).forEach(fix);
+  };
+  project.pages.forEach((p) => fix(p.root));
+  return project;
+}
+
+/**
  * File→打开 / autosave 读侧统一入口：**同时解析** v1（`data.page`）与 v2（`data.project`），
  * 两者都统一走 upgradeProjectV1 归一，返回 `{project, upgradedFromV1}` 供调用方决定回写策略。
  * 无法识别 → 抛错（沿既有 File→打开 的 alert 先例）。
@@ -83,13 +99,13 @@ function parseV1(data: unknown): UIPage | null {
 export function parseProject(raw: unknown): { project: UIProject; upgradedFromV1: boolean } {
   const data = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
   const v2 = parseV2(data);
-  if (v2) return { project: v2, upgradedFromV1: false };
+  if (v2) return { project: ensureChildren(v2), upgradedFromV1: false };
   const v1 = parseV1(data);
   if (v1) {
     const projectName = typeof (data as { projectName?: unknown })?.projectName === 'string'
       ? (data as { projectName: string }).projectName
       : undefined;
-    return { project: upgradeProjectV1(v1, projectName), upgradedFromV1: true };
+    return { project: ensureChildren(upgradeProjectV1(v1, projectName)), upgradedFromV1: true };
   }
   throw new Error('无效的工程文件：既非 v2 工程（project）也非 v1 单页（page）');
 }

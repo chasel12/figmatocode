@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import KonvaLib from 'konva';
 import { Arc, Arrow, Circle, Ellipse, Group, Image as KImage, Layer, Line, Path as KPath, Rect, Stage, Text as KText } from 'react-konva';
 import type Konva from 'konva';
+import { effectPreviewFor, noiseTileCanvas } from './tools/effectPreview';
 import type { ContainerNode, FillLayer, LayoutSchema, PrototypeInteraction, StyleSchema, UINode } from '../schema/types';
 import { hasText, isContainer } from '../schema/types';
 import { FONT_STACK } from '../font';
@@ -254,6 +255,25 @@ function shadowProps(style: StyleSchema): Record<string, unknown> {
   };
 }
 
+/**
+ * FR-19 画布图层模糊（差异 #18 修复）：组合级缓存——Group 走 Container.drawScene 的 isCached 分支
+ * （Konva 9.3.22 源码实证），把节点全部填充层+描边+投影作为合成图整体模糊（= CSS filter / Figma 语义）；
+ * 逐 Shape 缓存会把均匀色模糊成无变化（双重假阴性教训）。缓存=静态快照，内容/半径签名变化必须重缓存。
+ */
+function FxBlurGroup({ radius, sig, children }: { radius: number; sig: string; children: React.ReactNode }) {
+  const ref = useRef<Konva.Group>(null);
+  useEffect(() => {
+    const g = ref.current;
+    if (!g) return;
+    g.cache();
+    g.filters([KonvaLib.Filters.Blur]);
+    (g as unknown as { blurRadius: (r: number) => void }).blurRadius(radius);
+    g.getLayer()?.batchDraw();
+    return () => (g as unknown as { uncache?: () => void }).uncache?.();
+  }, [radius, sig]);
+  return <Group ref={ref}>{children}</Group>;
+}
+
 function dropIndex(parent: ContainerNode, geometry: GeometryMap, point: { x: number; y: number }, dragId: string): number {
   if (parent.layout.mode === 'ABSOLUTE') return parent.children.length;
   const vertical = parent.layout.mode === 'VERTICAL';
@@ -391,6 +411,11 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
     onMouseLeave: handleLeave,
     onDblClick: handleDbl,
   };
+  // FR-19/34 画布所见即所得（差异 #18/#19）：blend→globalCompositeOperation（模糊走 FxBlurGroup 整组缓存，声明式 filters 对未缓存节点无效）
+  const fx = effectPreviewFor(style);
+  const fxLayerProps: Record<string, unknown> = {
+    ...(fx.blend ? { globalCompositeOperation: fx.blend } : {}),
+  };
   if (!geom) return null;
 
   let shape: React.ReactNode = null;
@@ -436,6 +461,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
         <Rect
           {...common}
           {...shadowProps(style)}
+          {...fxLayerProps}
           x={geom.x}
           y={geom.y}
           width={geom.width}
@@ -491,6 +517,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
         <Rect
           {...common}
           {...shadowProps(style)}
+          {...fxLayerProps}
           x={geom.x}
           y={geom.y}
           width={geom.width}
@@ -529,6 +556,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
         <KImage
           {...common}
           {...shadowProps(style)}
+          {...fxLayerProps}
           image={img}
           x={ix}
           y={iy}
@@ -545,6 +573,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
         <Rect
           {...common}
           {...shadowProps(style)}
+          {...fxLayerProps}
           x={geom.x}
           y={geom.y}
           width={geom.width}
@@ -734,6 +763,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
             const top = idx === bottomUp.length - 1;
             const layerProps = {
               ...common,
+              ...fxLayerProps,
               ...(top ? sp : {}),
               ...(idx === 0 ? shadowProps(style) : {}),
               ...fillLayerProps(f, geom),
@@ -747,6 +777,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
     } else {
       const baseProps = {
         ...common,
+        ...fxLayerProps,
         ...sp,
         ...shadowProps(style),
         fill: style.background ?? (node.type === 'RECTANGLE' || isOval || isPoly || isStar ? '#E8E8E8' : 'transparent'),
@@ -754,6 +785,25 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
         listening,
       };
       shape = renderOne('base', baseProps);
+    }
+    // 噪声/纹理/玻璃：上层覆盖（renderOne 复用节点自身几何——多边形/星形/椭圆同样贴合）
+    if (fx.overlay) {
+      const ov = fx.overlay;
+      const oProps: Record<string, unknown> = { ...common, listening: false };
+      if (ov.mode === 'pattern') {
+        const tile = noiseTileCanvas(ov.tileKey, ov.cell, ov.color, ov.color2);
+        if (tile) Object.assign(oProps, { fillPatternImage: tile, fillPatternRepeat: 'repeat', fillPriority: 'pattern', opacity: ov.opacity });
+      } else {
+        Object.assign(oProps, { fill: ov.color, opacity: ov.opacity });
+      }
+      if (oProps.fillPriority === 'pattern' || oProps.fill !== undefined) {
+        shape = (
+          <>
+            {shape}
+            {renderOne('fx-overlay', oProps)}
+          </>
+        );
+      }
     }
   }
 
@@ -773,7 +823,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
       onMouseLeave={handleLeave}
       onDblClick={handleDbl}
     >
-      {shape}
+      {fx.blurRadius ? <FxBlurGroup radius={fx.blurRadius} sig={JSON.stringify(style)}>{shape}</FxBlurGroup> : shape}
       {node.type === 'SECTION' && !isRoot && (
         <KText
           text={node.name}

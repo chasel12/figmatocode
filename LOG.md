@@ -1555,3 +1555,24 @@
 **验证**：dist/param-audit/{report.json+report2.json, params.md+params2.md, spec.json, shots/+shots2/ 全配对截图}；tsc 0（审计脚本不入产品编译链）；vitest 525 未动。
 
 **遗留**：①差异 #18/#19 处置（补画布预览 or 明示"以导出为准"）与 #20 修复（<1h）均待 PM 拍板；②IMAGE 靶与样式分区按钮型控件=声明边界未审（各有既有凭据覆盖）；③探针 _panel-probe.ts 已删。
+
+---
+
+### [2026-10-19] M6 第二十一步：PM「都修」执行——画布所见即所得（#18/#19）+ 白屏护栏（#20）修复完成
+
+**目标**：A=编辑画布补效果/混合实时预览；B=外部畸形 v2 工程（叶子缺 children）白屏护栏。
+
+**前置**：接管并发会话 WIP 落库（21h 静默核实，九门禁全绿实测，`d8e127a`——NumericField 控件统一/FR-36 脱流拖动/点集归一化），为热点文件腾出干净基线。
+
+**修改内容**：
+- **B（#20）**：`src/editor/project.ts` parseProject 出口 `ensureChildren`（v2/v1 两路递归补 `[]`）+ `tests/robustness-children.test.ts` 3 例锁。
+- **A（#18/#19）**：新 `src/editor/tools/effectPreview.ts`（纯函数映射+确定性噪声贴片生成，10 例单测 `tests/effect-preview.test.ts`）；`Canvas.tsx` 接线：blendMode→globalCompositeOperation（16 模式）、LAYER_BLUR/PROGRESSIVE(均值同出码)→**组合级 FxBlurGroup**（Group.cache+filters+blurRadius，style 签名变化重缓存）、NOISE/TEXTURE→pattern 覆盖贴片、GLASS→tint 覆盖（多效果首命中）。
+- **保留口径（不粉饰）**：INNER_SHADOW/BACKGROUND_BLUR（Konva 无 inset/backdrop）、shadow spread（无该 attr）、cornerSmoothing、paragraphIndent →「以导出为准」，已在差异 #18/#19 状态注记。
+
+**Konva 疑难全程（重要教训两条）**：① `cache(config)` 不消费 config.filters，滤镜必须走 `node.filters([...])` attr（9.3.22 源码实证）；② **均匀纯色 + 按节点 bbox 裁剪的缓存 = 模糊数学恒等**——探针「模糊无效」结论两次假阴性（纯色矩形/蓝块独立节点），Group 组合缓存路径其实一直可行（Container.drawScene 确有 isCached 分支，此前 grep 窗口误判）。逐 Shape 缓存方案中途废弃回退组合级。
+
+**结果（审计工具自身复测）**：三渠道全通 **81→97 行**；效果区响应分布 DROP 8/10(spread 2 保留)、LAYER 2/3、PROGRESSIVE 5/5、NOISE 8/8、blendMode 1/1；INNER/BACKG/TEXTURE/GLASS 哑=设计口径。**全门禁**：tsc 0 · vitest **543/543**(+18) · build/e2e-hook ✓ · canvasdiff **18/19 avg 98.13%(↑)** · m12 24/24 · m4 **12/12** · m5 16/16 · 附A 19/19 附B 11/11 附C 7/7 · walkthrough 9/9 · m1 22 · m2 27 · present 18/18 · viewport 76/76（e2e 出码链路未动）。
+
+**修改文件**：Canvas.tsx / project.ts / tools/effectPreview.ts（新）/ 2 新测试 / checklist 差异 #18#19#20 状态 / go-no-go §四#9 / 本 LOG。探针 _panel-probe/_konva-micro/_blur-check 验毕即删。
+
+**遗留**：无新增。增强 #9 关闭；差异 #18/#19 以「已修复+明示口径」结案；项目维持已关闭 GO 状态（本批属 PM 指示的 GA 后增强首单）。
