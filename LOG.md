@@ -1764,3 +1764,35 @@ tsc **0** · vitest **560/560**（41 文件）· build OK · e2e **19/19 ≥98%*
 - 嵌套实例的属性传递：`captureOverrideForTarget` 取**最近**实例祖先（内层优先），已有单测锁定；跨层级的"透传"未做（Figma 亦无此语义）。
 
 **遗留**：队列下一项 **#4 三小项**（stretch 约束档 / Layout grid 独立分区入口 / overlay 自由拖拽），随后 **#2 矢量布尔**。#5 画布预览四项经实测均受 Konva 平台限制（需自定义 sceneFunc 或拆多节点重画文本），有破坏 e2e 19/19 与 canvasdiff 98.13% 基线的风险，**已按用户决策暂缓**。
+---
+
+### [2026-10-20] #4 三小项：stretch 约束档 / Layout grid 独立分区 / overlay 自由定位
+
+**目标**：补齐 Figma 差距队列中的 #4 三小项（Variables 经批准不做，避免动冻结 types.ts 的大改）。
+
+#### #4a stretch 约束档（Left+Right / Top+Bottom）
+- **缺口**：`HorizontalConstraint`/`VerticalConstraint` 只有 4 档，Figma 还有「左右同时吸附 → 宽度随父拉伸」，这是移动端**铺满容器**最常用的表达，此前**完全无法表达**。
+- **修改**：`types.ts` 扩枚举 `LEFT_RIGHT`/`TOP_BOTTOM`；`compile.ts` 同时输出 left+right（或 top+bottom）；`PropertyPanel` 下拉加「左和右（拉伸）」「上和下（拉伸）」两项。
+- **关键坑（单测抓到）**：布局段更早已写过 `width: 100px`，而 CSS 中 **left+right+width 同时存在时 width 优先** → stretch 静默失效。修：stretch 档必须 `delete css['width']`/`delete css['height']`。若无此断言，功能会"看起来接了其实没生效"。
+- 测试 `tests/constraint-stretch.test.ts`（5 例）：两档各自出码、双档四边全吸附、存量 4 档语义不变、SCALE 不受影响。
+
+#### #4b Layout grid 独立分区入口
+- **缺口**：`layoutGrids` 只有**引用 GRID 样式**时才经 `tokenDecls` 产出 CSS 变量；右栏无直接入口，与 Figma「选中 Frame → 右栏 Layout grid 分区直接加网格」不一致。
+- **修改**：`PropertyPanel` 新增「Layout grids」分区（类型 Columns/Rows/Grid + 数量 + 间距/格子 + 对齐 + 删除 + 添加）；`compile.ts` 补**直出路径**（Columns/Rows→单条 `repeating-linear-gradient`，GRID→两轴叠加），口径与 `tokens.ts` 的 `gridCss` 一致，叠加顺序在填充之上。
+- **实锤证据**：修复前 UI 点「添加网格」后 `preview.html` **找不到任何 grid**；修复后出码为 `background-image: repeating-linear-gradient(to right, rgba(255,0,0,0.1) 0 1px, transparent 1px 16px)`。
+- 测试 `tests/layout-grids.test.ts`（6 例）：三型出码、隐藏不产出、空数组无背景、叠加在填充之上。
+
+#### #4c overlay 自由拖拽定位
+- **缺口**：`overlayPosition:'MANUAL'` 面板可选，但标注「首版按居中」，runtime 也把 MANUAL 与 PRESET 一起回落 CENTER —— **用户选"手动"拖不动**。
+- **修改**：`types.ts` 加 `overlayOffset:{x,y}`（视口百分比，与设备尺寸解耦）；`PrototypePanel` 在 MANUAL 档显示 X/Y 坐标输入；`runtime.ts` 新增 `.uic-pos-manual` 绝对定位（`left/top: var(--uic-ov-x/y)`），缺省 50% 回落中心（兼容既有工程）。
+- **关键坑**：`INTERACTION_FIELDS` 白名单**不含 `overlayOffset`** → 会被 `projectInteraction` 静默丢弃、runtime 永远读不到。已补入白名单并加断言锁定（这类"白名单漏字段"是投影机制的系统性风险）。
+- 测试 `tests/overlay-manual.test.ts`（5 例）：白名单含字段、坐标保留、编码可解析、无坐标不写空字段、九宫档不含坐标语义。
+
+**验证方式**：`npx tsc --noEmit` **0 错**；`vitest` **603/603**（46 文件，本批 +11 例）；`npm run build` OK；`npm run e2e` **19/19 ≥98%**；`npm run viewport` **76/76**；UI 实测网格出码与 overlay 面板均验证通过。
+
+**报备**：
+- `types.ts` 本批两处扩字段（约束枚举 + `overlayOffset`），均**向后兼容**（存量 JSON 取值语义不变，新字段缺省有回落）。
+- #4b 的网格出码是**编辑器辅助线的 CSS 等价表达**（`repeating-linear-gradient` 画线），非 Figma 的真实栅格布局——与既有 GRID 样式口径一致，已在 audit-report §A 段登记。
+- overlay 自由定位用**百分比**而非像素：像素在响应式/多设备下会漂，百分比更稳；Figma 本身也是相对位置语义。
+
+**遗留**：队列最后一项 **#2 矢量布尔**（常见情形精确 + 边界报备）。#5 画布预览四项按用户决策暂缓（受 Konva 平台限制）。

@@ -294,7 +294,17 @@ export function buildRuntimeJs(): string {
     wrap.className = 'uic-overlay';
     var pos = POS_CLASS[it.overlayPosition];
     if (pos) wrap.classList.add(pos);
-    else wrap.classList.add(POS_CLASS.CENTER); // MANUAL / PRESET 首版按 CENTER（PRD「+手动」为 P1）
+    else if (it.overlayPosition === 'MANUAL') {
+      /**
+       * #4c 自由定位（2026-10-20）：MANUAL 不再退化为居中。
+       * 用百分比定位 overlay 面板左上角（相对视口），与视口尺寸解耦；
+       * 未给 offset 时回落中心（等价旧行为，不破坏既有工程）。
+       */
+      var off = it.overlayOffset || { x: 50, y: 50 };
+      wrap.classList.add('uic-pos-manual');
+      wrap.style.setProperty('--uic-ov-x', String(off.x) + '%');
+      wrap.style.setProperty('--uic-ov-y', String(off.y) + '%');
+    } else wrap.classList.add(POS_CLASS.CENTER); // PRESET 首版按 CENTER（PRD 预设为 P1）
     var panel = node.cloneNode(true);
     panel.removeAttribute('hidden');
     panel.classList.add('uic-overlay-panel');
@@ -494,6 +504,9 @@ export function buildRuntimeCss(): string {
 .uic-pos-bottom-left { display: flex; align-items: flex-end; justify-content: flex-start; padding: 24px; }
 .uic-pos-bottom-center { display: flex; align-items: flex-end; justify-content: center; padding: 24px; }
 .uic-pos-bottom-right { display: flex; align-items: flex-end; justify-content: flex-end; padding: 24px; }
+/* #4c 自由定位：面板左上角按 --uic-ov-x/y 百分比落到视口对应位置 */
+.uic-pos-manual { display: block; }
+.uic-pos-manual > .uic-overlay-panel { left: var(--uic-ov-x, 50%); top: var(--uic-ov-y, 50%); }
 .uic-img-fallback { background: #e0e0e0; }
 `;
 }

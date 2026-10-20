@@ -381,8 +381,23 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     const x0 = (L.x ?? 0) + ml;
     const y0 = (L.y ?? 0) + mt;
     const pct = (v: number): string => `${Math.round(v * 10000) / 100}%`;
-    // horizontal：LEFT=left px（缺省）/ RIGHT=right 边距 / CENTER=相对父中心 calc / SCALE=百分比 left+width
-    if (hc === 'RIGHT' && parentContentW != null && L.width != null) {
+    /**
+     * #4a stretch 档（2026-10-20）：`LEFT_RIGHT` / `TOP_BOTTOM` = 两边同时吸附。
+     * 出码同时给 left+right（或 top+bottom）、**不输出 width/height**，
+     * 由浏览器按两点距离拉伸——这正是 Figma「Left and right / Top and bottom」的语义，
+     * 也是移动端「铺满父容器宽度」最常用的约束表达（此前 4 档无法表达）。
+     */
+    if (hc === 'LEFT_RIGHT' && parentContentW != null) {
+      css['left'] = px(x0);
+      css['right'] = px(parentContentW - x0 - (L.width ?? 0));
+      /**
+       * 关键：必须**删掉 width**。
+       * 布局段更早处已按 layout.width 写过 `width: 100px`，而 CSS 中
+       * 「left+right+width 同时存在」时 width 优先 → 拉伸彻底失效。
+       * 单测 `constraint-stretch.test.ts` 正是靠这条断言守住的。
+       */
+      delete css['width'];
+    } else if (hc === 'RIGHT' && parentContentW != null && L.width != null) {
       css['right'] = px(parentContentW - x0 - L.width);
       if (L.x == null && ml === 0) css['right'] = px(parentContentW - L.width);
     } else if (hc === 'CENTER' && parentContentW != null) {
@@ -395,7 +410,12 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       if (L.x == null && ml === 0) css['left'] = '0';
     }
     // vertical：TOP=top px（缺省）/ BOTTOM=bottom 边距 / CENTER=相对父中心 calc / SCALE=百分比 top+height
-    if (vc === 'BOTTOM' && parentContentH != null && L.height != null) {
+    if (vc === 'TOP_BOTTOM' && parentContentH != null) {
+      css['top'] = px(y0);
+      css['bottom'] = px(parentContentH - y0 - (L.height ?? 0));
+      // 同 LEFT_RIGHT：必须删掉 height，否则 top+bottom+height 中 height 优先、拉伸失效
+      delete css['height'];
+    } else if (vc === 'BOTTOM' && parentContentH != null && L.height != null) {
       css['bottom'] = px(parentContentH - y0 - L.height);
       if (L.y == null && mt === 0) css['bottom'] = px(parentContentH - L.height);
     } else if (vc === 'CENTER' && parentContentH != null) {
@@ -449,6 +469,37 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     } else if (S.background) {
       if (isGradient(S.background)) css['background'] = S.background;
       else css['background-color'] = S.background;
+    }
+  }
+  /**
+   * #4b Layout grids 独立出码（2026-10-20）。
+   *
+   * 此前 `layoutGrids` 只有**引用 GRID 样式**时才会经 `tokenDecls` 产出 CSS 变量，
+   * 右栏直接设置（无样式引用）则完全没有产物——实测「添加网格后预览 html 里找不到任何 grid」。
+   * 这里补上直出路径，口径与 `tokens.ts` 的 `gridCss` 一致：
+   *  Columns/Rows → 重复线性渐变画 1px 网格线；GRID → 两轴叠加。
+   * 网格叠加在填充**之上**（background-image 首项在最上层）。
+   */
+  {
+    const gridDefs = (S.layoutGrids ?? []).filter((g) => g.visible !== false);
+    if (gridDefs.length) {
+      const layers: string[] = [];
+      for (const g of gridDefs) {
+        const color = g.color ?? 'rgba(255, 0, 0, 0.1)';
+        if (g.pattern === 'GRID') {
+          const size = `${g.offset ?? g.sectionSize ?? 8}px`;
+          layers.push(`repeating-linear-gradient(to right, ${color} 0 1px, transparent 1px ${size})`);
+          layers.push(`repeating-linear-gradient(to bottom, ${color} 0 1px, transparent 1px ${size})`);
+        } else {
+          const step = `${g.gutter ?? 0}px`;
+          const dir = g.pattern === 'COLUMNS' ? 'right' : 'bottom';
+          layers.push(`repeating-linear-gradient(to ${dir}, ${color} 0 1px, transparent 1px ${step})`);
+        }
+      }
+      if (layers.length) {
+        const prev = css['background-image'];
+        css['background-image'] = prev ? `${layers.join(', ')}, ${prev}` : layers.join(', ');
+      }
     }
   }
   if (!shapeSvg) {

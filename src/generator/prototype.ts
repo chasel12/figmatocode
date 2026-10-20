@@ -40,6 +40,8 @@ export const INTERACTION_FIELDS = [
   'transition',
   'overlayPosition',
   'overlayCloseOnOutside',
+  // #4c（2026-10-20）：自由定位坐标必须进白名单，否则被投影丢弃、runtime 读不到（实测踩坑）
+  'overlayOffset',
   'changeToVariant',
 ] as const;
 

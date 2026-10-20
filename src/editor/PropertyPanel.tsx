@@ -9,6 +9,7 @@ import type {
   HorizontalConstraint,
   ImageAdjustments,
   JustifyMode,
+  LayoutGridSchema,
   LayoutMode,
   SizeMode,
   StyleSchema,
@@ -480,6 +481,7 @@ export function PropertyPanel() {
             >
               <option value="LEFT">左</option>
               <option value="RIGHT">右</option>
+              <option value="LEFT_RIGHT">左和右（拉伸）</option>
               <option value="CENTER">水平居中</option>
               <option value="SCALE">水平缩放</option>
             </select>
@@ -493,6 +495,7 @@ export function PropertyPanel() {
             >
               <option value="TOP">上</option>
               <option value="BOTTOM">下</option>
+              <option value="TOP_BOTTOM">上和下（拉伸）</option>
               <option value="CENTER">垂直居中</option>
               <option value="SCALE">垂直缩放</option>
             </select>
@@ -1683,6 +1686,103 @@ export function PropertyPanel() {
           </Row>
         </div>
       )}
+
+      {/**
+       * #4b Layout grids 独立分区（2026-10-20）。
+       *
+       * 此前 layoutGrids 只能通过「GRID 样式」间接引用（资产面板），右栏没有直接入口，
+       * 与 Figma「选中 Frame → 右栏 Layout grid 分区直接加列/行网格」的操作路径不一致。
+       * 本分区直接读写 `style.layoutGrids`，并复用 tokens.ts 同一份出码（CSS 变量/网格背景）。
+       */}
+      <div className="prop-section">
+        <div className="prop-heading">Layout grids</div>
+        {(() => {
+          const grids: LayoutGridSchema[] = node.style?.layoutGrids ?? [];
+          const commitGrids = (next: LayoutGridSchema[]): void =>
+            setStyle({ layoutGrids: next.length ? next : undefined }, true);
+          const patchGrid = (i: number, patch: Partial<LayoutGridSchema>): void =>
+            commitGrids(grids.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+          return (
+            <>
+              {grids.map((g, i) => (
+                <div className="grid-row" key={i}>
+                  <Row label={i === 0 ? '类型' : ''}>
+                    <select
+                      className="panel-select"
+                      value={g.pattern}
+                      onChange={(e) => {
+                        patchGrid(i, { pattern: e.target.value as LayoutGridSchema['pattern'] });
+                        commit();
+                      }}
+                    >
+                      <option value="COLUMNS">Columns</option>
+                      <option value="ROWS">Rows</option>
+                      <option value="GRID">Grid</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      title="删除此网格"
+                      onClick={() => {
+                        commitGrids(grids.filter((_, j) => j !== i));
+                        commit();
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </Row>
+                  {g.pattern !== 'GRID' && (
+                    <Row label="数量">
+                      <NumField
+                        value={g.count ?? (g.pattern === 'COLUMNS' ? 4 : 3)}
+                        min={1}
+                        max={24}
+                        onInput={(v) => patchGrid(i, { count: v })}
+                        onCommit={commit}
+                      />
+                    </Row>
+                  )}
+                  <Row label={g.pattern === 'GRID' ? '格子' : '间距'}>
+                    <NumField
+                      value={g.pattern === 'GRID' ? g.offset ?? 8 : g.gutter ?? 16}
+                      min={0}
+                      max={200}
+                      onInput={(v) => patchGrid(i, g.pattern === 'GRID' ? { offset: v } : { gutter: v })}
+                      onCommit={commit}
+                    />
+                  </Row>
+                  <Row label="对齐">
+                    <select
+                      className="panel-select"
+                      value={g.alignment ?? 'STRETCH'}
+                      onChange={(e) => {
+                        patchGrid(i, { alignment: e.target.value as LayoutGridSchema['alignment'] });
+                        commit();
+                      }}
+                    >
+                      <option value="STRETCH">Stretch</option>
+                      <option value="CENTER">Center</option>
+                      <option value="MIN">Min</option>
+                      <option value="MAX">Max</option>
+                    </select>
+                  </Row>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="mini-btn"
+                onClick={() => {
+                  commitGrids([...grids, { pattern: 'COLUMNS', count: 4, gutter: 16, visible: true }]);
+                  commit();
+                }}
+              >
+                + 添加网格
+              </button>
+              {!grids.length && <div className="props-note">无布局网格（点击添加；出码为 CSS 等价网格）</div>}
+            </>
+          );
+        })()}
+      </div>
 
       {/* 导出（FR-24 节点导出设置：format/scale/suffix 列表 + ZIP 导出） */}
       <div className="prop-section">

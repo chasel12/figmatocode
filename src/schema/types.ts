@@ -64,9 +64,20 @@ export const BLEND_MODES: BlendMode[] = [
 
 export type BoxPadding = [number, number, number, number]; // top right bottom left
 
-/** FR-35 约束档位：水平 Left/Right/Center/Scale、垂直 Top/Bottom/Center/Scale（对照 Figma 4×2；PRD「5 档」按括号值域解释为 Figma 实际 4 档，见 LOG 报备） */
-export type HorizontalConstraint = 'LEFT' | 'RIGHT' | 'CENTER' | 'SCALE';
-export type VerticalConstraint = 'TOP' | 'BOTTOM' | 'CENTER' | 'SCALE';
+/**
+ * FR-35 约束档位。
+ *
+ * 2026-10-20 补齐 stretch 档（#4a）：Figma 水平方向除 Left/Right/Center/Scale 外还有
+ * **Left and right（左右同时吸附 → 宽度随父拉伸）**，垂直方向对应 Top and bottom。
+ * 之前只做 4 档，故「铺满父容器」这类最常见的响应式需求无法表达。
+ *
+ * 出码语义：
+ *  - `LEFT_RIGHT`  → 同时输出 `left` + `right`，**不输出 width**（浏览器按两边距离拉伸）
+ *  - `TOP_BOTTOM`  → 同时输出 `top` + `bottom`，**不输出 height**
+ * 兼容：存量 JSON 里的 4 档取值语义不变。
+ */
+export type HorizontalConstraint = 'LEFT' | 'RIGHT' | 'CENTER' | 'SCALE' | 'LEFT_RIGHT';
+export type VerticalConstraint = 'TOP' | 'BOTTOM' | 'CENTER' | 'SCALE' | 'TOP_BOTTOM';
 
 export interface Constraints {
   horizontal: HorizontalConstraint;
@@ -328,11 +339,17 @@ export interface PrototypeInteraction {
   /** SCROLL 行为 */
   scrollBehavior?: 'TOP' | 'BOTTOM' | 'POINT';
   transition?: PrototypeTransition;
-  /** OPEN_OVERLAY 定位九宫（相对视口） */
+  /** OPEN_OVERLAY 定位九宫（相对视口）；`MANUAL` = 由 `overlayOffset` 自由定位 */
   overlayPosition?:
     | 'TOP_LEFT' | 'TOP_CENTER' | 'TOP_RIGHT'
     | 'CENTER' | 'BOTTOM_LEFT' | 'BOTTOM_CENTER' | 'BOTTOM_RIGHT'
     | 'MANUAL' | 'PRESET';
+  /**
+   * #4c `overlayPosition==='MANUAL'` 时的自由偏移（相对视口百分比 0-100）。
+   * 2026-10-20 补齐：此前 MANUAL 只是占位（面板标注「首版按居中」），选它仍按居中渲染，
+   * 用户无法真正拖动 overlay 位置。现以百分比存储（与视口尺寸解耦，缩放/多端一致）。
+   */
+  overlayOffset?: { x: number; y: number };
   /** OPEN_OVERLAY 点外行为 */
   overlayCloseOnOutside?: boolean;
   /** CHANGE_TO 目标变体值（variantProps 快照） */

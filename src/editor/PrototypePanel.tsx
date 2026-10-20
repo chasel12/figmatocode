@@ -82,7 +82,7 @@ const OVERLAY_POSITIONS: NonNullable<PrototypeInteraction['overlayPosition']>[] 
 
 const OVERLAY_LABEL: Record<string, string> = {
   TOP_LEFT: '左上', TOP_CENTER: '中上', TOP_RIGHT: '右上',
-  CENTER: '居中', MANUAL: '手动（首版按居中）',
+  CENTER: '居中', MANUAL: '手动（可设坐标）',
   BOTTOM_LEFT: '左下', BOTTOM_CENTER: '中下', BOTTOM_RIGHT: '右下',
   PRESET: '预设（置灰）',
 };
@@ -371,6 +371,47 @@ export function PrototypePanel() {
                     ))}
                   </div>
                 </div>
+                {/**
+                 * #4c 自由定位坐标：仅在 MANUAL 档显示。
+                 * 存百分比（相对视口），与设备尺寸解耦；旧数据无 offset 时回落 50%。
+                 */}
+                {(it.overlayPosition ?? 'CENTER') === 'MANUAL' && (
+                  <div className="proto-field">
+                    <span className="proto-label">自由位置</span>
+                    <div className="proto-row">
+                      <label className="proto-inline">
+                        X
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={Math.round(it.overlayOffset?.x ?? 50)}
+                          onChange={(e) =>
+                            patchAt(idx, {
+                              overlayOffset: { x: Number(e.target.value) || 0, y: it.overlayOffset?.y ?? 50 },
+                            })
+                          }
+                        />
+                        %
+                      </label>
+                      <label className="proto-inline">
+                        Y
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={Math.round(it.overlayOffset?.y ?? 50)}
+                          onChange={(e) =>
+                            patchAt(idx, {
+                              overlayOffset: { x: it.overlayOffset?.x ?? 50, y: Number(e.target.value) || 0 },
+                            })
+                          }
+                        />
+                        %
+                      </label>
+                    </div>
+                  </div>
+                )}
                 <div className="proto-field">
                   <span className="proto-label">点外关闭</span>
                   <input
