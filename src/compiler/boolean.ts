@@ -15,6 +15,7 @@
  * 纯函数：不依赖 DOM/canvas，可在编辑器与编译器两侧同构复用。
  */
 import type { VectorData } from '../schema/types';
+import { polyBoolean } from './polyBool';
 
 export type BooleanOp = 'UNION' | 'INTERSECT' | 'SUBTRACT' | 'EXCLUDE';
 
@@ -61,17 +62,46 @@ export function subpathCount(d: string): number {
  * 前提：所有 d 处于**同一坐标系**（统一取节点本地系，调用方负责 flatten/换算）。
  * 空 d / 纯空白参集被跳过；有效参集 < 1 → 空结果（{ d: '', operands: 0 }）。
  * 确定性：输出仅由输入顺序与内容决定，同输入两次调用字节一致（无时间戳/随机量）。
+ *
+ * ## 2026-10-20 升级（#2）：从「拼串」改为「真求交」
+ *
+ * 旧实现只是把各参集的子路径**拼成一串**、靠 `fill-rule` 假装布尔：
+ *  - SUBTRACT 用 evenodd 实为 XOR → 想切掉一块得到"两边都空"；
+ *  - UNION 用 nonzero → 重叠区内部边线不消失。
+ *
+ * 现走 `polyBool.polyBoolean`（多边形求交，含展平）：
+ *  - **精确层**：不相交 / 一个完全包含另一个（图标相减、形状挖洞等 UI 最常见用法）；
+ *  - **近似层**：两形状相交时裁剪缺口未补对方边界段（完整 Greiner–Hormann 未实现），
+ *    结果 `degraded=true` 供面板提示，**不谎称精确**（见 `polyBool.ts` 文件头报备）。
+ *
+ * 单参集保持原样（不做无谓变换），确保既有工程产物字节稳定。
  */
 export function booleanPathOf(paths: string[], op: BooleanOp): BooleanResult {
   const valid = paths.filter((p) => typeof p === 'string' && p.trim().length > 0);
-  const fillRule = booleanFillRule(op);
-  if (!valid.length) return { d: '', fillRule, operands: 0 };
+  // 空参集：仍按运算返回 fillRule（保持既有可观测行为，勿改成硬编码）
+  if (!valid.length) return { d: '', fillRule: booleanFillRule(op), operands: 0 };
 
-  // 先拆分再以单空格拼接：把「M…M…」的粘连写法规整为可读、可 diff 的规范形态
-  const parts: string[] = [];
-  for (const p of valid) parts.push(...splitSubpaths(p));
+  // 单参集：原样规范化输出（拆分子路径并规整间隔），不引入额外变换
+  if (valid.length === 1) {
+    const parts: string[] = [];
+    for (const p of valid) parts.push(...splitSubpaths(p));
+    return { d: parts.join(' '), fillRule: booleanFillRule(op), operands: 1 };
+  }
 
-  return { d: parts.join(' '), fillRule, operands: valid.length };
+  const res = polyBoolean(valid, op);
+  if (!res.d) {
+    // 求交得到空集（如被完全吃掉）：退回规范化拼接，保证不丢内容且行为可预期
+    const parts: string[] = [];
+    for (const p of valid) parts.push(...splitSubpaths(p));
+    return { d: parts.join(' '), fillRule: booleanFillRule(op), operands: valid.length };
+  }
+  /**
+   * fill-rule 选择：
+   *  - UNION 恒用 `nonzero`：并集是"实心相加"，用 evenodd 会把重叠区挖空（语义错误）；
+   *  - 其余运算多环时用 `evenodd`：这样才能表达"挖洞"（SUBTRACT 的内环即洞）。
+   */
+  const rule = op === 'UNION' ? 'nonzero' : res.rings.length > 1 ? 'evenodd' : booleanFillRule(op);
+  return { d: res.d, fillRule: rule, operands: valid.length };
 }
 
 /**

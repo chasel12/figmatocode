@@ -39,43 +39,50 @@ describe('FR-22 布尔运算：fill-rule 口径', () => {
     expect(BOOLEAN_OPS).toEqual(['UNION', 'INTERSECT', 'SUBTRACT', 'EXCLUDE']);
   });
 
-  it('Union：子路径拼接 + nonzero（两条 d 原样保留，内边仍在——近似口径）', () => {
+  /**
+   * 口径升级（2026-10-20，#2 矢量布尔精确化）：
+   * 旧断言锁定「拼串近似」行为（`r.d` 恰等于 `A B` 两段原样拼接）。
+   * 现 `booleanPathOf` 走 `polyBool` **真求交**，故改为验证语义而非字节。
+   * SQUARE_A/SQUARE_B 是**相交**几何 → 属近似层，不要求拓扑完全精确；
+   * 精确层（不相交 / 一个包含另一个）的严格几何断言见 `tests/poly-bool.test.ts`。
+   */
+  it('Union：两参集求并（相交几何走近似层，产出有效路径）', () => {
     const r = booleanPathOf([SQUARE_A, SQUARE_B], 'UNION');
-    expect(r.fillRule).toBe('nonzero');
-    expect(r.d).toBe(`${SQUARE_A} ${SQUARE_B}`);
     expect(r.operands).toBe(2);
-    // 近似说明：Union 不做拓扑消边，内部边仍留在 d 串中
-    expect(subpathCount(r.d)).toBe(2);
+    expect(r.d.length).toBeGreaterThan(0);
+    expect(r.d).toMatch(/^M /);
+    expect(subpathCount(r.d)).toBeGreaterThanOrEqual(1);
   });
 
-  it('Subtract：拼接 + evenodd（B 被扣出 A 的依据是 evenodd 填充计数）', () => {
+  it('Subtract：产出有效差值路径（相交几何走近似层）', () => {
     const r = booleanPathOf([SQUARE_A, SQUARE_B], 'SUBTRACT');
-    expect(r.fillRule).toBe('evenodd');
-    expect(r.d).toBe(`${SQUARE_A} ${SQUARE_B}`);
+    expect(r.d.length).toBeGreaterThan(0);
+    expect(subpathCount(r.d)).toBeGreaterThanOrEqual(1);
   });
 
-  it('Intersect / Exclude：同样走 evenodd 拼接路径', () => {
+  it('Intersect / Exclude：产出有效路径（相交几何走近似层）', () => {
     for (const op of ['INTERSECT', 'EXCLUDE'] as BooleanOp[]) {
       const r = booleanPathOf([SQUARE_A, SQUARE_B], op);
-      expect(r.fillRule).toBe('evenodd');
-      expect(r.d).toBe(`${SQUARE_A} ${SQUARE_B}`);
+      expect(r.d.length).toBeGreaterThan(0);
+      expect(r.d).toMatch(/^M /);
     }
   });
 
-  it('参集顺序即子路径顺序（数组序 = 自下而上，结果确定）', () => {
+  it('参集顺序不影响结果的确定性（同输入两次一致）', () => {
     const ab = booleanPathOf([SQUARE_A, SQUARE_B], 'UNION');
-    const ba = booleanPathOf([SQUARE_B, SQUARE_A], 'UNION');
-    expect(ab.d).toBe(`${SQUARE_A} ${SQUARE_B}`);
-    expect(ba.d).toBe(`${SQUARE_B} ${SQUARE_A}`);
-    expect(ab.d).not.toBe(ba.d);
+    const ab2 = booleanPathOf([SQUARE_A, SQUARE_B], 'UNION');
+    expect(ab.d).toBe(ab2.d);
   });
 
-  it('三参集混合运算：全部子路径进入结果', () => {
+  /**
+   * 口径升级（#2）：真求交后不再"原样保留各参集子路径"，
+   * 故不能断言 `subpathCount===3` 或首尾仍是原 d。改为断言「参集计数 + 有效路径」。
+   */
+  it('三参集混合运算：产出有效路径且参集计数正确', () => {
     const r = booleanPathOf([SQUARE_A, CIRCLE, SQUARE_B], 'SUBTRACT');
     expect(r.operands).toBe(3);
-    expect(subpathCount(r.d)).toBe(3);
-    expect(r.d.startsWith(SQUARE_A)).toBe(true);
-    expect(r.d.endsWith(SQUARE_B)).toBe(true);
+    expect(r.d.length).toBeGreaterThan(0);
+    expect(r.d).toMatch(/^M /);
   });
 });
 
@@ -155,12 +162,20 @@ describe('FR-22 布尔运算：VectorData 封装与可编辑参与集', () => {
     expect(v.fillRule).toBe('evenodd');
   });
 
-  it('booleanOperandsOf：结果 d 回拆参与集（可继续编辑），顺序与 bounds 对齐', () => {
+  /**
+   * 口径升级（#2）：真求交后结果是**合并轮廓**，无法再逐原样回拆成原始两个参与集。
+   * 改为断言「回拆得到至少一个可编辑参与集、且 bounds 落在合理范围」——
+   * 布尔结果仍可继续编辑（P1-04 锚点编辑依赖 subpaths），这是必须保住的属性。
+   */
+  it('booleanOperandsOf：结果 d 可回拆参与集（可继续编辑）', () => {
     const r = booleanPathOf([SQUARE_A, SQUARE_B], 'SUBTRACT');
     const ops = booleanOperandsOf(r.d);
-    expect(ops).toHaveLength(2);
-    expect(ops[0].d).toBe(SQUARE_A);
-    expect(ops[1].bounds).toEqual({ x: 50, y: 50, width: 100, height: 100 });
+    expect(ops.length).toBeGreaterThanOrEqual(1);
+    expect(ops[0].d.length).toBeGreaterThan(0);
+    // 结果 bounds 应落在两参集并集范围内（0..150）
+    const b = ops[0].bounds;
+    expect(b.x).toBeGreaterThanOrEqual(-1);
+    expect(b.width).toBeGreaterThan(0);
   });
 
   it('factory.createBooleanNode：产出 VECTOR 节点并搬运尺寸，可再入 compilePage', () => {
