@@ -6,6 +6,28 @@ import { clonePage, createNode, findById, nextId, walk } from '../schema/factory
 import { findVariant, variantGroupOf, variantsInGroup } from './variants';
 import { BOOLEAN_OP_NAME, booleanPathOf, pathBounds, splitSubpaths, type BooleanOp } from '../compiler/boolean';
 import { isBooleanConvertible, shapePathData, translatePathD } from '../compiler/shapePath';
+import { captureOverrideForTarget, deriveInstance } from './instanceSync';
+
+/**
+ * #3 组件系统：把「实例内节点的改动」登记为覆盖（Figma 口径 = 覆盖是补丁，不是快照）。
+ *
+ * 用法：任何改动 `node.style/layout/text/src` 的 case，在**改完 store 内节点之后**调用，
+ * 传入 patch 即可。若目标不在实例子树内 → 原样返回（普通节点零开销）。
+ * 若在实例内 → 写回该实例的 `instanceOverrides`，使后续「更新主组件 / 切换变体」
+ * 重新派生时能**按路径重放**，改动不丢。
+ */
+function withInstanceOverride(
+  page: UIPage,
+  targetId: string,
+  patch: { style?: Record<string, unknown>; layout?: Record<string, unknown>; text?: string; src?: string },
+): UIPage {
+  const cap = captureOverrideForTarget(page.root, targetId, patch);
+  if (!cap) return page;
+  const found = findById(page.root, cap.instanceId);
+  if (!found) return page;
+  found.node.instanceOverrides = cap.overrides;
+  return page;
+}
 
 /** FR-29：两属性组合是否等价（键集合与取值全等） */
 function sameProps(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -448,6 +470,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = findById(nextPage.root, action.id);
       if (!found) return state;
       Object.assign(found.node.layout, action.patch);
+      // #3：实例内改布局 → 记覆盖
+      withInstanceOverride(nextPage, action.id, { layout: action.patch as Record<string, unknown> });
       // 伴随子项坐标补丁：容器切「绝对定位」时按当前视觉位置固化直接子项 x/y（避免塌到左上角）
       if (action.childrenXY?.length) {
         for (const c of action.childrenXY) {
@@ -466,6 +490,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = findById(nextPage.root, action.id);
       if (!found) return state;
       found.node.style = { ...(found.node.style ?? {}), ...action.patch };
+      // #3：实例内改样式 → 记覆盖（切变体/更新主组件后重放，改动不丢）
+      withInstanceOverride(nextPage, action.id, { style: action.patch as Record<string, unknown> });
       return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
 
@@ -474,6 +500,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = findById(nextPage.root, action.id);
       if (!found || (found.node.type !== 'TEXT' && found.node.type !== 'BUTTON')) return state;
       (found.node as { text: string }).text = action.text;
+      // #3：实例内改文案 → 记覆盖（切变体后文案仍是实例自己的，同 Figma）
+      withInstanceOverride(nextPage, action.id, { text: action.text });
       return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
 
@@ -482,6 +510,8 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const found = findById(nextPage.root, action.id);
       if (!found || found.node.type !== 'IMAGE') return state;
       found.node.src = action.src;
+      // #3：实例内换图 → 记覆盖
+      withInstanceOverride(nextPage, action.id, { src: action.src });
       return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
 
@@ -790,7 +820,20 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const def = state.components[action.componentId];
       if (!def) return state;
       const nextPage = clonePage(state.page);
-      const parentId = action.parentId ?? effectiveParentId(state);
+      /**
+       * #3 组件系统（2026-10-20）：连续插入实例应当**平级**排布，而不是层层嵌套。
+       *
+       * 为什么需要专门处理：插入实例后会自动选中新实例（它是容器），下一次插入若沿用
+       * `effectiveParentId` 就会把新实例塞进**上一个实例内部**。实测后果：连插两次
+       * 顶层只多 1 个节点、第二次的实例成了第一个的子节点，用户看到的是"插了一个但只出现一层"。
+       * Figma 里连续插入是同级并排，故此处：**若当前选中的是实例根，则挂到它的父级**。
+       */
+      const selId = selectedPrimary(state);
+      const selFound = findById(state.page.root, selId);
+      const selIsInstanceRoot = !!selFound?.node.componentId;
+      const parentId =
+        action.parentId ??
+        (selIsInstanceRoot ? (selFound?.parent?.id ?? state.page.root.id) : effectiveParentId(state));
       const parent = findById(nextPage.root, parentId);
       if (!parent || !isContainer(parent.node)) return state;
       const inst = JSON.parse(JSON.stringify(def.root)) as ContainerNode;
@@ -800,7 +843,11 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       };
       reassign(inst);
       inst.componentId = action.componentId;
-      const idx = action.index ?? parent.node.children.length;
+      // 插到「来源选中项」之后，符合 Figma「跟在上一个后面」的直觉
+      const selIdx = selIsInstanceRoot && !action.parentId
+        ? parent.node.children.findIndex((c) => c.id === selId)
+        : -1;
+      const idx = action.index ?? (selIdx >= 0 ? selIdx + 1 : parent.node.children.length);
       parent.node.children.splice(Math.max(0, Math.min(idx, parent.node.children.length)), 0, inst);
       return pushHistory({ ...state, page: nextPage, selectedIds: [inst.id] }, nextPage);
     }
@@ -831,9 +878,48 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
             wrap.children = [snapshot];
             return wrap;
           })();
+      const nextComponents = { ...state.components, [compId]: { ...state.components[compId], root: rootNode } };
+
+      /**
+       * #3 组件系统（2026-10-20 修复）：更新主组件后**其它实例同步重派生**。
+       *
+       * 旧行为：只改 `components[compId].root`，其它实例各自抱着插入时的旧快照，
+       * 于是"更新主组件"对它们毫无效果——这正是「组件系统像个玩具」的核心原因。
+       *
+       * 现行为：找出本页所有该组件的**其它**实例，用新 root 重派生并重放各自覆盖：
+       *  · 未覆盖字段 → 跟随主组件新值；已覆盖字段 → 保留实例自身改动；
+       *  · 保留实例 id / 名称 / 布局位置（不跳位）。
+       *
+       * ⚠ 两个实现要点（首版踩坑）：
+       *  1. **先收集 id 再替换**——若在 `walk` 回调里直接 splice 父数组，遍历会踩到
+       *     被换掉的旧对象，导致源节点被误删（实测图层 6→5 行、选区丢失）。
+       *  2. **必须排除来源实例**——它自身也有 componentId，若不排除会被自己的新内容替换掉。
+       */
+      const sourceId = found.node.id;
+      const targetIds: string[] = [];
+      walk(nextPage.root, (n) => {
+        if (n.componentId === compId && n.id !== sourceId) targetIds.push(n.id);
+      });
+      for (const tid of targetIds) {
+        const target = findById(nextPage.root, tid);
+        if (!target?.parent) continue;
+        const kept = target.node.instanceOverrides;
+        const re = deriveInstance(rootNode, kept, () => nextId('n'));
+        re.id = tid;
+        re.name = target.node.name;
+        re.layout = { ...re.layout, ...target.node.layout };
+        re.componentId = compId;
+        re.instanceOverrides = kept;
+        const at = target.parent.children.findIndex((c) => c.id === tid);
+        if (at >= 0) target.parent.children.splice(at, 1, re);
+      }
+
       return {
         ...state,
-        components: { ...state.components, [compId]: { ...state.components[compId], root: rootNode } },
+        page: nextPage,
+        components: nextComponents,
+        // 保持原有选区（实例 id 未变，故仍可点中；旧版因为源节点被误删导致"选中丢失"）
+        selectedIds: state.selectedIds.filter((sid) => findById(nextPage.root, sid) != null),
       };
     }
 
@@ -988,9 +1074,31 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const nextPage = clonePage(state.page);
       const target = findById(nextPage.root, action.id);
       if (!target) return state;
-      // 换指向组内另一成员；已存在的属性覆盖清空（快照口径下组合切换即整体替换内容）
-      target.node.componentId = hit.def.id;
-      target.node.instanceOverrides = undefined;
+      /**
+       * #3 组件系统（2026-10-20 修复）：切换变体**保留实例覆盖**并按路径重放。
+       *
+       * 旧行为：`instanceOverrides = undefined` —— 实例上所有改动被整体丢弃
+       * （快照口径下"组合切换即整体替换内容"）。这与 Figma 不符：Figma 切变体只换
+       * 结构/默认值，**实例自己的覆盖（改过的文案、颜色）会保留**。
+       *
+       * 现行为：取旧覆盖 → 用新变体 root 重新派生 → 重放覆盖（路径在新变体中
+       * 不存在则该条丢弃，同 Figma）；同时原位替换以保住 id / 名称 / 布局位置，
+       * 否则实例会跳回画布原点。
+       */
+      const keptOverrides = target.node.instanceOverrides;
+      const oldNode = target.node;
+      const newRoot = deriveInstance(hit.def.root, keptOverrides, () => nextId('n'));
+      newRoot.id = oldNode.id;
+      newRoot.name = oldNode.name;
+      newRoot.layout = { ...newRoot.layout, ...oldNode.layout };
+      newRoot.componentId = hit.def.id;
+      newRoot.instanceOverrides = keptOverrides;
+      // 档位由 hit.def.variantProps 体现（componentId 已指向该成员），节点不存副本
+      const parentArr = target.parent?.children;
+      if (!parentArr) return state;
+      const at = parentArr.findIndex((c) => c.id === oldNode.id);
+      if (at < 0) return state;
+      parentArr.splice(at, 1, newRoot);
       return pushHistory(state, nextPage);
     }
 

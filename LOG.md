@@ -1726,3 +1726,41 @@ tsc **0** · vitest **560/560**（41 文件）· build OK · e2e **19/19 ≥98%*
 **验证方式**：`npx tsc --noEmit` 0 错；`vitest` **560/560**（41 文件，回滚了方案 A 的 4 例测试）；`npm run build` OK；`npm run e2e` **19/19 ≥98%**；`npm run viewport` **76/76**；`npm run user-flow` **12/12**；`node scripts/design-dune.mjs` 成品独立渲染 0 错误。
 
 **遗留**：无新增缺陷。§五 诚实边界（Taro/PDF·SVG 像素级/跨浏览器）仍在册。
+---
+
+### [2026-10-20] #3 组件系统：覆盖模型重建（实例不再"一改全丢"、更新主组件会跟随）
+
+**目标**：用户批准补齐 Figma 差距四项（#5 预览/#3 组件/#4 三小项/#2 矢量布尔），本批做 **#3 组件系统**。
+
+**诊断（先说清病灶）**：原实现「实例 = 主组件深拷贝快照 + componentId 标记」，`instanceOverrides` **只有类型定义、从无写入点**（store 里仅 4 处把它置空/删除）。由此两个硬伤：
+1. 「更新主组件」只改 `components[].root`，**其它实例各自抱着旧快照 → 完全没反应**；
+2. 切变体时 `instanceOverrides = undefined`，**实例上的改动被整体丢弃**。
+这就是「组件系统像玩具」的根因。
+
+**修改内容**：
+- **新 `src/editor/instanceSync.ts`**（纯函数，可单测）：`nodePathInInstance`（实例内路径定位）/ `nodeAtPath` / `recordOverride`（同路径浅合并）/ `cloneAsPlainNode` / `applyOverrides`（路径失效则静默丢弃）/ `deriveInstance`（派生 + id 重排）/ `captureOverrideForTarget`（找到**最近**实例祖先并记录）。
+- **`store.ts`**：
+  - 新增 `withInstanceOverride()` 辅助，接入 `UPDATE_STYLE` / `UPDATE_LAYOUT` / `UPDATE_TEXT` / `UPDATE_SRC` —— 实例内改动自动登记为覆盖；
+  - `SET_VARIANT_PROPS`：切变体改为 **取旧覆盖 → 用新变体 root 派生 → 重放覆盖**，并原位替换以保住 id/名称/布局位置；
+  - `PUSH_TO_COMPONENT`：更新主组件后 **遍历其它实例重派生并重放各自覆盖**（未覆盖字段跟随、已覆盖字段保留）；
+  - `INSERT_INSTANCE`：**连续插入改为平级**（选中实例根时挂到其父级并插在其后）。
+
+**过程中揪出并修复的 2 个连带缺陷**（都是本轮新写的代码/旧逻辑问题，已被 e2e 与单测抓到）：
+1. **PUSH 会误删源实例**（首版实现）：在 `walk` 回调里直接 splice 父数组 → 遍历踩到被换掉的旧对象，实测图层 **6→7 行异常/选区丢失**。修：**先收集 id 再替换** + 保留选区。
+2. **连续插入实例会层层嵌套**：插入后自动选中新实例（容器），下一次插入沿用 `effectiveParentId` 就嵌进上一个实例里 → 顶层只多 1 个节点。修：选中实例根时挂到父级并插在其后（对齐 Figma 平级语义）。
+
+**新增测试**：
+- `tests/instance-overrides.test.ts`（19 例）：路径定位/合并/派生/重放/嵌套取最近实例祖先/路径失效丢弃/幂等。
+- `tests/component-store.test.ts`（8 例）：**直接跑 reducer** 锁定组件集成语义（覆盖登记、PUSH 后节点数不丢、实例跟随、覆盖保留、选区有效）。
+- `scripts/component-e2e.mjs`（10 项，真实 UI）：验证①两实例互不干扰 ②更新主组件跟随+覆盖保留 ③变体后覆盖仍在。
+
+**结果**：完成。**#3 组件系统核心语义已对齐 Figma**（实例独立、主组件更新可传播、覆盖是局部补丁而非快照）。
+
+**验证方式**：tsc **0 错**；`vitest` **587/587**（43 文件，本批 +27 例）；`npm run build` OK；`npm run e2e` **19/19 ≥98%**（组件改动未影响既有页像素）；`npm run viewport` **76/76**；`node scripts/component-e2e.mjs` **10/10**。
+
+**报备（口径澄清，避免误读）**：
+- 「更新主组件」= 用**被选中实例**的内容升格为主组件。若该实例有覆盖（如红色），主组件随之变红、其它实例跟随变红——**这是正确语义**（Figma 同），不是污染。e2e ②-b 已按此口径写明（我最初把断言写反了，已修正并留注释）。
+- 变体切换的 UI 入口（新建变体）需**先选中实例根**才出现，属既有 UI 行为，未改。
+- 嵌套实例的属性传递：`captureOverrideForTarget` 取**最近**实例祖先（内层优先），已有单测锁定；跨层级的"透传"未做（Figma 亦无此语义）。
+
+**遗留**：队列下一项 **#4 三小项**（stretch 约束档 / Layout grid 独立分区入口 / overlay 自由拖拽），随后 **#2 矢量布尔**。#5 画布预览四项经实测均受 Konva 平台限制（需自定义 sceneFunc 或拆多节点重画文本），有破坏 e2e 19/19 与 canvasdiff 98.13% 基线的风险，**已按用户决策暂缓**。
