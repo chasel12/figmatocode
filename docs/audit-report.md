@@ -182,9 +182,51 @@
 
 ```bash
 npm run build                      # 或 npm run precanvasdiff（矩阵类脚本需要 e2e hook）
-node scripts/audit-params.mjs       # 51 项基础参数审计 → dist/audit-params/
-node scripts/audit-params-deep.mjs  # 151 项深度审计     → dist/audit-params-deep/
-node scripts/user-flow.mjs          # 12 步用户流程 E2E   → dist/user-flow/
+npm run audit-params               # 51 项基础参数审计 → dist/audit-params/
+npm run audit-params-deep          # 152 项深度审计     → dist/audit-params-deep/
+npm run user-flow                  # 12 步用户流程 E2E   → dist/user-flow/
+npm run zip-file-verify            # D2 定案：真 ZIP→解压→file://→字体 0 404
 ```
 
 **环境提示**：构建报 `Access is denied` 时设 `TEMP/TMP` 到 `.tmp-esbuild`（见 HANDOFF §3），验完删除。
+
+---
+
+## 七、独立复验记录（2026-10-20，对 D1/D2 与全部门禁的第三方复测）
+
+对主线三笔提交（`8b975e4` / `d5eb5d7` / `560c881`）**逐项独立复跑**，不采信转述：
+
+| 声称 | 复验结果 |
+|---|---|
+| tsc 0 | ✅ 0 错 |
+| vitest 560/560 | ✅ **560/560**（41 文件） |
+| e2e 19/19 | ✅ **19/19 ≥98%** |
+| viewport 76/76 | ✅ **76/76** |
+| canvasdiff 98.13% 零漂移 | ✅ **avg 98.13%**（14 页 92.06%，较 92.07% 属抖动） |
+| **zip-assert 19/76→76/76** | ✅ **76/76**（assets 19/19 · 相对引用 19/19 · 根 id 19/19） |
+| walkthrough / m1 / m2 / present | ✅ 9/9 · 22 · 27 · 18/18 |
+| m4 / m5 / m12 | ✅ 12/12 · 16/16 · 24/24 |
+| 附 A/B/C | ✅ 19/19 · 11/11 · 7/7 |
+| 参数审计 / 深度 / 用户流程 | ✅ 51/51 · **146/152** · 12/12 |
+| 四渠道 98 全通 | ✅ 98（明细见下「口径补充」） |
+| **D1 玻璃色散置灰** | ✅ 实测 `.eff-field` 中「色散」`disabled=true`，折射/深度/高光/饱和仍可编辑 |
+| **D2 字体随包** | ✅ **端到端定案**：UI 导出真 ZIP → 解压 16 条目含 `assets/fonts/*.woff2` ×4 → `file://` 打开 `preview/index.html` → **请求失败 0、字体 404 0、console 错误 0**，`document.fonts` 4 面已加载 |
+
+**新增回归脚本**：`scripts/zip-file-verify.mjs`（`npm run zip-file-verify`）——补上此前只验「ZIP 结构」不验「解压后能否脱离服务端用」的空档。
+
+### 7.1 口径补充（对「四渠道 98 全通」的补全，非产品缺陷）
+
+`dist/param-audit/report2.json` 原始明细为：160 行 / 156 有效 / **98 三渠道全通** / 54「数据出码通、画布不响应」/ **4 数据通未进码** / 3 SKIP / **1 ERROR**。逐条核实：
+
+| 行 | 性质 |
+|---|---|
+| 段间距 ×2（before=0 → 60 / 5） | **真缺口**，即本报告 A4（CSS 无原生段间距），已知已声明 |
+| 字距（before=PIXELS → after=%） | **测试伪影**：改的是「单位模式」下拉且数值仍为 0，0 值本就不出 CSS（`compile.ts:600` 有 `!== 0` 门槛）。字距功能实测正常（`letter-spacing` 支持 px/em 换算） |
+| 名称（before=审计文案 → after=-995） | **测试伪影**：`name` 是元数据不参与出码，C3 判 false 属预期 |
+| 填充#2 `locator.evaluate TypeError` | **脚本错误**（该轨自身缺陷），非产品问题 |
+
+结论：**无新增产品缺陷**；「98 全通」的表述少报了 4 条未进码与 1 条脚本错误，其中 2 条为测试伪影、2 条为已声明的 A4——已在此如实补全。
+
+### 7.2 本次复验未推翻的诚实边界
+
+§五 所列 8 条仍然成立（Taro 通道、PDF/SVG 像素级、跨浏览器、断言口径非像素级等均未覆盖）。另：`user-flow` 里 `file://` 仍会看到 1 条字体 404——那是**模态内展示的 preview.html 文本**（站点根口径 `/fonts`），与已自包含的 ZIP 交付物是两回事，脚本注释已随之更新，不再标记为「已知缺口」。

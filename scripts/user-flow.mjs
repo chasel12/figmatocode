@@ -360,17 +360,25 @@ try {
     await sleep(900);
     await p2.screenshot({ path: join(outDir, '04-导出页渲染.png'), fullPage: true });
     /**
-     * 字体 404 属**已知导出缺口**（单独记录，不当作本步失败）：
-     *   FONT_FACE_CSS 用绝对路径 `/fonts/*.woff2`（src/font.ts:14-17），file:// 下解析到
-     *   文件系统根 → ERR_FILE_NOT_FOUND；页面回退到系统字体仍完整渲染。
-     *   本步只断言「页面可打开且无**致命**报错（脚本异常）」，字体 404 记入 gaps。
+     * 字体说明（**2026-10-20 对账后更新**，勿再写成「已知缺口」）：
+     *   本步拿的是 CodeModal 里**展示的 preview.html 文本**，它按**站点根部署口径**
+     *   用绝对路径 `/fonts/*.woff2`（服务 dist/pages 与 e2e 19 页），
+     *   单独存成文件用 file:// 打开时字体必然 404 → 回退系统字体，页面仍完整渲染。
+     *
+     *   **真正的交付物（导出项目 ZIP）已自包含**：字体随包进 `assets/fonts/`，
+     *   预览页用相对基座 `../assets/fonts`。该路径由 `npm run zip-file-verify` 实测把关
+     *   （ZIP → 解压 → file:// → 字体 0 404、document.fonts 已加载）。
+     *
+     * 故本步只断言「页面可打开且无**致命**报错」，字体 404 属预览文本口径、不计失败。
      */
     const fatal = err2.filter((e) => !/net::ERR_FILE_NOT_FOUND|Failed to load resource/.test(e));
     const font404 = err2.length - fatal.length;
     step(
       '导出页独立打开（file://）无致命报错',
       fatal.length === 0,
-      font404 ? `字体 404 ${font404} 条（已知缺口：/fonts 绝对路径），其余无错` : '零报错',
+      font404
+        ? `字体 404 ${font404} 条（模态预览文本为站点根口径；自包含交付物请用导出 ZIP，见 zip-file-verify）`
+        : '零报错',
     );
     const bodyText = await p2.evaluate(() => document.body.innerText.trim());
     const hasContent = bodyText.length > 0 || (await p2.locator('div').count()) > 3;

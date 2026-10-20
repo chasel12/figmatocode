@@ -1672,3 +1672,27 @@
 **修改内容**：zipKit.ts（新）/ html.ts / reference.ts / CodeModal.tsx / zip-assert.mjs / audit-params-deep.mjs / zipkit.test.ts（新）/ checklist 差异 #24→已修复 / audit-report D1 D2 注记 / 本 LOG。
 
 **遗留**：D 类清零。audit-report §五 自认盲区仍在册（Taro 通道深审、跨浏览器、PDF/SVG 像素级）——属可选排期，非欠账。
+
+---
+
+### [2026-10-20] 第三方独立复验：主线 3 笔提交全项实测（不采信转述）+ 补 D2 端到端定案脚本
+
+**目标**：对并发主线三笔提交（`8b975e4` 对账 / `d5eb5d7` D2 字体+D1 置灰 / `560c881` zip-assert 76/76）**逐项独立复跑**，验证其声称的数字与结论是否真的成立。
+
+**复验结果：全部属实，无一项虚报**。
+tsc **0** · vitest **560/560**（41 文件）· build OK · e2e **19/19 ≥98%** · viewport **76/76** · canvasdiff **avg 98.13%**（14 页 92.06%，较 92.07% 属抖动）· **zip-assert 76/76**（assets 19/19 · 相对引用 19/19 · 根 id 19/19）· walkthrough **9/9** · m1 **22** · m2 **27** · present **18/18** · m4 **12/12** · m5 **16/16** · m12 **24/24** · 附 A/B/C **19/11/7** · audit-params **51/51** · audit-params-deep **146/152** · user-flow **12/12** · 四渠道 **98 全通**。
+
+**D1 独立验证**：`.props .eff-field` 中「色散」`disabled=true`，折射/深度/高光/饱和仍可编辑 —— 置灰防护确实生效（我第一次探针用 `.field-row`/`.field-label` 找效果行而误报「未找到」，效果参数实际用 `.eff-field` 结构，属**我的探针错**，已纠正）。
+
+**D2 端到端定案（本轨新增，此前无人验过这一层）**：此前只验「ZIP 结构合规」，未验「**解压后能否脱离服务端真用**」。新增 `scripts/zip-file-verify.mjs`（`npm run zip-file-verify`）走用户真实路径：UI 导出真 ZIP → `Expand-Archive` 解压 → `file://` 打开 `preview/index.html` → 抓请求失败/字体 404/console 错误/`document.fonts`。实测 **ZIP 16 条目含 4 个 woff2 于 `assets/fonts/`；请求失败 0、字体 404 0、console 错误 0、`document.fonts` 4 面已加载** → D2 **确认根治**。
+
+**口径补充（对「四渠道 98 全通」的补全，非产品缺陷）**：`report2.json` 原始明细 160 行/156 有效/98 全通/**4 数据通未进码**/**1 ERROR**。逐条核实：段间距 ×2 = **真缺口**（即已声明的 A4）；字距（before=PIXELS→after=%）= **测试伪影**（改的是单位模式且值仍 0，`compile.ts:600` 有 `!==0` 门槛；字距功能实测正常）；名称（→-995）= **测试伪影**（元数据不参与出码）；填充#2 `locator.evaluate TypeError` = **该轨脚本自身错误**。结论：**无新增产品缺陷**。
+
+**修改内容**：
+- 新 `scripts/zip-file-verify.mjs`（由一次性探针 `_zip-verify.mjs` 转为**落库回归脚本**）+ `package.json` 增 `zip-file-verify` / `audit-params` / `audit-params-deep` / `user-flow` 四个 npm 入口。
+- `scripts/user-flow.mjs`：`file://` 字体说明更正——不再写「已知缺口」，改为「模态预览文本为站点根口径；自包含交付物请用导出 ZIP，见 zip-file-verify」。原因：D2 修复的是 **ZIP 交付物**，模态里展示的 preview.html 文本仍按缺省 `/fonts`（服务 dist/pages 与 e2e 19 页，口径正确），二者不是一回事。
+- `docs/audit-report.md`：新增 **§七 独立复验记录**（逐项声称 vs 实测对照表 + D1/D2 定案 + §7.1 四渠道口径补充 + §7.2 未推翻的诚实边界）；§六 复现命令改用 npm 入口并补 zip-file-verify。
+
+**验证方式**：上述复验数字均为本轮实测复跑；`npm run zip-file-verify` 与 `npm run user-flow` 复跑通过；tsc 0；vitest 560/560；文档 U+FFFD 0。
+
+**遗留问题**：无新增。§五 8 条诚实边界（Taro 通道 / PDF·SVG 像素级 / 跨浏览器 / 断言口径非像素级 等）仍成立，属**在册非欠账**，待排期。
