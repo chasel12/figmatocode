@@ -2,7 +2,7 @@ import type { UINode, UIPage } from '../schema/types';
 import { isContainer } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
 import { scssFromPage } from '../compiler/css-model';
-import { FONT_FACE_CSS, FONT_STACK } from '../font';
+import { fontFaceCss, FONT_STACK } from '../font';
 import { svgOfVector } from './vector';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 
@@ -127,7 +127,7 @@ export function collectFxDefs(page: UIPage): string {
   return `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${defs.join('')}</defs></svg>`;
 }
 
-export function generateHtml(page: UIPage, compiled: CompiledPage, options: { title?: string } = {}): string {
+export function generateHtml(page: UIPage, compiled: CompiledPage, options: { title?: string; fontsBase?: string } = {}): string {
   const { bodyHtml, css } = buildPreviewDom(page, compiled);
   const rootCss = compiled.nodes.find((n) => n.id === page.root.id);
   const minH = rootCss?.css['min-height'] ?? '100vh';
@@ -144,7 +144,7 @@ body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${minH === '
 .ui-image-placeholder { background: #e0e0e0; }
 </style>
 <style>
-${FONT_FACE_CSS}
+${fontFaceCss(options.fontsBase ?? '/fonts')}
 </style>
 <style>
 ${css}</style>

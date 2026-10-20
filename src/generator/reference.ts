@@ -4,7 +4,7 @@ import type { GeometryMap } from '../compiler/layout';
 import { escapeHtml, collectFxDefs, type DomParts } from './html';
 import { svgOfVector } from './vector';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
-import { FONT_FACE_CSS, FONT_STACK } from '../font';
+import { fontFaceCss, FONT_STACK } from '../font';
 
 /**
  * 几何（Layout Resolver）→ 绝对定位 DOM（reference 侧）。
@@ -136,7 +136,7 @@ export function generateReferenceHtml(
   page: UIPage,
   compiled: CompiledPage,
   geometry: GeometryMap,
-  options: { title?: string } = {},
+  options: { title?: string; fontsBase?: string } = {},
 ): string {
   const { bodyHtml, css } = buildReferenceDom(page, compiled, geometry);
   const rootGeom = geometry[page.root.id];
@@ -155,7 +155,7 @@ body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${pageH}px; 
 .ui-image-placeholder { background: #e0e0e0; }
 </style>
 <style>
-${FONT_FACE_CSS}
+${fontFaceCss(options.fontsBase ?? '/fonts')}
 </style>
 <style>
 ${css}

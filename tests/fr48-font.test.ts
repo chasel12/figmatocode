@@ -62,4 +62,17 @@ describe('FR-48 Inter 本地托管 + 字体单源', () => {
       expect(src.includes("'Arial, \"PingFang SC\"")).toBe(false);
     }
   });
+
+  it('D2（2026-10-20）：fontsBase 相对基座——preview 页随包字体路径成立；缺省仍 /fonts（e2e/dist-pages 口径不变）', () => {
+    const page = createPage('字体基座页');
+    const compiled = compilePage(page);
+    const relHtml = generateHtml(page, compiled, { fontsBase: 'fonts' });
+    expect(relHtml).toContain("url('fonts/inter-latin-wght-normal.woff2')");
+    expect(relHtml).not.toContain("url('/fonts/");
+    const defHtml = generateHtml(page, compiled);
+    expect(defHtml).toContain("url('/fonts/inter-latin-wght-normal.woff2')");
+    const relRef = generateReferenceHtml(page, compiled, {}, { fontsBase: 'fonts' });
+    expect(relRef).toContain("url('fonts/");
+    expect(relRef).not.toContain("url('/fonts/");
+  });
 });

@@ -5,6 +5,7 @@ import type { UIProject } from '../schema/types';
 import { resolveLayout } from '../compiler/layout';
 import { createApproxMeasure } from '../compiler/measure';
 import { createZip, downloadBlob } from '../utils/zip';
+import { FONT_FILES } from '../font';
 import { useEditor } from './store';
 
 type Tab = 'tsx' | 'scss' | 'html' | 'reference' | 'prototype';
@@ -50,11 +51,25 @@ export function CodeModal({ onClose }: { onClose: () => void }) {
     : tab === 'reference' ? files.reference
     : files.prototype;
 
-  const exportZip = () => {
+  const exportZip = async () => {
+    // D2 修复（2026-10-20 QA 对账）：Inter 字体随 ZIP 走 + preview 页相对基座——file:// 与子目录部署不 404；
+    // 抓取失败（非 http 环境等）则回退原 '/fonts' 口径，不阻断导出。
+    const fontEntries: { path: string; content: Uint8Array }[] = [];
+    for (const f of FONT_FILES) {
+      try {
+        const res = await fetch(`/fonts/${f}`);
+        if (res.ok) fontEntries.push({ path: `preview/fonts/${f}`, content: new Uint8Array(await res.arrayBuffer()) });
+      } catch { /* 回退缺省绝对路径 */ }
+    }
+    const withFonts = fontEntries.length === FONT_FILES.length;
+    const geometry = resolveLayout(state.page, createApproxMeasure());
+    const htmlOut = withFonts ? generateHtml(state.page, files.compiled, { fontsBase: 'fonts' }) : files.html;
+    const refOut = withFonts ? generateReferenceHtml(state.page, files.compiled, geometry, { fontsBase: 'fonts' }) : files.reference;
     const zip = createZip([
       ...files.taro,
-      { path: 'preview/index.html', content: files.html },
-      { path: 'preview/reference.html', content: files.reference },
+      { path: 'preview/index.html', content: htmlOut },
+      { path: 'preview/reference.html', content: refOut },
+      ...fontEntries,
       // FR-50：原型工程进 ZIP 根（含 runtime.js，仅在有交互时产出）
       ...files.protoFiles.map((f) => ({ path: `prototype/${f.path}`, content: f.content })),
     ]);

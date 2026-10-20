@@ -1638,3 +1638,19 @@
 **验证方式**：npx tsc --noEmit=0 · vitest 555/555 · param-audit 160 行复跑（98 全通）· canvas-diff 18/19。
 
 **遗留**：audit-report §4.4 D 类两项待修——**D2 导出页字体绝对路径**（file:///子目录丢字体，唯一伤用户项，建议下批首修）+ D1 玻璃色散空转（复用置灰模式）；§五自认盲区（Taro 通道/跨浏览器/像素级）按需排期。项目状态不变：GO 关闭 + GA 后增强进行中。
+
+---
+
+### [2026-10-20] M6 第二十三步：D2/D1 修复落地（zip-assert 揭示 FR-52 红灯属既有欠账，另立专单）
+
+**目标**：对账报告 §4.4 两项 D 类修复——D2 导出页字体绝对路径（换环境 404 丢字体）+ D1 玻璃色散空转（面板可改、全链路无效果）。
+
+**修改内容**：
+- **D2**：`font.ts` 拆出 `fontFaceCss(base)` + `FONT_FILES` 清单；`html.ts`/`reference.ts` 增加 `options.fontsBase`（缺省 '/fonts'——**dist/pages/e2e 口径零变化**）；`CodeModal.exportZip` 改异步：抓取 4 个 woff2 进 ZIP `preview/fonts/`，preview/index.html+reference.html 用 `fontsBase:'fonts'` 相对基座；抓取失败回退绝对路径不阻断导出。锁：fr48-font +1 例（相对/缺省双断言）。
+- **D1**：`PropertyPanel.effNum` 支持 `opts:{disabled,tip}`（NumField 已有该二 prop），「色散」置灰+tooltip（对照缺口 D1 口径明示，数据保留）——复用 QA 轨自创的「静默空转置灰防护」模式（HUG 垂直对先例）。
+
+**门禁**：tsc 0 · vitest **556/556**(+1) · build/precanvasdiff ✓ · e2e **19/19≥98%** · canvasdiff **18/19 avg 98.13%**（零漂移）· walkthrough 9/9 · m1 22 · m2 27 · present 18/18 · viewport 76/76。
+
+**意外收获（新红灯定界）**：`npm run zip-assert` 19/76——**非本批引入**（其报告自带注记「需主线在 src/ 接入，本轨道只读」= QA 轨留给我线的既有欠账）：出码 HTML 无 `data-node-id`（FR-52 断言③ 需「id 属性」——实为 zip 断言脚本读的是 preview 页 id 落盘，html.ts 现仅 class）、relativeRefs=0/19 疑其解析器读不到相对引用形式。→ 下一步专单核实口径并接线。
+
+**遗留**：①zip-assert FR-52 欠账专单（进行中）；②玻璃 chroma/edge 面板未暴露=维持（QA 轨 §5.7 已归"测不到"）；③param-audit/audit-params 复跑归入专单后一起做。

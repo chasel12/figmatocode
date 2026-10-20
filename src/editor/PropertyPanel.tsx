@@ -1260,7 +1260,7 @@ export function PropertyPanel() {
             saturation: [0, 300],
             particleSize: [0, 40],
           };
-          const effNum = (e: Effect, i: number, key: keyof Effect, label: string, def: number, suffix?: string, pct = false) => (
+          const effNum = (e: Effect, i: number, key: keyof Effect, label: string, def: number, suffix?: string, pct = false, opts?: { disabled?: boolean; tip?: string }) => (
             <label className="eff-field" key={`${i}-${String(key)}`}>
               <span>{label}</span>
               <NumField
@@ -1268,6 +1268,8 @@ export function PropertyPanel() {
                 min={EFF_RANGES[String(key)]?.[0] ?? 0}
                 max={EFF_RANGES[String(key)]?.[1] ?? 100}
                 suffix={suffix}
+                disabled={opts?.disabled}
+                title={opts?.tip}
                 onInput={(v) => commitEffects(effects.map((x, j) => (j === i ? { ...x, [key]: pct ? v / 100 : v } : x)))}
                 onCommit={commit}
               />
@@ -1362,7 +1364,7 @@ export function PropertyPanel() {
                       <>
                         {effNum(e, i, 'refraction', '折射', 10)}
                         {effNum(e, i, 'depth', '深度', 8)}
-                        {effNum(e, i, 'dispersion', '色散', 0)}
+                        {effNum(e, i, 'dispersion', '色散', 0, undefined, false, { disabled: true, tip: '色散无 CSS 原生对应，出码暂不参与（对照缺口 D1 口径：置灰保留数据，Glass 以 blur/saturate 链近似）' })}
                         {effNum(e, i, 'highlight', '高光', 0)}
                         {effNum(e, i, 'saturation', '饱和', 140, '%')}
                       </>
