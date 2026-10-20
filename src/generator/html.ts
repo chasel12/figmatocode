@@ -80,8 +80,10 @@ function makeRenderer(classNames: Map<string, string>, indentUnit = '  ', startD
 export function buildPreviewDom(page: UIPage, compiled: CompiledPage): DomParts {
   const classNames = new Map(compiled.nodes.map((n) => [n.id, n.className]));
   const render = makeRenderer(classNames);
+  // FR-52 断言③（2026-10-20 对账专单）：根元素带 id 锚点（页面根 id 落盘，供 ZIP 校验与外部工具定位；与 reference 同口径）
+  const rootHtml = render(page.root).replace('class="', `id="${page.root.id}" class="`);
   return {
-    bodyHtml: render(page.root),
+    bodyHtml: rootHtml,
     css: scssFromPage(compiled),
   };
 }

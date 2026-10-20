@@ -6,6 +6,8 @@ import { compilePage } from '../src/compiler';
 import { resolveLayout } from '../src/compiler/layout';
 import { createApproxMeasure } from '../src/compiler/measure';
 import { generateTaroProject, generateHtml, generateReferenceHtml } from '../src/generator';
+import { FONT_FILES } from '../src/font';
+import { collectDataUrls, assetFor, assetBytes, rewriteEntryText } from '../src/generator/zipKit';
 import { createZip } from '../src/utils/zip';
 
 /**
@@ -20,7 +22,7 @@ import { createZip } from '../src/utils/zip';
  *   3) 对 ZIP 内每个 HTML 条目抽取 `src=` / `href=` / `url()` 引用，逐条判定能否在 ZIP 内解析；
  *   4) 断言页面根节点渲染出**根 id**。
  *
- * 三条断言的口径与当前实现的**已知差距**如实记为 FAIL 并输出 `src/` 侧建议 diff（本脚本只读 src/，不改）。
+ * 三条断言（assets/、相对引用、根 id）曾按「已知差距」如实记 FAIL 输出建议 diff；**2026-10-20 对账专单已在 src/ 接线**（zipKit 资产外提 + fontsBase 相对基座随包 + 根元素 id），本脚本改为断言真实装配（与 CodeModal 同构）。
  * 用法：node scripts/zip-assert.mjs   （产物落 dist/zip-assert/report.json）
  */
 
@@ -140,15 +142,24 @@ const zipReports = [];
 for (const page of pages) {
   const compiled = compilePage(page);
   const geometry = resolveLayout(page, createApproxMeasure());
-  const html = generateHtml(page, compiled);
-  const reference = generateReferenceHtml(page, compiled, geometry);
+  // FR-52 对账专单（2026-10-20）：预览页字体相对基座 + woff2 随包 + dataURL 图片外提 assets/——与 CodeModal.exportZip 同构
+  const html = generateHtml(page, compiled, { fontsBase: '../assets/fonts' });
+  const reference = generateReferenceHtml(page, compiled, geometry, { fontsBase: '../assets/fonts' });
   const taro = generateTaroProject(page, compiled);
+  const assets = collectDataUrls([page]).map(assetFor);
+  const rw = (path, content) => rewriteEntryText(content, path, assets);
+  const fontEntries = FONT_FILES.map((f) => ({
+    path: `assets/fonts/${f}`,
+    content: new Uint8Array(readFileSync(join(process.cwd(), 'public', 'fonts', f))),
+  }));
 
   // 与 CodeModal.exportZip 同构的条目集（编辑器和工程侧导出同源）
   const entries = [
-    ...taro,
-    { path: 'preview/index.html', content: html },
-    { path: 'preview/reference.html', content: reference },
+    ...taro.map((f) => ({ ...f, content: rw(f.path, f.content) })),
+    { path: 'preview/index.html', content: rw('preview/index.html', html) },
+    { path: 'preview/reference.html', content: rw('preview/reference.html', reference) },
+    ...fontEntries,
+    ...assets.map((a) => ({ path: a.file, content: assetBytes(a.dataUrl) })),
   ];
 
   const blob = createZip(entries);

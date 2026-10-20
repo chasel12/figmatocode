@@ -6,6 +6,7 @@ import { resolveLayout } from '../compiler/layout';
 import { createApproxMeasure } from '../compiler/measure';
 import { createZip, downloadBlob } from '../utils/zip';
 import { FONT_FILES } from '../font';
+import { collectDataUrls, assetFor, assetBytes, rewriteEntryText } from '../generator/zipKit';
 import { useEditor } from './store';
 
 type Tab = 'tsx' | 'scss' | 'html' | 'reference' | 'prototype';
@@ -58,20 +59,24 @@ export function CodeModal({ onClose }: { onClose: () => void }) {
     for (const f of FONT_FILES) {
       try {
         const res = await fetch(`/fonts/${f}`);
-        if (res.ok) fontEntries.push({ path: `preview/fonts/${f}`, content: new Uint8Array(await res.arrayBuffer()) });
+        if (res.ok) fontEntries.push({ path: `assets/fonts/${f}`, content: new Uint8Array(await res.arrayBuffer()) });
       } catch { /* 回退缺省绝对路径 */ }
     }
     const withFonts = fontEntries.length === FONT_FILES.length;
     const geometry = resolveLayout(state.page, createApproxMeasure());
-    const htmlOut = withFonts ? generateHtml(state.page, files.compiled, { fontsBase: 'fonts' }) : files.html;
-    const refOut = withFonts ? generateReferenceHtml(state.page, files.compiled, geometry, { fontsBase: 'fonts' }) : files.reference;
+    const htmlOut = withFonts ? generateHtml(state.page, files.compiled, { fontsBase: '../assets/fonts' }) : files.html;
+    const refOut = withFonts ? generateReferenceHtml(state.page, files.compiled, geometry, { fontsBase: '../assets/fonts' }) : files.reference;
+    // FR-52 断言①②（zipKit）：全工程 dataURL 图片外提 assets/，文本条目按目录深度改写相对引用
+    const assets = collectDataUrls(state.pages.length ? state.pages : [state.page]).map(assetFor);
+    const rw = (path: string, content: string): string => rewriteEntryText(content, path, assets);
     const zip = createZip([
-      ...files.taro,
-      { path: 'preview/index.html', content: htmlOut },
-      { path: 'preview/reference.html', content: refOut },
+      ...files.taro.map((f) => ({ ...f, content: rw(f.path, f.content) })),
+      { path: 'preview/index.html', content: rw('preview/index.html', htmlOut) },
+      { path: 'preview/reference.html', content: rw('preview/reference.html', refOut) },
       ...fontEntries,
       // FR-50：原型工程进 ZIP 根（含 runtime.js，仅在有交互时产出）
-      ...files.protoFiles.map((f) => ({ path: `prototype/${f.path}`, content: f.content })),
+      ...files.protoFiles.map((f) => ({ path: `prototype/${f.path}`, content: rw(`prototype/${f.path}`, f.content) })),
+      ...assets.map((a) => ({ path: a.file, content: assetBytes(a.dataUrl) })),
     ]);
     downloadBlob(zip, `${state.projectName || 'ui-project'}.zip`);
   };

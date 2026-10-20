@@ -129,7 +129,7 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
     for (const child of container.children) emit(child, depth + 1);
   };
   for (const child of page.root.children) emit(child, 1);
-  return `<div class="${classNames.get(page.root.id) ?? page.root.id}">\n${out.join('\n')}\n</div>`;
+  return `<div id="${page.root.id}" class="${classNames.get(page.root.id) ?? page.root.id}">\n${out.join('\n')}\n</div>`;
 }
 
 export function generateReferenceHtml(

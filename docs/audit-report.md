@@ -138,8 +138,8 @@
 
 | # | 参数 | 现象 | 建议 |
 |---|---|---|---|
-| D1 | **Glass 色散** dispersion | 控件写 store，出码零变化；另 chroma/edge 两参数**面板未暴露** | 补近似或移除控件 |
-| D2 | **导出页字体路径** | 导出 html 用绝对路径 `/fonts/*.woff2`；`file://` 或子目录部署时 404，回退系统字体 | 改相对路径 + ZIP 内置字体 |
+| D1 | **Glass 色散** dispersion | 控件写 store，出码零变化；另 chroma/edge 两参数**面板未暴露** | **✅ 已处置 2026-10-20（`d5eb5d7`）**：置灰+tooltip（复用 §三 HUG 垂直对静默空转模式，数据保留、无产物口径明示）；chroma/edge 维持未暴露 |
+| D2 | **导出页字体路径** | 导出 html 用绝对路径 `/fonts/*.woff2`；`file://` 或子目录部署时 404，回退系统字体 | **✅ 已修复 2026-10-20（`d5eb5d7` + FR-52 专单）**：fontFaceCss(base) 参数化 + ZIP 根 `assets/fonts/` 随包 4 woff2 + preview 页相对基座 `../assets/fonts`（缺省站点根口径不动，e2e/dist-pages 零变化）；同批接线 **zip-assert FR-52 三断言 76/76 全绿达成**（assets/ 19·相对引用 19·根 id 19——图片 dataURL 经 zipKit 外提 assets/img-*、根元素落 id、深度前缀改写；zipKit 纯函数 4 例锁） |
 
 ### 4.5 Figma 有、本项目**完全没有**（矩阵外，供决策）
 

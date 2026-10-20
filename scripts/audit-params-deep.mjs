@@ -271,6 +271,7 @@ async function setNum(label, value, opts = {}) {
   if (!r) return { ok: false, why: r?.why ?? 'no-row' };
   const inp = r.loc.locator('input.num-box').nth(box);
   if (!(await inp.count())) return { ok: false, why: 'no-num-box' };
+  if (await inp.isDisabled().catch(() => false)) return { ok: true, back: 'DISABLED', declared: true };
   await inp.fill(String(value));
   await inp.press('Enter').catch(() => {});
   await sleep(330);
@@ -360,6 +361,8 @@ async function setEffNum(text, value) {
   if (i < 0) return { ok: false, why: 'no-eff-field' };
   const inp = page.locator('.props .eff-field').nth(i).locator('input.num-box').first();
   if (!(await inp.count())) return { ok: false, why: 'no-num-box' };
+  // 置灰控件=已声明口径（如 GLASS 色散 D1 修复），不 fill 不超时（判据回写 2026-10-20）
+  if (await inp.isDisabled().catch(() => false)) return { ok: true, back: 'DISABLED', declared: true };
   await inp.fill(String(value));
   await inp.press('Enter').catch(() => {});
   await sleep(330);
@@ -1021,7 +1024,7 @@ try {
     record(
       'EFFECT',
       'GLASS 参数',
-      '色散 40（面板可改）',
+      '色散 40（' + (disp.declared ? '已置灰=声明口径 D1' : '面板可改') + '）',
       glassChanged,
       `控件读回=${disp.back}；出码=${(glassBlk.match(/backdrop-filter:[^;]*/) ?? ['无'])[0]}${glassChanged ? '' : '（产物不变）'}`,
     );

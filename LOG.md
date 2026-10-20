@@ -1654,3 +1654,21 @@
 **意外收获（新红灯定界）**：`npm run zip-assert` 19/76——**非本批引入**（其报告自带注记「需主线在 src/ 接入，本轨道只读」= QA 轨留给我线的既有欠账）：出码 HTML 无 `data-node-id`（FR-52 断言③ 需「id 属性」——实为 zip 断言脚本读的是 preview 页 id 落盘，html.ts 现仅 class）、relativeRefs=0/19 疑其解析器读不到相对引用形式。→ 下一步专单核实口径并接线。
 
 **遗留**：①zip-assert FR-52 欠账专单（进行中）；②玻璃 chroma/edge 面板未暴露=维持（QA 轨 §5.7 已归"测不到"）；③param-audit/audit-params 复跑归入专单后一起做。
+
+---
+
+### [2026-10-20] M6 第二十四步（FR-52 专单）：zip-assert 76/76 达成——assets/ 随包·相对引用·根 id 三线接通
+
+**更正先记**：第二十一步把 zip-assert 19/76 写成「QA 轨留单」——**不实**。该脚本出自我线 `3c9141e` 清账批次，头注自认「已知差距如实记 FAIL、待主线 src 接线」；对账只是把它揪出来。本步完成这笔欠账。
+
+**接线（三断言对应三改造）**：
+- **断言③ 根 id**：`html.ts` buildPreviewDom 根元素落 `id`（首个 class= 前插，根 div 唯一命中）；`reference.ts` 根 div 同步（成对改）→ rootId 19/19。
+- **断言② 相对引用**：字体改住 ZIP 根 `assets/fonts/`，preview 页 fontsBase=`../assets/fonts`（D2 修复的二次定位：preview/fonts 不达 assets/ 断言）→ relativeRefs 19/19（此前 0/19 元凶=绝对 /fonts）。
+- **断言① assets/**：新 `src/generator/zipKit.ts` 纯函数四件（collectDataUrls 遍历序去重 / assetFor MIME→扩展名 / assetBytes base64+URI 双载荷 / rewriteEntryText 按条目深度前缀改写）；CodeModal 与 zip-assert 双装配侧把图片 dataURL 外提 `assets/img-*.svg|png`，全部文本条目改写 → assets/ 19/19。
+- 脚本侧判据回写（铁律8）：`audit-params-deep.mjs` setNum/setEffNum 增**置灰防护**（disabled→声明口径行，不再 30s fill 超时炸整节）；色散行标注改动态诚实文案。
+
+**全门禁（本步后）**：tsc 0 · vitest **560/560**（+4 zipKit 锁）· build/e2e-hook ✓ · e2e **19/19≥98%** · viewport **76/76** · walkthrough 9/9 · m1 22 · m2 27 · present 18/18 · canvasdiff **18/19 avg 98.13%（零漂移）** · **zip-assert 76/76**（19/76→76/76 清账）· audit-params **51/51** · audit-params-deep **146/152**（与 QA 轨基线一致，无崩溃行）· user-flow **12/12** · m4 **12/12** · m5 **16/16** · 附A 19/19 附B 11/11 附C 7/7 · param-audit 160 行三渠道全通 **98**。
+
+**修改内容**：zipKit.ts（新）/ html.ts / reference.ts / CodeModal.tsx / zip-assert.mjs / audit-params-deep.mjs / zipkit.test.ts（新）/ checklist 差异 #24→已修复 / audit-report D1 D2 注记 / 本 LOG。
+
+**遗留**：D 类清零。audit-report §五 自认盲区仍在册（Taro 通道深审、跨浏览器、PDF/SVG 像素级）——属可选排期，非欠账。
