@@ -1479,7 +1479,36 @@ export function PropertyPanel() {
         <div className="prop-section">
           <div className="prop-heading">排版</div>
           <Row label="字号">
-            <NumField value={S.fontSize ?? 16} suffix="px" min={1} max={200} onInput={(v) => setStyle({ fontSize: v }, true)} onCommit={commit} />
+            {/**
+             * 改字号时**同步行高**（2026-10-20 真实使用中发现的问题）：
+             * 新建文本带 `lineHeight: 22`（固定像素）且未设 lineHeightMode；
+             * 直接把字号 16 → 28 后，出码 `line-height: 22px` < `font-size: 28px`，
+             * **字形被裁切**（渲染只剩上半截）。Figma 的行高默认跟随字号。
+             *
+             * 处置口径（**不碰 `defaultStyle`**，以免改动既有 demo 页的像素基线）：
+             * 仅当行高处于「自动跟随」状态（`lineHeightMode` 未显式指定）时，
+             * 按新旧字号比例**等比缩放** lineHeight —— 于是：
+             *   · 用户改字号 → 行高跟随，不裁字；
+             *   · 显式设过行高（PIXELS/PERCENT/AUTO）的 → 完全不动；
+             *   · 既有工程与出码基线 → 不经过本交互，零影响。
+             */}
+            <NumField
+              value={S.fontSize ?? 16}
+              suffix="px"
+              min={1}
+              max={200}
+              onInput={(v) => {
+                const prev = S.fontSize ?? 16;
+                const followsFontSize = S.lineHeightMode == null;
+                if (followsFontSize && v > 0 && prev > 0 && S.lineHeight != null) {
+                  const nextLh = Math.max(1, Math.round((S.lineHeight * v) / prev));
+                  setStyle({ fontSize: v, lineHeight: nextLh }, true);
+                } else {
+                  setStyle({ fontSize: v }, true);
+                }
+              }}
+              onCommit={commit}
+            />
           </Row>
           <Row label="字重">
             <NumField
