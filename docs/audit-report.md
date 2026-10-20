@@ -129,7 +129,7 @@
 | C1 | cornerSmoothing（平滑） | 设值后数据✓出码✓，**编辑画布不反映** |
 | C2 | blendMode 部分模式 | 已接 `globalCompositeOperation`；少数模式画布与浏览器合成有细微差 |
 | C3 | paragraphIndent（首行缩） | 数据✓出码✓，画布文本不缩进 |
-| C4 | 效果：INNER_SHADOW / BACKGROUND_BLUR / PROGRESSIVE_BLUR 等 | 仅 DROP_SHADOW 在 Konva 画布实时预览（差异 #18，另有报告） |
+| C4 | 效果：INNER_SHADOW / BACKGROUND_BLUR / PROGRESSIVE_BLUR 等 | 仅 DROP_SHADOW 在 Konva 画布实时预览（差异 #18，另有报告）【**对账勘误 2026-10-20（HEAD=115afe6 实测）**：本行系旧口径转述、非本轨实测（§五.6 已自认断言不含画布列）。四渠道轨复跑证实：LAYER_BLUR 2/3、PROGRESSIVE 5/5、NOISE 8/8（含你们噪点着色修复的增益 +1）、blendMode 全响应——模糊/噪声/纹理/玻璃覆盖/16 混合模式的画布实时预览已在 `814378f` 落地且双方合并后无退化（vitest 555/555、canvasdiff 18/19 avg 98.13% 零漂移）。仍保留「以导出为准」的仅=INNER_SHADOW/BACKGROUND_BLUR/shadow spread/cornerSmoothing/paragraphIndent，与 C1/C3 行一致】 |
 | C5 | 图片调整 色温/色调/高光/阴影 | Konva 无对应滤镜，面板已提示「画布不显示近似项」 |
 
 > C 类共同性质：**不是功能缺失，是编辑器预览保真度**。出码（用户最终交付物）正确。已登记差异 #18/#19。
