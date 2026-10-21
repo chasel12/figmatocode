@@ -11,6 +11,9 @@ preview-dbg.log
 .tmp-esbuild/
 .esbuild-tmp/
 
+# Agent 工作区残留（执行者/规划师回报，非产品资产）
+.zwork/
+
 # Editor/OS
 .vscode/
 .idea/
