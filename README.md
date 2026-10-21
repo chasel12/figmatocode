@@ -12,6 +12,22 @@ UI AST ──► Layout Compiler ──► Code Generator ──► Taro / HTML
    └── Responsive Compiler（固定宽度 = 父宽 → 100%）
 ```
 
+## 效果预览
+
+**可视化编辑器**（React + Konva 画布：图层树 / 属性面板 / 拖拽缩放 / 一键生成代码与像素对比）：
+
+![UI Compiler 可视化编辑器](docs/images/editor.png)
+
+**Pixel Diff 对照卡**（左：Layout Compiler 几何基准 reference；右：编译产物 render）：
+
+![Pixel Diff 对照卡](docs/images/diff-card-03.png)
+
+**像素差异热力图**（pixelmatch 逐像素对比，红色区域即差异所在）与**画布↔出码对比**（编辑器渲染 vs 编译产物渲染）：
+
+![像素差异热力图](docs/images/pixel-diff-07.png)
+
+![画布与出码对比](docs/images/canvas-03.png)
+
 ## 核心能力
 
 - **Layout Compiler**：FIXED / FILL / HUG 三种尺寸语义 + HORIZONTAL / VERTICAL / ABSOLUTE 三种布局模式，解析出每个节点的绝对几何，作为像素对比的基准。
