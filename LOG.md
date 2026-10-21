@@ -1675,6 +1675,27 @@
 
 ---
 
+### [2026-10-21] M6 第二十五步：发布 GitHub（GA 后工程遗留关闭）——origin 建立、master 全史推送、Actions 首跑登记
+
+**目标**：PM 指令「把项目上传到 https://github.com/chasel12/figmatocode」。
+
+**发布前安全扫描（751 文件逐项过目）**：
+- **揪出两笔不应公开物并重演 3a819a7 教训**：`.esbuild-tmp/` 576 个 node 编译缓存（`624ce71` 提交时该目录名不在卫生修复视野）+ `.zwork/` 三份 agent 执行回报——`git rm --cached` 脱索引（磁盘不动），`.gitignore` 补 `.zwork/`（`f7b68ea`）；**索引 751→172**。
+- 敏感形态扫描：无 .env/密钥/凭据类文件；提交者邮箱将随全史公开（用户自有账号，未擅改历史）。
+- 注意：**历史提交仍含上述缓存 blob**（不改写全史，HEAD 起干净）。
+
+**推送**：`git remote add origin` → `git push -u origin master` 成功；`git ls-remote` 远端=f7b68ea 与本地一致 ✓。空仓预先经 ls-remote 确证（存在且无 ref）。
+
+**Actions**：`.github/workflows/ci.yml`（FR-58：tsc/test/build/e2e，监听 push master）随推送登记触发——本机防火墙仅放行 git 通道，**首跑结论无法 CLI 查询，待用户在仓库 Actions 页确认**（若红按日志修）。
+
+**结果**：工程遗留项「git remote + Actions 实跑」关闭（HANDOFF §6#3 划账）。门禁复核：tsc 0 · vitest 560/560（索引清理为纯记账提交，不动 src）。
+
+**验证方式**：`git ls-remote origin`（sha 一致）· `git status`=0。
+
+**遗留**：Actions 首跑结论待确认；P2 协作若翻案另立里程碑（不变）。
+
+---
+
 ### [2026-10-20] 第三方独立复验：主线 3 笔提交全项实测（不采信转述）+ 补 D2 端到端定案脚本
 
 **目标**：对并发主线三笔提交（`8b975e4` 对账 / `d5eb5d7` D2 字体+D1 置灰 / `560c881` zip-assert 76/76）**逐项独立复跑**，验证其声称的数字与结论是否真的成立。

@@ -86,7 +86,7 @@ tests/            36 个 *.test.ts = 525 例（vitest，node 环境）
 |---|---|---|---|
 | ~~1~~ | ~~go-no-go 决议栏补签~~ **已完成（2026-10-18 第十七步：PM 三决全部落笔，议题 1-5 签署完毕，差异 #1 终签）** | — | ✅ |
 | 2 | **GA 后增强清单**（纪要已录 8 项）：stretch 约束档、arcData→SVG path、Present 换帧与导出页导航双语义统一、overlay 拖拽定位+遮罩透明度、手柄独立调曲率、Flows 多分组/设备外框、14 页换行收敛（DOM 文本测量）、多断点 diff | checklist 差异表各行为锚点 | 全部有报备登记 |
-| 3 | 工程遗留：git remote + Actions 实跑（当前替代凭证口径）、P2 协作若 Go 另立里程碑 | `.github/workflows/ci.yml` | 环境依赖 |
+| ~~3~~ | ~~工程遗留：git remote + Actions 实跑~~ **已完成（2026-10-21 第二十五步）：`origin=https://github.com/chasel12/figmatocode`，master 全史推送 ls-remote 核验一致（f7b68ea）；ci.yml 监听 push 已登记首跑，结论见仓库 Actions 页**；余 P2 协作翻案仍另立里程碑 | 仓库 Actions 页 | ✅ |
 
 > **本轮（第四~五轮）新交付（勿重做）**：FR-60 三项真优化（拖拽层提升/悬停幂等/签名门控，真掉帧 11→1）+ **方案 A 判据落地（perf-1000 主判据切换+WARMUP 排除启动成本，实测 95.27% 达标）**+ **附 A/B/C 采样脚本 m6-appendix（全 100% 入册）**+ canvasdiff 19 页基线（18/19）+ ci-local 4/4 + **go-no-go 纪要（GO）**+ m4-matrix 12/12 + 工程卫生（.gitignore 补 .tmp-esbuild，清 576 个误提交缓存）。
 
