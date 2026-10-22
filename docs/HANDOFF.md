@@ -165,6 +165,11 @@ npm run build         # 统一入口（= scripts/build.mjs：固定 TEMP 后跑 
 npm run ai:assets     # 构建期资产（风格包/图标/语料）——改了抽取脚本才需要
 npm run ai:schema     # 契约 schema
 npm run ai-matrix     # 离线 10 项（A1–A9 + B0）；有 key 时追加 B1 一次通过率 / B2 自修后 / B3 成本 / B5 缓存命中
+
+# 实跑档（2026-10-22 已在 DeepSeek 端点执行，报告见 dist/ai-matrix/report-deepseek-*.json）
+DEEPSEEK_API_KEY=… npm run ai-matrix                           # deepseek-flash（默认档，¥0.033/页）
+DEEPSEEK_API_KEY=… AI_MODEL=deepseek-v4-pro npm run ai-matrix   # 强档（¥0.272/页，一次通过率 90%）
+ANTHROPIC_API_KEY=… npm run ai-matrix                          # 官方端点（未实测）
 ```
 
 > **别再直接用 `npx vitest run` / `npx vite build`**：本机沙箱下它们会踩坑 2/坑 3（静默漏跑测试、

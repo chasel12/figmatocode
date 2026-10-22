@@ -136,13 +136,17 @@ try {
   await sleep(200);
   const aiSetup = await page.locator('.ai-setup').count();
   const aiRunDisabled = await page.locator('.ai-run').isDisabled();
-  const packOptions = await page.locator('.ai-select').first().evaluate((el) => el.options.length);
+  // 面板有三个 select：供应商 / 风格包 / 模型档，按 title 精确定位，避免顺序变动导致误判
+  const providerOptions = await page.locator('.ai-select[title]').first().evaluate((el) => el.options.length);
+  const packOptions = await page
+    .locator('.ai-select[title^="风格包"]')
+    .evaluate((el) => el.options.length);
   const keyPersisted = await page.evaluate(() => localStorage.getItem('ui-compiler.ai.key'));
   await page.screenshot({ path: join(OUT, '06c-AI面板未配key.png') });
   step(
-    'AI 面板：未配 key 整体置灰 + 风格包 3 选（M7 W5 / §8）',
-    aiSetup > 0 && aiRunDisabled && packOptions === 3 && keyPersisted === null,
-    `配置区=${aiSetup} 填了提示词后生成按钮仍 disabled=${aiRunDisabled} 风格包选项=${packOptions} localStorage 无 key=${keyPersisted === null}`,
+    'AI 面板：未配 key 整体置灰 + 供应商 2 选 + 风格包 3 选（M7 W5 / §8）',
+    aiSetup > 0 && aiRunDisabled && providerOptions >= 2 && packOptions === 3 && keyPersisted === null,
+    `配置区=${aiSetup} 填了提示词后生成按钮仍 disabled=${aiRunDisabled} 供应商选项=${providerOptions} 风格包选项=${packOptions} localStorage 无 key=${keyPersisted === null}`,
   );
 
   // ── M7 W2.5 验收：图标页签可搜可插（VECTOR 引用 path，不内联图片）──

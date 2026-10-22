@@ -16,37 +16,106 @@ import editSchema from './contract.edit.schema.json';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const MODEL_OPTIONS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
 
+export type ProviderId = 'anthropic' | 'deepseek';
+
+export interface ProviderDef {
+  id: ProviderId;
+  label: string;
+  /** 非官方端点：走 Anthropic Messages 兼容协议 */
+  baseURL?: string;
+  models: readonly string[];
+  defaultModel: string;
+  keyPlaceholder: string;
+  /** 面板上的一行能力说明（诚实告知兼容层差异） */
+  note: string;
+}
+
+/**
+ * 供应商表。加一家的成本 = 往这里加一条 + （若协议不同）实现一个 LlmClient。
+ * 契约层 / 闸门 / 自修环 / 预览采纳与供应商无关，不用动。
+ */
+export const PROVIDERS: readonly ProviderDef[] = [
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    models: MODEL_OPTIONS,
+    defaultModel: DEFAULT_MODEL,
+    keyPlaceholder: 'sk-ant-…',
+    note: '原生结构化输出（json_schema）+ 显式 prompt caching',
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    baseURL: 'https://api.deepseek.com/anthropic',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    defaultModel: 'deepseek-flash',
+    keyPlaceholder: 'sk-…',
+    note: 'Anthropic 兼容端点：忽略 output_config，靠契约+闸门+自修环兜住',
+  },
+];
+
+export function providerDef(id?: ProviderId): ProviderDef {
+  const want = id ?? getProvider();
+  return PROVIDERS.find((p) => p.id === want) ?? PROVIDERS[0];
+}
+
 const KEY_STORAGE = 'ui-compiler.ai.key';
 const MODEL_STORAGE = 'ui-compiler.ai.model';
+const PROVIDER_STORAGE = 'ui-compiler.ai.provider';
 
-export function getApiKey(): string {
+/** 旧键名沿用给 anthropic（已有用户不必重填），其它供应商加后缀隔离 */
+const keySlot = (p: ProviderId): string => (p === 'anthropic' ? KEY_STORAGE : `${KEY_STORAGE}.${p}`);
+const modelSlot = (p: ProviderId): string => (p === 'anthropic' ? MODEL_STORAGE : `${MODEL_STORAGE}.${p}`);
+
+export function getProvider(): ProviderId {
   try {
-    return localStorage.getItem(KEY_STORAGE) ?? '';
+    return localStorage.getItem(PROVIDER_STORAGE) === 'deepseek' ? 'deepseek' : 'anthropic';
   } catch {
-    return '';
+    return 'anthropic';
   }
 }
 
-export function setApiKey(key: string): void {
+export function setProvider(id: ProviderId): void {
   try {
-    if (key) localStorage.setItem(KEY_STORAGE, key);
-    else localStorage.removeItem(KEY_STORAGE);
+    localStorage.setItem(PROVIDER_STORAGE, id);
   } catch {
     /* 隐私模式下写入失败不阻塞 */
   }
 }
 
-export function getModel(): string {
+export function getApiKey(provider?: ProviderId): string {
+  const p = provider ?? getProvider();
   try {
-    return localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL;
+    return localStorage.getItem(keySlot(p)) ?? '';
   } catch {
-    return DEFAULT_MODEL;
+    return '';
   }
 }
 
-export function setModel(model: string): void {
+export function setApiKey(key: string, provider?: ProviderId): void {
+  const p = provider ?? getProvider();
   try {
-    localStorage.setItem(MODEL_STORAGE, model);
+    if (key) localStorage.setItem(keySlot(p), key);
+    else localStorage.removeItem(keySlot(p));
+  } catch {
+    /* 隐私模式下写入失败不阻塞 */
+  }
+}
+
+export function getModel(provider?: ProviderId): string {
+  const p = provider ?? getProvider();
+  const fallback = providerDef(p).defaultModel;
+  try {
+    return localStorage.getItem(modelSlot(p)) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function setModel(model: string, provider?: ProviderId): void {
+  const p = provider ?? getProvider();
+  try {
+    localStorage.setItem(modelSlot(p), model);
   } catch {
     /* 同上 */
   }
@@ -93,11 +162,19 @@ export interface LlmClient {
  * 参考价（USD / MTok）。**不是官方报价**，而是按 plan §7 的单页成本口径（¥0.3–1.5）反推的量级值，
  * 只用于面板上的"这次大概花了多少"提示，不参与任何质量判定。
  * 正式对账请以官方价目页为准，替换本表即可（成本展示与 ai-matrix 会同步生效）。
+ *
+ * DeepSeek 两档为**人民币价按 7.2 折算**，且取**高峰时段**（周一至周五 9–12、14–18）价，
+ * 空闲时段为其一半——宁可高估，避免成本看板给出过于乐观的数。
+ * 来源：api-docs.deepseek.com/zh-cn/quick_start/pricing（2026-10-22 查）
  */
 const MODEL_PRICES: Record<string, { input: number; output: number; cacheRead: number }> = {
   'claude-opus-5-5': { input: 3, output: 15, cacheRead: 0.2 },
   'claude-sonnet-5-5': { input: 1.5, output: 7.5, cacheRead: 0.15 },
   'claude-haiku-5-5': { input: 0.5, output: 2.5, cacheRead: 0.05 },
+  // ¥2 / ¥8 / ¥0.04 per MTok（高峰）→ USD
+  'deepseek-flash': { input: 0.278, output: 1.111, cacheRead: 0.006 },
+  // ¥9 / ¥27 / ¥0.30 per MTok（高峰）→ USD
+  'deepseek-v4-pro': { input: 1.25, output: 3.75, cacheRead: 0.042 },
 };
 
 const USD_CNY = 7.2;
@@ -145,21 +222,65 @@ export function describeAiError(err: unknown): string {
  * 真实客户端：浏览器直连。
  * 代理兜底：构建时设 `VITE_AI_PROXY_BASE=http://localhost:5173/anthropic` 即走 vite 代理，
  * 此时不再需要 dangerouslyAllowBrowser（key 由代理转发，仍在用户本机）。
+ *
+ * 第三方兼容端点（如 DeepSeek `https://api.deepseek.com/anthropic`）同样走 baseURL，
+ * 但**兼容层能力有差异**：DeepSeek 会静默忽略 `output_config.format`（实测同一提示词 4 次
+ * 返回 4 种不同形状），因此按端点能力降级为「prompt 契约 + 闸门 + 自修环」——
+ * 这也是为什么闸门层必须模型无关（它本来就是）。
  */
-export async function createAnthropicClient(options: { apiKey?: string; model?: string } = {}): Promise<LlmClient> {
+export interface ClientOptions {
+  apiKey?: string;
+  model?: string;
+  /** 供应商：决定默认端点、模型档与 key 槽位 */
+  provider?: ProviderId;
+  /** 覆盖端点：任何兼容 Anthropic Messages 协议的服务 */
+  baseURL?: string;
+  /** 是否启用 Anthropic 原生结构化输出；默认按端点能力推断 */
+  structuredOutput?: boolean;
+}
+
+/** 读构建/运行环境变量（浏览器走 import.meta.env，node 评测轨走 process.env） */
+function envOf(): Record<string, string | undefined> {
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+  const nodeEnv = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env ?? {};
+  return { ...nodeEnv, ...viteEnv };
+}
+
+/**
+ * 兼容层能力探测：是否支持 `output_config.format = json_schema`。
+ * DeepSeek 的 Anthropic 端点官方文档写明 `output_config` **仅支持 `effort`**，实测传 format
+ * 不报错也不生效（静默忽略）。传了只会让人误以为有强约束，故直接关掉并靠 prompt 契约兜。
+ */
+export function supportsJsonSchema(baseURL: string | undefined): boolean {
+  if (!baseURL) return true; // 官方 Anthropic
+  if (/deepseek/i.test(baseURL)) return false;
+  return true;
+}
+
+export async function createAnthropicClient(options: ClientOptions = {}): Promise<LlmClient> {
   // SDK 约 200KB：动态 import，只有真正生成时才加载（主包零增量）
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const apiKey = options.apiKey ?? getApiKey();
-  const model = options.model ?? getModel();
-  const env = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
-  const proxyBase = env.VITE_AI_PROXY_BASE;
+  const env = envOf();
+  const providerId = options.provider ?? getProvider();
+  const def = providerDef(providerId);
+  const apiKey = options.apiKey ?? getApiKey(providerId);
+  const model = options.model ?? getModel(providerId);
+  const baseURL = options.baseURL ?? env.AI_BASE_URL ?? env.VITE_AI_PROXY_BASE ?? def.baseURL;
+  const structuredOutput = options.structuredOutput ?? supportsJsonSchema(baseURL);
+  // 结构化输出关闭时，在易变尾部（不动 system 稳定前缀）补一句强约束
+  const jsonOnlyReminder = structuredOutput
+    ? ''
+    : '\n\n（再提醒一次：只输出一个 JSON 对象，严格遵守 system 里的契约；不要 markdown 围栏、不要任何解释文字。）';
 
   if (!apiKey) throw new Error('未配置 API key');
 
   const client = new Anthropic({
     apiKey,
-    dangerouslyAllowBrowser: !proxyBase,
-    ...(proxyBase ? { baseURL: proxyBase } : {}),
+    // 只有走**本地代理**（VITE_AI_PROXY_BASE）时浏览器才不直接持有请求，可以关掉；
+    // 第三方兼容端点（如 DeepSeek）是浏览器直连、key 来自 localStorage，必须允许，
+    // 否则 SDK 会直接抛「browser-like environment ... disabled by default」。
+    dangerouslyAllowBrowser: !env.VITE_AI_PROXY_BASE,
+    ...(baseURL ? { baseURL } : {}),
   });
 
   return {
@@ -170,8 +291,10 @@ export async function createAnthropicClient(options: { apiKey?: string; model?: 
           model,
           max_tokens: req.maxTokens ?? 64000,
           system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
-          messages: [{ role: 'user', content: req.user }],
-          output_config: { format: { type: 'json_schema', schema: schema as Record<string, unknown> } },
+          messages: [{ role: 'user', content: req.user + jsonOnlyReminder }],
+          ...(structuredOutput
+            ? { output_config: { format: { type: 'json_schema', schema: schema as Record<string, unknown> } } }
+            : {}),
         },
         { signal: req.signal },
       );
@@ -203,6 +326,6 @@ export async function createAnthropicClient(options: { apiKey?: string; model?: 
 }
 
 /** 未配置 key 时面板整体置灰（plan §8.1：复用静默空转模式，不弹错） */
-export function aiAvailable(): boolean {
-  return getApiKey().length > 0;
+export function aiAvailable(provider?: ProviderId): boolean {
+  return getApiKey(provider).length > 0;
 }

@@ -2046,3 +2046,55 @@ add('B5', 'W2 验收：稳定前缀命中 prompt cache（第 2 页起 cache_read
 **门禁**：`npx tsc --noEmit` **0 错**（新增变量类型无误）；`npm run ai-matrix` 离线 **10/10**；`npm run walkthrough` **11/11**。
 
 **文档**：plan §11.1 的 W2/W5/W6 行补「验收证据」、§11.4 走查 9/9→11/11 与实跑档 B1–B5 清单；checklist 附表 D 的 D5 行同步、D1/D2 标注实跑档编号、表下补「W2 验收补充」段；HANDOFF §10.3 复跑命令与回填清单更新为 B1/B2/B5。
+
+---
+
+## 2026-10-22 · 接入 DeepSeek（第三方 Anthropic 兼容端点）+ §6 质量线首次真实检验
+
+**动因**：用户提供 DeepSeek key，问「只能 Anthropic 吗」。查官方文档发现 DeepSeek 提供 **Anthropic 格式端点**
+`https://api.deepseek.com/anthropic`，同一套 `@anthropic-ai/sdk` 可直接接——不必新增 openai 依赖，
+也印证了当初把 `LlmClient` 抽成接口、把闸门做成模型无关是对的。
+
+**改动（均为接线级，契约层/闸门/自修环零改动）**
+
+| 文件 | 改动 |
+|---|---|
+| `src/editor/ai/client.ts` | 新增 `PROVIDERS` 表（Anthropic / DeepSeek）+ `providerDef`；key/model 按供应商分槽（anthropic 沿用旧键 `ui-compiler.ai.key`，其它加后缀）；`supportsJsonSchema(baseURL)` 能力探测；`ClientOptions` 增 `provider` |
+| `src/editor/ai/AiDock.tsx` | 供应商下拉 + `switchProvider`（切供应商时 key/model/结果全部按槽位重置）；key 行按 `maskKey` 显示为「DeepSeek key sk-xxxx…xxxx」（脱敏，无明文）；模型下拉按供应商取档 |
+| `src/styles.css` | `.ai-provider` 行样式 |
+| `scripts/ai-matrix.ts` | 支持 `DEEPSEEK_API_KEY` / `AI_BASE_URL` / `AI_MODEL`；报告增 `provider`/`jsonSchema` 字段；按模型另存 `report-<model>.json`；失败明细带违例摘要；B4 由「有失败即 FAIL」改为记录项；B5 先看观测值再判 |
+| `scripts/walkthrough.mjs` | `.ai-select` 由 `.first()` 改为按 title 精确匹配（面板多了供应商下拉），并加断言「供应商 2 选」 |
+
+**探针实测的两个兼容层事实（不是文档推断）**
+
+1. **`output_config.format = json_schema` 被静默忽略**：同一提示词 4 次调用返回 4 种不同形状
+   （`type/container`、`type/Page/root`…），不报错但完全没约束。→ 按端点能力自动关闭该字段，
+   改为在 user 尾部补一句强约束 + 依赖 prompt 契约块 + ajv 闸门 + 自修环。
+2. **自动上下文缓存会映射到 `cache_read_input_tokens`**：短前缀探针（91 tokens）测不出，
+   真实 7.1K 前缀下每页 6000+ tokens 命中。→ B5 的判定改为「先看观测值，观测到即 PASS」，
+   原先按供应商硬编码 SKIP 的写法是错的（会掩盖真实命中）。
+
+**踩坑：`dangerouslyAllowBrowser` 判定写反**
+
+原实现 `dangerouslyAllowBrowser: !baseURL`（有 baseURL 即视为走本地代理），但第三方端点恰恰是
+**浏览器直连**（key 在 localStorage），SDK 直接抛
+「It looks like you're running in a browser-like environment... set dangerouslyAllowBrowser: true」。
+浏览器探针第一次就撞上，面板红字报错、180s 无结果。改为只在 `VITE_AI_PROXY_BASE` 存在时关闭。
+> 这个坑只有真在浏览器里跑才会暴露——纯 node 评测轨（`ai-matrix`）永远是通的。
+
+**实测结果（§6 质量线首次真验）**
+
+| 模型 | 一次通过（≥60%） | 自修后（≥90%） | 单页成本 | 10 页耗时 |
+|---|---|---|---|---|
+| `deepseek-flash` | 50–70%（4 次：70/70/50/70，均值 65%） | 90–100%（100/90/90/100，均值 95%） | **¥0.033–0.038** | ≈3.5 min |
+| `deepseek-v4-pro` | 90%（9/10） | 100%（10/10） | ¥0.272 | ≈22 min |
+| `claude-opus-5-5` | 未测 | 未测 | ≈¥0.73（参考价） | — |
+
+浏览器端到端探针 **4/4**：切供应商 → key 脱敏（无明文）→ 生成（1 轮）→ 预览 iframe 出真实商品卡片
+→ 采纳后页面 +1；面板显示「输入 5713（缓存读 1152）· 输出 1495 · ¥0.021」。
+
+**结论**：`deepseek-flash` 可用且极便宜（比 opus 参考价低约 20 倍），代价是约 3/10 页面需 1 轮自修；
+要一次成型用 `deepseek-v4-pro`。Anthropic 官方端点有原生 json_schema 强约束、理论更高，但**未实测不写猜测数字**。
+
+**门禁**：tsc 0 · `npm test` **667/667**（50 文件校验通过）· `npm run build` 通过 · `walkthrough` **11/11** · `ai-matrix` 离线 10/10 + 实跑 13/13。
+**安全**：key 只经环境变量与 localStorage，未写入任何文件/日志/提交；一次性探针两个已删（截图留 `dist/ai-ui/deepseek-*.png`）。

@@ -99,7 +99,10 @@ npm run ai-matrix   # M7 评测轨（离线档 10 项；设 ANTHROPIC_API_KEY �
 | 提示词+选中→修改/删除 | 选中节点后切「修改选中」，模型只输出白名单指令（add/remove/move/setText/updateStyle/updateLayout），**每条指令=一条 store action**（与人点按钮同管道） |
 | 契约闸门 | `ts-json-schema-generator` 从 `src/editor/ai/types.ts` 自动生成 schema；`ajv` 运行时校验；违例摘要喂回自修 ≤2 轮 |
 | 风格资产 | 3 套令牌包（shadcn/Radix、Open Props、daisyUI Dark，均 MIT）+ Lucide 1545 图标（ISC）+ Inter/Space Grotesk（OFL） |
+| 模型供应商 | 面板可切 **Anthropic**（原生 `json_schema` 强约束）或 **DeepSeek**（走其 Anthropic 兼容端点，靠契约+闸门+自修兜底）；key 按供应商分槽存储 |
 | 成本可见 | 面板实时显示本次会话估算（参考价，非官方报价） |
+
+**实测质量（2026-10-22，10 个 golden prompt，DeepSeek 端点）**：`deepseek-flash` 一次通过 50–70% / 自修后 90–100% / **¥0.033 每页**；`deepseek-v4-pro` 一次通过 90% / 自修后 100% / ¥0.272 每页。详见 `docs/wave2-ai-generation-plan.md` §11.5。
 
 **安全口径（硬约束）**：API key 只存本机 `localStorage`，面板脱敏显示，**永不入仓库/日志**；未配置 key 时 AI 功能整体置灰；「数据不出本机」升级为「**仅发给模型的内容出机**」（提示词 + 选中节点结构）。
 

@@ -2255,6 +2255,23 @@ input[type='number'] {
   color: var(--text-dim);
 }
 
+/* 供应商切换行（M7 后续：Anthropic / DeepSeek 兼容端点） */
+.ai-provider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-provider-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ai-provider .ai-select {
+  flex: 1 1 auto;
+}
+
 .ai-seg {
   display: flex;
   gap: 4px;

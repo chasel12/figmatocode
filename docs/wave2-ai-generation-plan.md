@@ -156,6 +156,19 @@ scripts/              extract-tokens.mjs / icons-import.mjs / ai-matrix.mjs
 6. **评测脚本后缀 `.mjs` → `.ts`**：需 import TS 源码走同一条管线，用 `vite-node`（与 `build-pages.ts` 同例）；命令仍为 `npm run ai-matrix`。
 7. **价格表为参考值**：`MODEL_PRICES` 由 plan §7 的单页成本口径（¥0.3–1.5）反推，非官方报价；面板与评测只用于量级提示，不参与任何判定。
 8. **未做真实模型实跑**：本机无 key，实跑档（§6 一次通过率/自修后通过率）留待 PM 配 key 后执行 `ANTHROPIC_API_KEY=… npm run ai-matrix`；离线档 10/10 覆盖全部确定性指标。
+   > **已于 2026-10-22 补跑（DeepSeek 端点）**，结果见 §11.5；Anthropic 官方端点仍未实跑。
+9. **模型供应商可切换（原计划只写死 Anthropic）**：`client.ts` 增 `PROVIDERS` 表（Anthropic / DeepSeek），
+   key 与模型按供应商分槽存储（anthropic 沿用旧键，其它加后缀），面板加供应商下拉。
+   动因：DeepSeek 提供 **Anthropic 格式端点** `https://api.deepseek.com/anthropic`，同一套 SDK 可直接接，
+   不必新增 openai 依赖；`LlmClient` 接口原本就是模型无关的，闸门/自修环/预览采纳零改动。
+   **兼容层差异（实测，非文档推断）**：
+   - `output_config.format = json_schema` **不报错但被静默忽略**（同一提示词 4 次返回 4 种不同形状）
+     → 按端点能力自动关闭，改为「prompt 契约 + ajv 闸门 + 自修环」兜底；
+   - `cache_control` 被忽略，但 DeepSeek 的**自动上下文缓存**仍生效，且实测会映射到
+     `cache_read_input_tokens`（评测中 6000+ tokens/页，面板也显示「缓存读 1152」）。
+10. **浏览器直连的 `dangerouslyAllowBrowser` 判定修正**：原实现 `!baseURL`（有 baseURL 即视为走代理），
+    但第三方端点恰恰是**浏览器直连**（key 在 localStorage），会触发 SDK 的
+    「browser-like environment ... disabled by default」直接报错。改为只在 `VITE_AI_PROXY_BASE` 存在时关闭。
 
 ### 11.3 复跑命令
 
@@ -217,3 +230,34 @@ npx tsc --noEmit && npx vitest run   # 667 例（新增 45 例 AI 域）
 > 后两处属**历史遗留**（产品已演进、脚本判据未同步），非 M7 引入；本轮复跑时暴露并修正。
 
 
+---
+
+### 11.5 实跑档结果（2026-10-22，DeepSeek 端点；§6 质量线的第一次真实检验）
+
+**运行方式**（key 只经环境变量，不入仓库/日志）：
+
+```bash
+DEEPSEEK_API_KEY=… npm run ai-matrix                          # deepseek-flash（默认档）
+DEEPSEEK_API_KEY=… AI_MODEL=deepseek-v4-pro npm run ai-matrix  # 强档对比
+```
+
+报告留档：`dist/ai-matrix/report-deepseek-flash.json`、`report-deepseek-v4-pro.json`
+（`report.json` 始终为最近一次；报告内含 `provider` / `jsonSchema` 字段自证端点能力）。
+
+| 模型 | §6 一次通过率（≥60%） | §6 自修后（≥90%） | 单页成本 | 10 页耗时 | 判定 |
+|---|---|---|---|---|---|
+| `deepseek-flash` | **50–70%**（4 次抽样：70/70/50/70，均值 65%） | **90–100%**（100/90/90/100，均值 95%） | **¥0.033–0.038** | ≈3.5 min | ⚠️ 一次通过率在阈值边缘，4 次中 3 次达标；自修后 4 次全达标 |
+| `deepseek-v4-pro` | **90%**（9/10） | **100%**（10/10） | ¥0.272 | ≈22 min | ✅ 稳定达标 |
+| `claude-opus-5-5` | 未测（无官方 key） | 未测 | 参考价 ≈¥0.73（估算） | — | ⏳ 待 key |
+
+**缓存命中（W2 验收）**：两档均 PASS。flash 第 2 页起 cache_read 合计 **54528 tokens / 9 页**（均 6059）；
+v4-pro **26496 / 9 页**（均 2944）。浏览器端实测面板显示「缓存读 1152」，与评测一致——
+说明稳定前缀（≈7.1K tokens）确实被复用，`cache_control` 虽被兼容层忽略，但自动缓存接管了。
+
+**结论与选型建议**：
+
+- **日常/批量用 `deepseek-flash`**：自修环把一次通过率的波动吸收掉（90–100%），成本只有 v4-pro 的 1/8，
+  速度约 6 倍。代价是约 3/10 的页面需要 1 轮返工（用户可感知为「多等十几秒」）。
+- **要一次成型用 `deepseek-v4-pro`**：一次通过 90%，但单页 ¥0.27、10 页要 22 分钟（思考模式 token 多）。
+- **诚实边界**：本表是 DeepSeek 兼容层上的结果，**不能直接推断 Anthropic 官方端点的表现**——
+  后者有原生 `json_schema` 强约束，一次通过率理论上更高，但未实测，不写猜测数字。

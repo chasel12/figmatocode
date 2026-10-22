@@ -7,18 +7,21 @@ import type { UIPage } from '../../schema/types';
 import { PACKS, getPack, packTokens } from '../../tokens/packs';
 import { loadIcons } from '../../assets/icons';
 import {
-  DEFAULT_MODEL,
-  MODEL_OPTIONS,
+  PROVIDERS,
   aiAvailable,
   createAnthropicClient,
   describeAiError,
   estimateCostCny,
   getApiKey,
   getModel,
+  getProvider,
   maskKey,
+  providerDef,
   setApiKey,
   setModel,
+  setProvider,
   type AiUsage,
+  type ProviderId,
 } from './client';
 import { loadFewShots } from './promptPack';
 import { runEditPlan, runPageGeneration, type ProgressEvent } from './generate';
@@ -88,9 +91,10 @@ export function AiDock() {
   const [mode, setMode] = useState<Mode>('page');
   const [prompt, setPrompt] = useState('');
   const [packId, setPackId] = useState(PACKS[0].id);
-  const [model, setModelState] = useState(getModel());
+  const [provider, setProviderState] = useState<ProviderId>(getProvider());
+  const [model, setModelState] = useState(() => getModel());
   const [keyDraft, setKeyDraft] = useState('');
-  const [hasKey, setHasKey] = useState(aiAvailable());
+  const [hasKey, setHasKey] = useState(() => aiAvailable());
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [result, setResult] = useState<Result | null>(null);
@@ -101,8 +105,20 @@ export function AiDock() {
   const abortRef = useRef<AbortController | null>(null);
 
   const pack = getPack(packId);
+  const prov = providerDef(provider);
   const selectionCount = state.selectedIds.filter((id) => id !== state.page.root.id).length;
   const canRun = hasKey && !running && prompt.trim().length > 0 && (mode === 'page' || selectionCount > 0);
+
+  /** 切供应商：key / 模型 / 面板状态都按供应商隔离，避免把 A 家的 key 发到 B 家端点 */
+  const switchProvider = (id: ProviderId) => {
+    setProvider(id);
+    setProviderState(id);
+    setHasKey(aiAvailable(id));
+    setModelState(getModel(id));
+    setKeyDraft('');
+    setResult(null);
+    setError(null);
+  };
 
   const pushLog = useCallback((line: string) => {
     setLog((prev) => [...prev.slice(-40), line]);
@@ -130,7 +146,7 @@ export function AiDock() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const client = await createAnthropicClient({ model });
+      const client = await createAnthropicClient({ model, provider });
       const [icons, fewShots] = await Promise.all([loadIcons(), loadFewShots()]);
       const iconMap = Object.fromEntries(Object.entries(icons.icons).map(([k, v]) => [k, v.d]));
       const base = {
@@ -247,16 +263,34 @@ export function AiDock() {
         </span>
       </div>
 
+      <div className="ai-provider">
+        <span className="ai-provider-label">供应商</span>
+        <select
+          className="ai-select"
+          value={provider}
+          onChange={(e) => switchProvider(e.target.value as ProviderId)}
+          disabled={running}
+          title={prov.note}
+        >
+          {PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {!hasKey && (
         <div className="ai-setup">
           <div className="ai-setup-note">
-            未配置 API key：AI 功能整体置灰。key 只存本机 localStorage，<b>不进仓库、不进日志</b>；
+            未配置 {prov.label} API key：AI 功能整体置灰。key 只存本机 localStorage，<b>不进仓库、不进日志</b>；
             生成时只有提示词与选中节点的结构会发给模型。
+            {prov.baseURL && <>（{prov.note}）</>}
           </div>
           <input
             className="ai-key-input"
             type="password"
-            placeholder="sk-ant-…"
+            placeholder={prov.keyPlaceholder}
             value={keyDraft}
             onChange={(e) => setKeyDraft(e.target.value)}
           />
@@ -264,10 +298,10 @@ export function AiDock() {
             className="mini-btn"
             disabled={!keyDraft.trim()}
             onClick={() => {
-              setApiKey(keyDraft.trim());
+              setApiKey(keyDraft.trim(), provider);
               setHasKey(true);
               setKeyDraft('');
-              pushLog(`已保存 key（${maskKey(keyDraft.trim())}）`);
+              pushLog(`已保存 ${prov.label} key（${maskKey(keyDraft.trim())}）`);
             }}
           >
             保存 key
@@ -277,13 +311,15 @@ export function AiDock() {
 
       {hasKey && (
         <div className="ai-key-row">
-          <span title="key 只存本机 localStorage">key {maskKey(getApiKey())}</span>
+          <span title={`${prov.label} key 只存本机 localStorage`}>
+            {prov.label} key {maskKey(getApiKey(provider))}
+          </span>
           <button
             className="mini-btn"
             onClick={() => {
-              setApiKey('');
+              setApiKey('', provider);
               setHasKey(false);
-              pushLog('已清除 key');
+              pushLog(`已清除 ${prov.label} key`);
             }}
           >
             清除
@@ -318,12 +354,12 @@ export function AiDock() {
         value={model}
         onChange={(e) => {
           setModelState(e.target.value);
-          setModel(e.target.value);
+          setModel(e.target.value, provider);
         }}
         disabled={running}
-        title="模型档位（plan §7：默认 opus，编辑轻任务可换 sonnet/haiku）"
+        title={`模型档位（${prov.label}）`}
       >
-        {MODEL_OPTIONS.map((m) => (
+        {prov.models.map((m) => (
           <option key={m} value={m}>
             {m}
           </option>
@@ -359,7 +395,7 @@ export function AiDock() {
         )}
       </div>
 
-      {!hasKey && <div className="ai-hint">配置 key 后可用；模型：{DEFAULT_MODEL}</div>}
+      {!hasKey && <div className="ai-hint">配置 {prov.label} key 后可用；模型：{model}</div>}
 
       {log.length > 0 && (
         <div className="ai-log">
