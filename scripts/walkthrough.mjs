@@ -129,6 +129,47 @@ try {
     `图层 ${beforeSS} → ${afterSS}，Section=${secRows} Slice=${sliceRows}`,
   );
 
+  // ── M7 W5 验收：AI 面板（§8 口径「未配 key 整体置灰」+ 风格包 3 选）──
+  await page.click('.nav-btn[title="AI 生成"]');
+  await page.waitForSelector('.ai-dock', { timeout: 5000 });
+  await page.fill('.ai-prompt', '生成一个商品详情页，含大图、标题、价格和购买按钮');
+  await sleep(200);
+  const aiSetup = await page.locator('.ai-setup').count();
+  const aiRunDisabled = await page.locator('.ai-run').isDisabled();
+  const packOptions = await page.locator('.ai-select').first().evaluate((el) => el.options.length);
+  const keyPersisted = await page.evaluate(() => localStorage.getItem('ui-compiler.ai.key'));
+  await page.screenshot({ path: join(OUT, '06c-AI面板未配key.png') });
+  step(
+    'AI 面板：未配 key 整体置灰 + 风格包 3 选（M7 W5 / §8）',
+    aiSetup > 0 && aiRunDisabled && packOptions === 3 && keyPersisted === null,
+    `配置区=${aiSetup} 填了提示词后生成按钮仍 disabled=${aiRunDisabled} 风格包选项=${packOptions} localStorage 无 key=${keyPersisted === null}`,
+  );
+
+  // ── M7 W2.5 验收：图标页签可搜可插（VECTOR 引用 path，不内联图片）──
+  await page.click('.side-tab:has-text("图层")');
+  await sleep(150);
+  const beforeIcon = await page.locator('.layer-row').count();
+  await page.click('.side-tab:has-text("资产")');
+  await page.click('.assets-tab:has-text("图标")');
+  await page.waitForSelector('.assets-icon-grid', { timeout: 15000 });
+  const iconTotal = await page.locator('.assets-icon-cell').count();
+  await page.fill('.assets-search', 'house');
+  await sleep(300);
+  await page.locator('.assets-icon-cell').first().click();
+  await sleep(300);
+  await page.screenshot({ path: join(OUT, '06d-图标搜索与插入.png') });
+  await page.click('.side-tab:has-text("图层")');
+  await sleep(200);
+  const afterIcon = await page.locator('.layer-row').count();
+  const iconRows = await page.locator('.layer-row:has-text("图标")').count();
+  step(
+    '图标页签：Lucide 全量可搜可插为 VECTOR（M7 W2.5）',
+    iconTotal >= 40 && afterIcon === beforeIcon + 1 && iconRows > 0,
+    `网格图标=${iconTotal} 搜 house 后点击插入；图层 ${beforeIcon} → ${afterIcon}，图标节点行=${iconRows}`,
+  );
+  await page.keyboard.press('Control+z');
+  await sleep(250);
+
   await page.click('.toolbar button:has-text("像素比对")');
   await page.waitForSelector('.diff-modal .diff-details', { timeout: 20000 });
   await page.waitForFunction(() => {

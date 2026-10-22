@@ -164,14 +164,15 @@ npm test              # 统一入口（= scripts/vitest-run.mjs：固定 TEMP + 
 npm run build         # 统一入口（= scripts/build.mjs：固定 TEMP 后跑 tsc --noEmit && vite build）
 npm run ai:assets     # 构建期资产（风格包/图标/语料）——改了抽取脚本才需要
 npm run ai:schema     # 契约 schema
-npm run ai-matrix     # 离线 10 项（+ 有 key 时 10 个 golden prompt 实跑）
+npm run ai-matrix     # 离线 10 项（A1–A9 + B0）；有 key 时追加 B1 一次通过率 / B2 自修后 / B3 成本 / B5 缓存命中
 ```
 
 > **别再直接用 `npx vitest run` / `npx vite build`**：本机沙箱下它们会踩坑 2/坑 3（静默漏跑测试、
 > 构建删临时文件失败）。`npm test` / `npm run build` 已封装好，CI 与 `ci-local` / `m4-matrix` 也走同一入口。
 >
 > 实跑档尚未执行（本机无 key）。拿到 key 后：`ANTHROPIC_API_KEY=... npm run ai-matrix`，
-> 把 §6 的「一次通过率 ≥60% / 自修后 ≥90%」结果回填 plan §11.1 与 checklist 附表 D。
+> 把 **B1（一次通过率 ≥60%）/ B2（自修后 ≥90%）/ B5（cache_read>0，W2 验收）** 结果回填
+> plan §11.1 与 checklist 附表 D 的 D1/D2。
 
 ### 10.4 本机三个环境坑（非代码，复跑门禁前必读）
 

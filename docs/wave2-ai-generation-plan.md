@@ -136,12 +136,12 @@ scripts/              extract-tokens.mjs / icons-import.mjs / ai-matrix.mjs
 |---|---|---|---|
 | W0 | PRD v1.2 增补 FR-63~68 + README「AI 只画草稿」口径 + key 铁律 | ✅ | `docs/PRD.md` §K、README「AI 生成（v2 M7）」 |
 | W1 | `src/editor/ai/types.ts`（契约）+ `contract.page/edit.schema.json`（生成物）+ `contract.ts`（ajv 闸门与中文违例摘要）+ `scripts/gen-ai-schema.mjs` | ✅ | `tests/ai-contract.test.ts` 20 例：19 页语料 100% 过、6 类畸形全拦 |
-| W2 | `promptPack.ts`（稳定前缀/易变尾部）+ `fewshots.json`（19 页归一化）+ `scripts/extract-fewshots.ts` | ✅ | 稳定前缀 ≈7.1K tokens（阈值 12K）；自修轮 system 字节不变（缓存前提） |
+| W2 | `promptPack.ts`（稳定前缀/易变尾部）+ `fewshots.json`（19 页归一化）+ `scripts/extract-fewshots.ts` | ✅ | 稳定前缀 ≈7.1K tokens（阈值 12K）；自修轮 system 字节不变（缓存前提）；**验收「cache_read>0」由 `ai-matrix` B5 断言**（第 2 页起统计，首轮为 cache 写入不计），待 key 实跑 |
 | W2.5 | `src/tokens/packs/*.tokens.json`（3 套）+ `src/assets/icons/lucide.ts`（1545 个）+ `public/fonts/space-grotesk-*.woff2` + 资产面板图标页签 | ✅ | `scripts/extract-tokens.mjs` / `icons-import.mjs`；`tests/ai-assets.test.ts` 9 例；`dist/ai-ui/icons.png` |
 | W3 | `client.ts`（SDK 直连/流式/结构化输出/成本）+ `generate.ts`（管线与自修环）+ `specToPage.ts`（归一化） | ✅ | `tests/ai-pipeline.test.ts`：一次过/自修/用尽/非 JSON/图标解析 |
 | W4 | `aiActions.ts`（6 类白名单指令 → store action）+ `selectionContext.ts`（选择上下文）+ 干跑 | ✅ | 干跑不污染原页；应用后 UNDO N 次**字节级**回到原状 |
-| W5 | `AiDock.tsx`（提示框/模式/风格包/模型/进度/采纳-放弃/成本/key 脱敏）+ Editor 接线 | ✅ | `dist/ai-ui/ai-dock.png`；一次性 UI 探针 11/11（按 HANDOFF 铁律验后已删） |
-| W6 | `scripts/ai-matrix.ts`（离线 10 项 + 实跑档） | ✅ | `dist/ai-matrix/report.json` 离线 **10/10** |
+| W5 | `AiDock.tsx`（提示框/模式/风格包/模型/进度/采纳-放弃/成本/key 脱敏）+ Editor 接线 | ✅ | `dist/ai-ui/ai-dock.png`；一次性 UI 探针 11/11（按 HANDOFF 铁律验后已删）；**验收「新 walkthrough 2 行」已补**：`npm run walkthrough` **11/11**（新增「AI 面板未配 key 置灰 + 风格包 3 选」「图标页签可搜可插」两步） |
+| W6 | `scripts/ai-matrix.ts`（离线 10 项 + 实跑档 B1–B5） | ✅ | `dist/ai-matrix/report.json` 离线 **10/10**；B1/B2（一次过 ≥60%、自修后 ≥90%）、B3 成本、B5 缓存命中待 key 实跑 |
 | W7 | 本文件 §11 + LOG + README + HANDOFF | ✅ | 三账一致 |
 
 ### 11.2 与计划不一致之处（如实报备）
@@ -178,12 +178,12 @@ npx tsc --noEmit && npx vitest run   # 667 例（新增 45 例 AI 域）
 | 页面与断言 | `npm run pages` | 19 页；`assert-pages` **266/266** |
 | 像素回归 | `npm run shot && npm run diff` | **19/19 页 ≥98%**（最低 98.89% @13-绝对定位页；`19-样片-原型跳转` 100.00%） |
 | 视口 | `npm run viewport` | **76/76**（scrollW 无横向溢出、overlap=0） |
-| 走查 | `npm run walkthrough` | **9/9** |
+| 走查 | `npm run walkthrough` | **11/11**（原 9 步 + M7 新增 AI 面板、图标页签 2 步） |
 | 编辑器冒烟 | `npm run smoke-m1` | **22 ok / 0 fail** |
 | 界面复刻冒烟 | `npm run smoke-m2` | **27 ok / 0 fail** |
 | 演示冒烟 | `npm run present-smoke` | **18/18** |
 | 评测轨（离线） | `npm run ai-matrix` | **10/10** |
-| 评测轨（实跑） | `ANTHROPIC_API_KEY=… npm run ai-matrix` | 未执行（本机无 key，见 §11.2-8） |
+| 评测轨（实跑） | `ANTHROPIC_API_KEY=… npm run ai-matrix` | 未执行（本机无 key，见 §11.2-8）。实跑档已备 5 项：B1 一次通过率 ≥60% · B2 自修后 ≥90% · B3 单页成本 · **B5 稳定前缀 cache_read>0（W2 验收）** · B4 失败明细（有失败才出） |
 
 **v1 既有矩阵（第二轮补跑，验证零回归）：**
 

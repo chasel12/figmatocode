@@ -2013,3 +2013,36 @@ tsc **0 错** · vitest **667/667**（50 文件）· build 通过（主包 **905
 > 三处**只改门禁脚本，未动产品代码**，均留「判据修正/断言报备」注释。识别方法：FAIL 行明细里各子项都 `true`、只有数量/字面不符 → 先怀疑断言过时，去 `git log` 找对应产品改动。
 
 **文档**：plan §11.4 拆成「M7 新增域 / v1 既有矩阵」两表并补三坑三报备；checklist 附表 D 的 D5 行补全矩阵数字；HANDOFF §10.3/§10.4 改为「统一入口 + 三个坑 + 三处断言修正」；README 快速开始与链序提示同步（含 `[vitest-run] 文件数校验通过：50/50` 自检口诀）。
+
+---
+
+## 2026-10-22 · M7 收尾第三轮：把计划书里两条「验收条件」补实（walkthrough 2 行 + 缓存命中断言）
+
+**背景**：用户追问「计划文件的工作全完成了？」——逐条对照 WBS 的**验收列**（而非只看产出列）后，发现两条验收此前只有间接证据：
+
+| WBS | 验收条件 | 此前状态 | 本轮处置 |
+|---|---|---|---|
+| W5 | viewport 76 不降 **+ 新 walkthrough 2 行** | viewport 达标；**walkthrough 仍是 9 步，无 AI 步骤** | 补 2 步 → **11/11** |
+| W2 | 缓存命中验证（**cache_read>0**） | 只有「前缀 7.1K tokens + system 字节不变」的间接前提 | `ai-matrix` 新增 **B5** 断言 |
+
+**W5：`scripts/walkthrough.mjs` 新增两步**（插在 Section/Slice 之后、Pixel Diff 之前）
+
+1. `AI 面板：未配 key 整体置灰 + 风格包 3 选`——点 `.nav-btn[title="AI 生成"]` → 断言 `.ai-setup` 存在、**填了提示词后 `.ai-run` 仍 disabled**（强断言：证明置灰来自无 key，而非空 prompt）、`.ai-select` 首项 3 个 option、`localStorage['ui-compiler.ai.key'] === null`（§8 硬约束「key 不入仓库/日志」的运行时旁证）。
+2. `图标页签：Lucide 全量可搜可插为 VECTOR`——切「资产 → 图标」→ 等 `.assets-icon-grid`（动态 import 291KB）→ 搜 `house` → 点首个 cell → 断言图层数 +1 且出现 `图标 house` 行 → `Ctrl+Z` 复原（不影响后续像素比对）。
+
+实测：`walkthrough: 11/11 pass`；明细 `配置区=1 填了提示词后生成按钮仍 disabled=true 风格包选项=3 localStorage 无 key=true` / `网格图标=48 图层 59 → 60 图标节点行=1`。
+
+**W2：`scripts/ai-matrix.ts` 新增实跑档 B5**
+
+```ts
+// 首轮请求是 cache 写入，第 2 页起才可能命中，故只统计 i>0
+if (i > 0) { cacheReadTotal += res.usage.cacheReadTokens; cacheSamples += 1; }
+add('B5', 'W2 验收：稳定前缀命中 prompt cache（第 2 页起 cache_read>0）',
+  cacheSamples > 0 && cacheReadTotal > 0, `…${cacheReadTotal} tokens（${cacheSamples} 页样本）`);
+```
+
+> 设计取舍：不把第 1 页计入。若把 i=0 也算进分母，首轮必为 0，会在「全部命中」时反而拉低判断；只统计 i>0 才能表达「缓存确实被复用」。B5 只在有 key 时出现，**离线档仍 10/10 不受影响**（已复跑确认）。
+
+**门禁**：`npx tsc --noEmit` **0 错**（新增变量类型无误）；`npm run ai-matrix` 离线 **10/10**；`npm run walkthrough` **11/11**。
+
+**文档**：plan §11.1 的 W2/W5/W6 行补「验收证据」、§11.4 走查 9/9→11/11 与实跑档 B1–B5 清单；checklist 附表 D 的 D5 行同步、D1/D2 标注实跑档编号、表下补「W2 验收补充」段；HANDOFF §10.3 复跑命令与回填清单更新为 B1/B2/B5。

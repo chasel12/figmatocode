@@ -192,6 +192,10 @@ if (apiKey) {
   let firstPass = 0;
   let repairedPass = 0;
   let totalCost = 0;
+  // W2 验收：稳定前缀必须吃上 prompt caching。首轮请求是 cache 写入，第 2 页起才可能命中，
+  // 故只统计 i>0 的 cacheReadTokens（首轮为 0 是正确行为，不算失败）。
+  let cacheReadTotal = 0;
+  let cacheSamples = 0;
   const failures: string[] = [];
   for (const [i, prompt] of GOLDEN.entries()) {
     try {
@@ -207,6 +211,10 @@ if (apiKey) {
       if (res.firstPass) firstPass += 1;
       repairedPass += 1;
       totalCost += res.costCny;
+      if (i > 0) {
+        cacheReadTotal += res.usage.cacheReadTokens;
+        cacheSamples += 1;
+      }
       process.stdout.write(`  · L${i + 1} ok（${res.attempts} 轮，¥${res.costCny.toFixed(3)}）\n`);
     } catch (err) {
       failures.push(`L${i + 1}: ${(err as Error).message}`);
@@ -226,6 +234,12 @@ if (apiKey) {
     `${repairedPass}/${GOLDEN.length}（${((repairedPass / GOLDEN.length) * 100).toFixed(0)}%）`,
   );
   add('B3', '实跑单页均成本', true, `合计 ¥${totalCost.toFixed(2)}，均 ¥${(totalCost / Math.max(1, repairedPass)).toFixed(3)}/页`);
+  add(
+    'B5',
+    'W2 验收：稳定前缀命中 prompt cache（第 2 页起 cache_read>0）',
+    cacheSamples > 0 && cacheReadTotal > 0,
+    `第 2–${GOLDEN.length} 页 cache_read 合计 ${cacheReadTotal} tokens（${cacheSamples} 页样本；首轮为 cache 写入故不计）`,
+  );
   if (failures.length) add('B4', '实跑失败明细', false, failures.join(' | '));
 } else {
   add('B0', '实跑档（需要 ANTHROPIC_API_KEY）', true, '未设置 key，跳过；离线档指标已覆盖确定性部分');
