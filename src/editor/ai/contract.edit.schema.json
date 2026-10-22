@@ -1,0 +1,407 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AiBorderSpec": {
+      "properties": {
+        "color": {
+          "type": "string"
+        },
+        "style": {
+          "enum": [
+            "solid",
+            "dashed",
+            "dotted"
+          ],
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "color"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiEditOp": {
+      "anyOf": [
+        {
+          "properties": {
+            "index": {
+              "type": "number"
+            },
+            "node": {
+              "$ref": "#/definitions/AiNodeSpec"
+            },
+            "op": {
+              "const": "add",
+              "type": "string"
+            },
+            "parentId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "parentId",
+            "node"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "remove",
+              "type": "string"
+            },
+            "targetId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "targetId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "index": {
+              "type": "number"
+            },
+            "op": {
+              "const": "move",
+              "type": "string"
+            },
+            "parentId": {
+              "type": "string"
+            },
+            "targetId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "targetId",
+            "parentId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "setText",
+              "type": "string"
+            },
+            "targetId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "targetId",
+            "text"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "updateStyle",
+              "type": "string"
+            },
+            "style": {
+              "$ref": "#/definitions/AiStyleSpec"
+            },
+            "targetId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "targetId",
+            "style"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "layout": {
+              "$ref": "#/definitions/AiLayoutSpec"
+            },
+            "op": {
+              "const": "updateLayout",
+              "type": "string"
+            },
+            "targetId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "targetId",
+            "layout"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        }
+      ],
+      "description": "编辑指令：白名单动作（plan W4：store action 子集）"
+    },
+    "AiEffectSpec": {
+      "description": "模型可表达的效果（阴影/模糊三档，其余效果不在表达范围）",
+      "properties": {
+        "blur": {
+          "type": "number"
+        },
+        "color": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "DROP_SHADOW",
+            "INNER_SHADOW",
+            "LAYER_BLUR"
+          ],
+          "type": "string"
+        },
+        "radius": {
+          "type": "number"
+        },
+        "spread": {
+          "type": "number"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiLayoutSpec": {
+      "properties": {
+        "align": {
+          "enum": [
+            "START",
+            "CENTER",
+            "END",
+            "STRETCH",
+            "BASELINE"
+          ],
+          "type": "string"
+        },
+        "gap": {
+          "description": "主轴间距 px",
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "heightMode": {
+          "enum": [
+            "FIXED",
+            "FILL",
+            "HUG"
+          ],
+          "type": "string"
+        },
+        "justify": {
+          "enum": [
+            "START",
+            "CENTER",
+            "END",
+            "SPACE_BETWEEN"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "description": "布局模式：纵向堆叠 / 横向排列 / 绝对定位",
+          "enum": [
+            "VERTICAL",
+            "HORIZONTAL",
+            "ABSOLUTE"
+          ],
+          "type": "string"
+        },
+        "padding": {
+          "description": "内边距 [上,右,下,左]，单位 px（8pt 网格）",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "width": {
+          "type": "number"
+        },
+        "widthMode": {
+          "enum": [
+            "FIXED",
+            "FILL",
+            "HUG"
+          ],
+          "type": "string"
+        },
+        "x": {
+          "description": "ABSOLUTE 容器内子项的坐标",
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiNodeKind": {
+      "description": "模型可创建的节点类型（PAGE/SECTION/SLICE/STAR/POLYGON 不在 AI 表达范围）",
+      "enum": [
+        "FRAME",
+        "TEXT",
+        "BUTTON",
+        "RECTANGLE",
+        "IMAGE",
+        "OVAL",
+        "LINE",
+        "VECTOR"
+      ],
+      "type": "string"
+    },
+    "AiNodeSpec": {
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/definitions/AiNodeSpec"
+          },
+          "type": "array"
+        },
+        "icon": {
+          "description": "VECTOR 图标：风格包图标库名（如 \"house\"）；与 vectorD 二选一",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/AiNodeKind"
+        },
+        "layout": {
+          "$ref": "#/definitions/AiLayoutSpec"
+        },
+        "name": {
+          "description": "图层名（用于人读与后续编辑定位，建议语义化中文/英文短语）",
+          "type": "string"
+        },
+        "src": {
+          "description": "IMAGE 的图片地址（可为空占位）",
+          "type": "string"
+        },
+        "style": {
+          "$ref": "#/definitions/AiStyleSpec"
+        },
+        "text": {
+          "description": "TEXT/BUTTON 的文案",
+          "type": "string"
+        },
+        "vectorD": {
+          "description": "VECTOR 自定义路径（SVG path d，24×24 坐标系）",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiStyleSpec": {
+      "properties": {
+        "background": {
+          "description": "填充色：hex 或",
+          "type": "string"
+        },
+        "border": {
+          "$ref": "#/definitions/AiBorderSpec"
+        },
+        "borderRadius": {
+          "type": "number"
+        },
+        "color": {
+          "description": "文本/图标色：hex 或",
+          "type": "string"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/AiEffectSpec"
+          },
+          "type": "array"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "fontWeight": {
+          "type": "number"
+        },
+        "letterSpacing": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "textAlign": {
+          "enum": [
+            "left",
+            "center",
+            "right",
+            "justify"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    }
+  },
+  "description": "由 scripts/gen-ai-schema.mjs 从 src/editor/ai/types.ts 自动生成，请勿手改。",
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "#/definitions/AiEditOp"
+      },
+      "type": "array"
+    },
+    "kind": {
+      "const": "edit",
+      "type": "string"
+    },
+    "summary": {
+      "description": "一句话说明改了什么（面板展示 + 采纳前确认）",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "summary",
+    "actions"
+  ],
+  "type": "object",
+  "title": "UI Compiler AI · 编辑指令契约",
+  "additionalProperties": false
+}

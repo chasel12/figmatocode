@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useEditor } from './store';
+import { createNode, findById } from '../schema/factory';
+import { isContainer, type VectorNode } from '../schema/types';
+import { loadIcons, searchIcons, type IconLibrary } from '../assets/icons';
 import { NumField } from './NumericField';
 import { currentVariantProps, variantGroupOf, variantPropertyNames, variantValueNames, variantsInGroup } from './variants';
 import type { ComponentDef } from '../schema/types';
@@ -44,7 +47,19 @@ function hexOf(color: string): string {
 export function AssetsPanel() {
   const { state, dispatch } = useEditor();
   const [query, setQuery] = useState('');
-  const [tab, setTab] = useState<'components' | 'styles'>('components');
+  const [tab, setTab] = useState<'components' | 'styles' | 'icons'>('components');
+  // M7 W2.5：图标库懒加载（290KB 动态 chunk，仅打开图标页时拉取）
+  const [icons, setIcons] = useState<IconLibrary | null>(null);
+  useEffect(() => {
+    if (tab !== 'icons' || icons) return;
+    let alive = true;
+    loadIcons().then((lib) => {
+      if (alive) setIcons(lib);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [tab, icons]);
 
   const components = useMemo(() => Object.values(state.components), [state.components]);
   const filtered = useMemo(
@@ -79,6 +94,24 @@ export function AssetsPanel() {
     return count;
   };
 
+  /**
+   * M7 W2.5：图标 → VECTOR 资产。
+   * 只写路径数据（不内联位图），落点规则与 Palette 一致：选中容器则进容器，否则进其父级。
+   */
+  const insertIcon = (name: string, d: string): void => {
+    const host = (() => {
+      if (!selected) return state.page.root.id;
+      if (isContainer(selected) && selected.type !== 'RECTANGLE') return selected.id;
+      const found = findById(state.page.root, selected.id);
+      return found?.parent?.id ?? state.page.root.id;
+    })();
+    const node = createNode('VECTOR', { name: `图标 ${name}` }) as VectorNode;
+    node.vector = { d, width: 24, height: 24 };
+    node.layout = { ...node.layout, width: 24, height: 24, widthMode: 'FIXED', heightMode: 'FIXED' };
+    node.style = { ...(node.style ?? {}), border: { width: 2, color: '#111111', style: 'solid' } };
+    dispatch({ type: 'INSERT_NODE', node, parentId: host });
+  };
+
   return (
     <div className="assets-panel">
       <div className="panel-title">资产</div>
@@ -92,6 +125,9 @@ export function AssetsPanel() {
         </button>
         <button className={`assets-tab ${tab === 'styles' ? 'is-active' : ''}`} onClick={() => setTab('styles')}>
           样式 {state.tokens.length > 0 && <span className="assets-count">{state.tokens.length}</span>}
+        </button>
+        <button className={`assets-tab ${tab === 'icons' ? 'is-active' : ''}`} onClick={() => setTab('icons')} title="Lucide 图标（ISC）">
+          图标
         </button>
       </div>
 
@@ -203,7 +239,7 @@ export function AssetsPanel() {
             );
           })()}
         </>
-      ) : (
+      ) : tab === 'styles' ? (
         <>
           <div className="assets-actions">
             <button
@@ -357,6 +393,28 @@ export function AssetsPanel() {
             </div>
           )}
         </>
+      ) : (
+        <div className="assets-icons">
+          {!icons ? (
+            <div className="assets-empty">图标库加载中…</div>
+          ) : (
+            <>
+              <div className="assets-icons-meta" title="图标以 VECTOR 资产插入（引用路径，不内联图片）">
+                Lucide {icons.version} · {Object.keys(icons.icons).length} 个 · {icons.license}
+              </div>
+              <div className="assets-icon-grid">
+                {searchIcons(icons, query, 48).map(({ name, entry }) => (
+                  <button key={name} className="assets-icon-cell" title={`${name}${entry.t ? ` · ${entry.t}` : ''}`} onClick={() => insertIcon(name, entry.d)}>
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d={entry.d} />
+                    </svg>
+                  </button>
+                ))}
+              </div>
+              {searchIcons(icons, query, 48).length === 0 && <div className="assets-empty">无匹配图标</div>}
+            </>
+          )}
+        </div>
       )}
     </div>
   );

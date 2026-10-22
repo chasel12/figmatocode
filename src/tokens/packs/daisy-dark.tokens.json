@@ -1,0 +1,98 @@
+{
+  "id": "daisy-dark",
+  "name": "daisyUI Dark",
+  "source": "daisyui（dark 主题，oklch → hex by culori）",
+  "license": "MIT",
+  "mode": "dark",
+  "description": "暗色底 + 高饱和强调色：卡片比底色亮一档、文字近白、强调色用于主操作与状态。",
+  "colors": {
+    "background": "#1d232a",
+    "foreground": "#ecf9ff",
+    "card": "#191e24",
+    "card-foreground": "#ecf9ff",
+    "popover": "#191e24",
+    "popover-foreground": "#ecf9ff",
+    "primary": "#605dff",
+    "primary-foreground": "#edf1fe",
+    "secondary": "#f43098",
+    "secondary-foreground": "#f9e4f0",
+    "muted": "#15191e",
+    "muted-foreground": "#e4e4e7",
+    "accent": "#00d3bb",
+    "accent-foreground": "#084d49",
+    "destructive": "#ff627d",
+    "destructive-foreground": "#4d0218",
+    "border": "#15191e",
+    "input": "#15191e",
+    "ring": "#00bafe",
+    "success": "#00d390",
+    "warning": "#fcb700",
+    "info": "#00bafe",
+    "neutral": "#09090b"
+  },
+  "fontSizes": [
+    12,
+    13,
+    14,
+    16,
+    18,
+    20,
+    24,
+    30,
+    36
+  ],
+  "spacings": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64
+  ],
+  "radii": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    24,
+    999
+  ],
+  "shadows": [
+    "0 -1px 3px 0 hsl(220 3% 15%/3%),0 1px 2px -5px hsl(220 3% 15%/3%),0 2px 5px -5px hsl(220 3% 15%/5%),0 4px 12px -5px hsl(220 3% 15%/6%),0 12px 15px -5px hsl(220 3% 15%/8%)",
+    "0 -2px 5px 0 hsl(220 3% 15%/3%),0 1px 1px -2px hsl(220 3% 15%/4%),0 2px 2px -2px hsl(220 3% 15%/4%),0 5px 5px -2px hsl(220 3% 15%/5%),0 9px 9px -2px hsl(220 3% 15%/6%),0 16px 16px -2px hsl(220 3% 15%/7%)",
+    "0 -1px 2px 0 hsl(220 3% 15%/3%),0 2px 1px -2px hsl(220 3% 15%/4%),0 5px 5px -2px hsl(220 3% 15%/4%),0 10px 10px -2px hsl(220 3% 15%/5%),0 20px 20px -2px hsl(220 3% 15%/6%),0 40px 40px -2px hsl(220 3% 15%/8%)",
+    "0 -1px 2px 0 hsl(220 3% 15%/3%),0 3px 2px -2px hsl(220 3% 15%/4%),0 7px 5px -2px hsl(220 3% 15%/4%),0 12px 10px -2px hsl(220 3% 15%/5%),0 22px 18px -2px hsl(220 3% 15%/6%),0 41px 33px -2px hsl(220 3% 15%/7%),0 100px 80px -2px hsl(220 3% 15%/8%)"
+  ],
+  "fonts": [
+    {
+      "family": "Space Grotesk",
+      "stack": "\"Space Grotesk\", Inter, \"PingFang SC\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/space-grotesk",
+      "license": "OFL-1.1"
+    },
+    {
+      "family": "Inter",
+      "stack": "Inter, \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/inter",
+      "license": "OFL-1.1"
+    }
+  ]
+}

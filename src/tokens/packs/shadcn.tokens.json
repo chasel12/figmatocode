@@ -1,0 +1,97 @@
+{
+  "id": "shadcn",
+  "name": "shadcn / Radix",
+  "source": "@radix-ui/colors + shadcn 令牌语义",
+  "license": "MIT",
+  "mode": "light",
+  "description": "中性灰阶 + 单一强调色的企业级后台语言：大量留白、细边框、8px 圆角、极轻阴影。",
+  "colors": {
+    "background": "#ffffff",
+    "foreground": "#1c2024",
+    "card": "#ffffff",
+    "card-foreground": "#1c2024",
+    "popover": "#ffffff",
+    "popover-foreground": "#1c2024",
+    "primary": "#0090ff",
+    "primary-foreground": "#ffffff",
+    "secondary": "#f9f9fb",
+    "secondary-foreground": "#60646c",
+    "muted": "#f9f9fb",
+    "muted-foreground": "#8b8d98",
+    "accent": "#f0f0f3",
+    "accent-foreground": "#1c2024",
+    "destructive": "#e5484d",
+    "destructive-foreground": "#ffffff",
+    "border": "#e8e8ec",
+    "input": "#e8e8ec",
+    "ring": "#5eb1ef",
+    "success": "#30a46c",
+    "warning": "#ffc53d"
+  },
+  "fontSizes": [
+    12,
+    13,
+    14,
+    16,
+    18,
+    20,
+    24,
+    30,
+    36
+  ],
+  "spacings": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64
+  ],
+  "radii": [
+    0,
+    4,
+    6,
+    8,
+    12,
+    16,
+    24,
+    999
+  ],
+  "shadows": [
+    "0 1px 2px -1px hsl(220 3% 15%/10%)",
+    "0 3px 5px -2px hsl(220 3% 15%/4%),0 7px 14px -5px hsl(220 3% 15%/6%)",
+    "0 -1px 3px 0 hsl(220 3% 15%/3%),0 1px 2px -5px hsl(220 3% 15%/3%),0 2px 5px -5px hsl(220 3% 15%/5%),0 4px 12px -5px hsl(220 3% 15%/6%),0 12px 15px -5px hsl(220 3% 15%/8%)",
+    "0 -2px 5px 0 hsl(220 3% 15%/3%),0 1px 1px -2px hsl(220 3% 15%/4%),0 2px 2px -2px hsl(220 3% 15%/4%),0 5px 5px -2px hsl(220 3% 15%/5%),0 9px 9px -2px hsl(220 3% 15%/6%),0 16px 16px -2px hsl(220 3% 15%/7%)"
+  ],
+  "fonts": [
+    {
+      "family": "Inter",
+      "stack": "Inter, \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/inter",
+      "license": "OFL-1.1"
+    },
+    {
+      "family": "Space Grotesk",
+      "stack": "\"Space Grotesk\", Inter, \"PingFang SC\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/space-grotesk",
+      "license": "OFL-1.1"
+    }
+  ]
+}

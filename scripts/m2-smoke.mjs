@@ -58,9 +58,14 @@ try {
   const rightTabs = await page.locator('.sidebar-right .side-tab').allInnerTexts();
   step(
     '三栏 + 菜单栏 + 工具条结构',
-    menubar === 7 && tools === 13 && leftTabs.join(',') === '页面,图层,资产' && rightTabs.join(',') === '设计,原型',
+    menubar === 7 &&
+      tools === 13 &&
+      leftTabs.join(',') === '页面,图层,资产,AI' &&
+      rightTabs.join(',') === '设计,原型',
     `menu=${menubar} tools=${tools} left=${leftTabs.join('/')} right=${rightTabs.join('/')}`,
   );
+  // 断言报备（M7）：左栏新增第四个页签「AI」（AiDock），故期望值由
+  // 「页面,图层,资产」扩为「页面,图层,资产,AI」。菜单栏 7 / 工具条 13 未变，步数不变（27）。
   // 断言报备：FR-40 落地后 Prototype tab 已启用（原为占位禁用），故本步改为
   // 「分享仍占位禁用 + Prototype 已启用且可切换」。步数不变（27）。
   step(

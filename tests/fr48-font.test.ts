@@ -12,9 +12,10 @@ resetIdSeq(500);
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 describe('FR-48 Inter 本地托管 + 字体单源', () => {
-  it('FONT_FACE_CSS：4 面（latin/ext × normal/italic）、swap、可变字重 100–900、指向 public/fonts', () => {
+  it('FONT_FACE_CSS：6 面（Inter 4 + Space Grotesk 2）、swap、可变字重、指向 public/fonts', () => {
     const faces = FONT_FACE_CSS.split('@font-face').length - 1;
-    expect(faces).toBe(4);
+    // M7 W2.5：新增风格包字体 Space Grotesk 两面（OFL），故 4 → 6
+    expect(faces).toBe(6);
     expect(FONT_FACE_CSS).toContain('font-display:swap');
     expect(FONT_FACE_CSS).toContain('font-weight:100 900');
     expect(FONT_FACE_CSS).toContain("/fonts/inter-latin-wght-normal.woff2");
@@ -22,13 +23,15 @@ describe('FR-48 Inter 本地托管 + 字体单源', () => {
     expect(FONT_FACE_CSS).toContain('unicode-range');
   });
 
-  it('public/fonts/ 四个 woff2 实体文件齐备', () => {
+  it('public/fonts/ 六个 woff2 实体文件齐备', () => {
     const files = readdirSync(join(root, 'public', 'fonts'));
     for (const f of [
       'inter-latin-wght-normal.woff2',
       'inter-latin-wght-italic.woff2',
       'inter-latin-ext-wght-normal.woff2',
       'inter-latin-ext-wght-italic.woff2',
+      'space-grotesk-latin-wght-normal.woff2',
+      'space-grotesk-latin-ext-wght-normal.woff2',
     ]) {
       expect(files).toContain(f);
     }

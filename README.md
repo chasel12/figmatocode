@@ -4,6 +4,8 @@
 
 设计稿到代码的主流做法是"截图 + 视觉猜测"，生成结果在间距、对齐和响应式上不可控。UI Compiler 反其道而行：先将设计数据解析为统一的 **UI AST**，交给确定性的 **Layout Compiler** 计算几何，再由 **Code Generator** 输出目标框架代码——链路上每一步都可测试、可回归。
 
+**v2 新增：AI 只画草稿，编译 100% 确定性**——大模型产出的是符合契约的 AST 数据（JSON），出码链路一个字节都不经模型。
+
 ```
 UI AST ──► Layout Compiler ──► Code Generator ──► Taro / HTML
    │            │                                      │
@@ -35,13 +37,14 @@ UI AST ──► Layout Compiler ──► Code Generator ──► Taro / HTML
 - **Code Generator**：同一份 AST 同时生成 **Taro 工程**（TSX + SCSS + 配置文件）与**独立 HTML 预览**，另生成 reference.html（绝对定位几何 DOM）供 diff。
 - **Pixel Diff**：reference（几何渲染）与 render（编译产物渲染）在同一浏览器、同视口下光栅化，pixelmatch 逐像素对比，**相似度阈值 98%**。
 - **可视化编辑器**：基于 React + Konva 的画布编辑器，支持拖拽、缩放、resize、图层树、属性面板、撤销/重做、代码生成与一键 ZIP 导出。
+- **AI 生成域（v2 M7）**：提示词→新页面草稿、提示词+选中→修改/删除；schema 闸门 + 自修环；草稿先进预览层、采纳才落画布；3 套风格包令牌 + Lucide 全量图标 + 2 字体族。
 
 ## 快速开始
 
 ```bash
 npm install
 npm run dev         # 启动可视化编辑器
-npm test            # 编译器单元测试（vitest，519 例）
+npm test            # 编译器单元测试（vitest，667 例）
 npm run build       # 类型检查 + 构建编辑器到 dist/app
 npm run e2e         # 全链路：生成 19 个测试页 → 截图 → Pixel Diff
 npm run canvasdiff  # FR-51② 画布↔出码对比（需先 VITE_E2E_HOOK=1 npm run build）
@@ -54,12 +57,19 @@ npm run viewport    # 多断点无横向溢出 + 无兄弟重叠（76 项）
 npm run perf-1000   # FR-60 千节点性能采样
 npm run zip-assert  # FR-52 ZIP 产物断言
 npm run ci-local    # 本地四门禁等价凭证（tsc/test/build/e2e）
+npm run ai:assets   # M7 风格包/图标/语料再生成（构建期，产物落库）
+npm run ai:schema   # M7 契约 schema 再生成（types.ts 改动后必跑）
+npm run ai-matrix   # M7 评测轨（离线档 10 项；设 ANTHROPIC_API_KEY 后跑 10 个 golden prompt）
 ```
 
 > **链序提示**：改动 `src/` 后若直接跑 `present-smoke`/`canvasdiff`/矩阵脚本，须先
 > `npm run precanvasdiff` 重建 e2e hook（`dist/app`），否则会拿旧构建得到假结果。
-> 另：`build`/`vitest` 在系统 TEMP 下可能报 `[vite:esbuild-transpile] ... Access is denied`，
-> 属环境限制非代码缺陷——将 `TEMP`/`TMP` 指向工作区内目录即可（验后删除该目录）。
+> 另：`build`/`vitest` 在系统 TEMP 下可能报 `[vite:esbuild-transpile] ... Access is denied`
+> （Windows 系统 Temp 被扫描句柄占用，**重试无效**），属环境限制非代码缺陷——将 `TEMP`/`TMP`
+> 指向工作区内目录即可（如 `.tmp-esbuild/tmp`，已在 `.gitignore`）。
+> `npm run e2e` 若报 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，是宿主沙箱拦 `rmSync` 批量删除
+> （`dist/pages`、`dist/taro` 各 150+ 文件），命令前置 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 即可。
+> 两坑细节见 `docs/HANDOFF.md` §10.4。
 
 `npm run e2e` 会在 `dist/pages/<页面>/` 下输出：
 
@@ -76,6 +86,25 @@ npm run ci-local    # 本地四门禁等价凭证（tsc/test/build/e2e）
 当前结果：**19/19 测试页 ≥ 98% 相似度**（含 3 个 FR-57 样片页，其中原型跳转页 100.00%）；
 **FR-51② 画布↔出码基线（M3 首跑，2026-10-14）：avg 98.12%，15/16 ≥ 95%**（报告 `dist/canvas-diff/report.json`）；
 **FR-57 样片五区审计 5/5 通过**，avg 99.51%（报告 `dist/showcase/report.json`）。
+
+## AI 生成（v2 M7）
+
+> 定位：**AI 只画草稿，编译 100% 确定性**。模型输出 AST 数据 → schema 闸门 → 自修环 → 预览层 → 采纳后才 dispatch。
+
+| 能力 | 实现 |
+| --- | --- |
+| 提示词→新页面 | 左栏 `AI` 面板 → 选风格包 → 写需求 → 生成 → 预览（iframe 走真实出码）→ 采纳为新页面 |
+| 提示词+选中→修改/删除 | 选中节点后切「修改选中」，模型只输出白名单指令（add/remove/move/setText/updateStyle/updateLayout），**每条指令=一条 store action**（与人点按钮同管道） |
+| 契约闸门 | `ts-json-schema-generator` 从 `src/editor/ai/types.ts` 自动生成 schema；`ajv` 运行时校验；违例摘要喂回自修 ≤2 轮 |
+| 风格资产 | 3 套令牌包（shadcn/Radix、Open Props、daisyUI Dark，均 MIT）+ Lucide 1545 图标（ISC）+ Inter/Space Grotesk（OFL） |
+| 成本可见 | 面板实时显示本次会话估算（参考价，非官方报价） |
+
+**安全口径（硬约束）**：API key 只存本机 `localStorage`，面板脱敏显示，**永不入仓库/日志**；未配置 key 时 AI 功能整体置灰；「数据不出本机」升级为「**仅发给模型的内容出机**」（提示词 + 选中节点结构）。
+
+```bash
+# 首次使用：AI 面板粘贴 key（sk-ant-…），仅存本机
+npm run ai-matrix   # 离线档校验契约/语料/风格合规/出码链路
+```
 
 ## 测试页面（16 类布局场景 + 3 个 FR-57 样片页）
 
@@ -106,8 +135,11 @@ src/
 ├── editor/      # 可视化编辑器（画布/图层/属性/撤销/代码/Diff/原型/演示/资产）
 │                # present/（Present 演示 + 内联预览）、tools/penCore（矢量路径纯函数）
 ├── demo/        # DSL + 16 个测试页面 + showcase（FR-57 样片三页）
+├── editor/ai/   # v2 M7：契约(types/contract)/提示词包/生成与编辑管线/AiDock 面板
+├── tokens/packs/# 风格包令牌（构建期抽取产物：shadcn / openprops / daisy-dark）
+├── assets/icons/# Lucide 图标路径数据（构建期产物，动态 import）
 scripts/         # build-pages / screenshot / diff / canvasdiff / showcase / 走查与冒烟
-tests/           # 编译器与 store 单元测试（519 例）
+tests/           # 编译器与 store 单元测试（667 例）
 docs/            # PRD / 对照矩阵 / schema 定稿 / 轨道方案 / HANDOFF 交接手册
 ```
 
@@ -122,6 +154,7 @@ TypeScript · React 18 · react-konva · Vite 5 · Vitest 2 · Playwright · pix
 - 矢量布尔为 **SVG 填充规则近似**（Union=nonzero，其余=evenodd），Intersect 非严格几何交集；严格拓扑需引入裁剪库。
 - 图片 7 项调整中，色温/色调/高光/阴影为 **CSS filter 近似**且画布不预览（Konva 无对应滤镜）。
 - Layout grid 出码为 **CSS 可表达的等价网格**（Figma 的 Layout grid 本为编辑器辅助线）；入口挂在 FR-27 GRID 样式（与 Figma 的右栏独立分区不同，见 checklist 附 B 报备）。
+- **AI 表达边界（v2 M7）**：AST 不表达运行时交互（hover/focus/滚动吸顶）与真实 JS 行为，只能用组件变体近似；生成是**单轮结构化输出 + 自修**（未做多轮分块调用），复杂页首次质量参照 Stitch 同款水平；编辑指令只覆盖 6 类白名单动作，白名单外一律拒绝执行。
 - **FR-60 判据（已拍板，方案 A，2026-10-18）**：PRD 字面「95% 帧 <16.7ms」经实证为 rAF 量化噪声指标（空白页亦仅 75~86%），主判据改为「**拖拽采样 ≥95% 帧按时（<1.5×vsync≈25ms）**」——实测按时率 **95.27%**（掉帧 31/655）达标；原字面口径保留为参考信号 `fr60_legacyLiteral`。决议与实证见 `docs/go-no-go.md` 议题 1 / checklist 差异 #4。
 
 **验收状态**：行走查矩阵 **100%（70 PASS / 0 FAIL / 3 P2 对照声明）**，**四模块全 100%**（附 A 19/19 · 附 B 11/11 · 附 C 7/7 · 样片五区 5/5），canvasdiff 19 页 18/19（唯一 MISS=已豁免换行差 #1）→ ✅ **GO**（2026-10-18，`docs/go-no-go.md`）。

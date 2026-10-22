@@ -16,6 +16,7 @@ import { PropertyPanel } from './PropertyPanel';
 import { PrototypePanel } from './PrototypePanel';
 import { PresentOverlay, isPresenting } from './present/PresentOverlay';
 import { presentBus } from './present/presentBus';
+import { AiDock } from './ai/AiDock';
 
 const STORAGE_KEY = 'ui-compiler.autosave.v2';
 /** §1.3：v1 键只读不删（降级/双开无害）；命中 v1 即升级并回写 v2 */
@@ -58,7 +59,7 @@ export function Editor() {
     editorReducer,
     restored ?? initialState(createPage('未命名页面'), '未命名项目'),
   );
-  const [leftTab, setLeftTab] = useState<'pages' | 'layers' | 'assets'>('layers');
+  const [leftTab, setLeftTab] = useState<'pages' | 'layers' | 'assets' | 'ai'>('layers');
   const [rightTab, setRightTab] = useState<'design' | 'prototype'>('design');
   // FR-44 Present 演示模式（视图态，不进 store 历史）；startId 为选中 Frame 有 flowStart 时的起点
   const [presenting, setPresenting] = useState(false);
@@ -285,6 +286,15 @@ export function Editor() {
               >
                 ◆
               </button>
+              {/* M7 W5：AI dock 入口（新目录 src/editor/ai/，热点文件仅接线） */}
+              <button
+                type="button"
+                className={`nav-btn ${leftTab === 'ai' ? 'is-active' : ''}`}
+                title="AI 生成"
+                onClick={() => setLeftTab('ai')}
+              >
+                ✦
+              </button>
               <button type="button" className="nav-btn" disabled title="评论（暂不支持）">
                 💬
               </button>
@@ -313,6 +323,12 @@ export function Editor() {
                 >
                   资产
                 </button>
+                <button
+                  className={`side-tab ${leftTab === 'ai' ? 'is-active' : ''}`}
+                  onClick={() => setLeftTab('ai')}
+                >
+                  AI
+                </button>
               </div>
               {leftTab === 'pages' && <Pages />}
               {leftTab === 'layers' && <Layers />}
@@ -322,6 +338,7 @@ export function Editor() {
                   <AssetsPanel />
                 </>
               )}
+              {leftTab === 'ai' && <AiDock />}
             </aside>
             <main className="canvas-area">
               <Canvas />

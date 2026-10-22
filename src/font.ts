@@ -13,11 +13,19 @@ const LATIN_EXT =
  * **D2 修复（2026-10-20）**：路径基座参数化——站点根部署用缺省 '/fonts'（dist/pages/e2e 不变）；
  * ZIP 的 preview/ 页用 'fonts'（字体随包走，file:// 与子目录部署不 404，同 Figma 导出物口径）。
  */
+/**
+ * M7 W2.5：风格包配套字体 Space Grotesk（OFL-1.1，@fontsource-variable/space-grotesk）。
+ * 与 Inter 同源同注入点——出码产物、编辑器、文本测量共用一份字体清单（FR-48 口径延续）。
+ */
+export const PACK_FONT_STACK = '"Space Grotesk", Inter, Arial, "PingFang SC", "Microsoft YaHei", sans-serif';
+
 export function fontFaceCss(base: string): string {
   return `@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('${base}/inter-latin-wght-normal.woff2') format('woff2');unicode-range:${LATIN}}
 @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('${base}/inter-latin-ext-wght-normal.woff2') format('woff2');unicode-range:${LATIN_EXT}}
 @font-face{font-family:'Inter';font-style:italic;font-weight:100 900;font-display:swap;src:url('${base}/inter-latin-wght-italic.woff2') format('woff2');unicode-range:${LATIN}}
-@font-face{font-family:'Inter';font-style:italic;font-weight:100 900;font-display:swap;src:url('${base}/inter-latin-ext-wght-italic.woff2') format('woff2');unicode-range:${LATIN_EXT}}`;
+@font-face{font-family:'Inter';font-style:italic;font-weight:100 900;font-display:swap;src:url('${base}/inter-latin-ext-wght-italic.woff2') format('woff2');unicode-range:${LATIN_EXT}}
+@font-face{font-family:'Space Grotesk';font-style:normal;font-weight:300 700;font-display:swap;src:url('${base}/space-grotesk-latin-wght-normal.woff2') format('woff2');unicode-range:${LATIN}}
+@font-face{font-family:'Space Grotesk';font-style:normal;font-weight:300 700;font-display:swap;src:url('${base}/space-grotesk-latin-ext-wght-normal.woff2') format('woff2');unicode-range:${LATIN_EXT}}`;
 }
 
 export const FONT_FACE_CSS = fontFaceCss('/fonts');
@@ -28,4 +36,7 @@ export const FONT_FILES = [
   'inter-latin-ext-wght-normal.woff2',
   'inter-latin-wght-italic.woff2',
   'inter-latin-ext-wght-italic.woff2',
+  // M7 W2.5 风格包字体（OFL）——随 ZIP 一起分发，避免风格包页面在导出物里掉字
+  'space-grotesk-latin-wght-normal.woff2',
+  'space-grotesk-latin-ext-wght-normal.woff2',
 ] as const;

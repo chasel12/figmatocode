@@ -2177,3 +2177,255 @@ input[type='number'] {
 
 
 
+
+/* ============================================================
+ * M7 W5 · AI dock（左栏 AI 生成面板）
+ * 全部走既有主题变量，白天/夜间模式自动跟随（FR-24 口径）
+ * ============================================================ */
+.ai-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 16px;
+  overflow-y: auto;
+}
+
+.ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-title {
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.ai-cost {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.ai-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.ai-setup-note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.ai-key-input,
+.ai-select,
+.ai-prompt {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.ai-prompt {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ai-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ai-seg {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-seg-btn {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ai-seg-btn.is-active {
+  color: var(--text);
+  border-color: var(--primary);
+  background: var(--sel-soft-bg);
+}
+
+.ai-seg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ai-run,
+.ai-adopt {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.ai-adopt {
+  background: var(--pass);
+  border-color: var(--pass);
+}
+
+.ai-run:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ai-hint,
+.ai-usage {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.ai-log {
+  max-height: 116px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.ai-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ai-error {
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.ai-result-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.ai-result-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.ai-preview {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.ai-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  transform-origin: top left;
+}
+
+.ai-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 110px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.ai-diff-stat {
+  margin-top: 3px;
+  color: var(--text);
+}
+
+/* ---- W2.5 图标资产 ---- */
+.assets-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.assets-icons-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.assets-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.assets-icon-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.assets-icon-cell:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}

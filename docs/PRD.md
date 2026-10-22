@@ -126,10 +126,11 @@ Figma UI3 全对照编辑器（16 类图层×参数全集 + 原型跳转 + 多 P
 - **H 样片（P0）**：`npm run showcase`——组件种类陈列 + 参数矩阵 + ≥3 Page 设计 + ≥5 类原型跳转 + 像素报告。
 - **I 工程生产化（P1）**：git+CI、静态部署、1000 节点 60fps 验收。
 - **J 协作（P2）**：分享链接 + 实时编辑；Go/No-Go 后执行。
+- **K AI 生成域（P0，v2 里程碑 M7）**：提示词→新页面草稿、提示词+选中→修改/删除指令、schema 闸门 + 自修环、预览采纳；风格包（3 套）/图标库/字体资产；评测轨。**AI 只画草稿，编译 100% 确定性**（详见 `docs/wave2-ai-generation-plan.md`）。
 
 ### Out of Scope
 
-- AI 生成/改写代码、AI 辅助布局（后续独立 PRD）。
+- ~~AI 生成/改写代码、AI 辅助布局（后续独立 PRD）~~ → **已由 v2 M7 承接（FR-63~68）**；仍不做「AI 直接产出代码」——模型只产出 AST 数据，出码链路不经模型。
 - Figma `.fig` 文件导入、Stitch 导入。
 - 多框架输出（Taro/Vue/Next/UniApp/Flutter）。
 - diff 自动修复回写 AST。
@@ -248,6 +249,17 @@ Figma UI3 全对照编辑器（16 类图层×参数全集 + 原型跳转 + 多 P
 
 - FR-61: **协作 MVP**：分享链接、双浏览器同页实时编辑（多人光标）、冲突合并、断线重连不丢数据；账号/云基础设施为本项前置（成本与隐私）。
 - FR-62: **Go/No-Go**：M6 评审纪要记录协作/变体扩展/Variables 等 P2 决策；GO → 里程碑落位；NO-GO → 记录并转 Future Considerations。
+
+#### K. AI 生成域 — P0（**v2 里程碑 M7**，Wave 2；与 v1 中已 NO-GO 的「M7 协作」编号体系无关）
+
+> 依据：`docs/wave2-ai-generation-plan.md`（2026-10-21）。最高准则=开源优先；三条红线=不重造轮子/不上重框架/许可证只收 MIT·Apache-2.0·ISC·OFL·CC0。
+
+- FR-63: **提示词 → 新页面**：输入自然语言需求 + 选定风格包，产出符合 `AiPageDraft` 契约的 AST 草稿；经 JSON Schema（ts-json-schema-generator 自动生成）+ ajv 闸门，违例摘要喂回自修 ≤2 轮；草稿先落**预览层**，采纳后才写入工程（新页面）。
+- FR-64: **提示词 + 选中 → 修改/删除**：模型输出白名单指令（add/remove/move/setText/updateStyle/updateLayout），每条指令映射为既有 store action（与人操作同管道）；采纳前在克隆页**干跑**并展示差异摘要；采纳后可一键回退（按指令数连撤销）。
+- FR-65: **风格包**：3 套令牌包（shadcn/Radix、Open Props、daisyUI Dark），全部构建期抽取、许可证如实展示；生成结果的颜色**只能**引用包内令牌（`@color.*`），可脚本化统计合规率。
+- FR-66: **图标与字体资产**：Lucide 全量图标转 VECTOR 路径入资产面板（动态加载，不内联）；2 个字体族（Inter / Space Grotesk）本地分发延续 FR-48。
+- FR-67: **评测轨**：`npm run ai-matrix` 产出 `dist/ai-matrix/report.json`（离线档=确定性指标；实跑档=10 个 golden prompt 的一次通过率/自修后通过率/成本）。
+- FR-68: **key 策略与安全口径**：key 只存 localStorage、面板脱敏、**永不入仓库/日志**；未配置时 AI 功能整体置灰；「数据不出本机」口径升级为「仅发给模型的内容出机」并双处告知；prompt 注入防御=用户素材只作数据段 + 指令白名单外一律不执行。
 
 ### UX Flows
 
@@ -372,6 +384,12 @@ Figma UI3 全对照编辑器（16 类图层×参数全集 + 原型跳转 + 多 P
 | FR-59 | 构建产物本地静态托管打开可用 |
 | FR-61 | 协作走查：双浏览器合并一致 + 断线重连 |
 | FR-62 | M6 评审纪要含 Go/No-Go 决策 |
+| FR-63 | 契约单测（19 页语料 100% 过 schema + 6 类畸形样本全拦）+ 自修环单测（违例喂回/轮次上限）+ 预览采纳走查 |
+| FR-64 | 指令→action 映射单测 + 干跑不污染原页 + UNDO N 次字节级回退 + 白名单外动作零映射 |
+| FR-65 | `npm run ai-matrix` A3 风格合规 100%（令牌引用全解析、字面色值 0） |
+| FR-66 | 图标库 ≥1500 条路径合法 + 资产面板点选插入 VECTOR 走查 + 字体清单含两族 |
+| FR-67 | `npm run ai-matrix` 离线档 10/10（实跑档需 key） |
+| FR-68 | key 脱敏/清除走查 + 未配 key 置灰 + 仓库与日志零 key（`git grep` 扫描） |
 
 ### Stop and Escalate
 
@@ -477,6 +495,7 @@ Figma UI3 全对照编辑器（16 类图层×参数全集 + 原型跳转 + 多 P
 | 1.1r1 | 2026-10-03 | opencode | **三遍评审通过，draft → approved**。Pass1 结构/清晰度：修正 Problem Statement 旧 FR 编号引用（v1.0 编号废止注记）、P0 定义与 M5/M6 交付矛盾（改为「GA 前必达，按里程碑分批」）、FR-51 补齐 M3 首跑/M6 终验映射、M2 里程碑交付行补全。Pass2 对照研究：补四边独立描边（FR-18/47）、Change to 动作（FR-40，随变体）、Shift+2 缩放到选中（FR-3）、快捷键布局表驱动与重映射（FR-9）。Pass3 可实现性/事实核对：Diamond 渐变无原生 CSS 出码方案（FR-47）、`public/fonts/` 待新建注记（FR-48，实测目录不存在）、样片像素比对限定初始态（FR-57）。U+FFFD 扫描 0 |
 | 1.1r2 | 2026-10-14 | AutoClaw | **FR-51② M3 首跑落盘（里程碑收口注记，非范围变更）**：②画布↔出码基线首跑 avg 98.12%、15/16≥95%、min 92.07%（14 页混排换行归因豁免，矩阵差异与结论 #1）；管线 `npm run canvasdiff`（`scripts/canvas-diff.mjs`，e2e 通道 `VITE_E2E_HOOK=1` 构建注入 `window.__UIC_E2E__` 只读快照+既有 captureRegion 导出 API）；顺带修复画布渐变静默失效（fills 迁移+colorStops 成对格式+fillPriority）与 Konva 文本基线 ~1px 偏移（`_fixTextRendering`）两缺陷；验证映射表 FR-51 行补首跑结果 |
 | 1.1r3 | 2026-10-14 | AutoClaw | **M4 进度注记（非范围变更）**：FR-21 钢笔链路打通（画布 Konva.Path + 草稿预览 + 手柄拖拽 + 出码内联 `<svg>`，FR-49 落地）；FR-22/23 布尔与蒙版纯函数与出码等价落地（**近似口径**：布尔为 SVG 填色规则近似、Intersect 不保真；蒙版只表形状裁切）；FR-25~29 组件/实例/Assets/样式/tokens/变体落地。**范围相关上报两项**：①FR-23 蒙版判定改为**显式** `layout.clipContent`（原「末位子即蒙版」隐式推断会静默改写普通页面出码，已加回归防线）；②FR-27 的 **Effect/Grid 两类样式因 `StyleToken.kind` 仅 `'PAINT'\|'TEXT'`（types.ts 已定稿）暂缺**，补全须主线单点扩 kind 枚举。FR-22 布尔 UI 入口、FR-23 Ctrl+Alt+M、FR-29 跨变体增量合并归 M4 余项。P 原型轨状态域已单点合入、功能未起步 |
+| 1.2 | 2026-10-21 | WorkBuddy | **v2 M7 AI 生成域立项（范围扩增）**：In Scope 新增 K 段（FR-63~68），Out of Scope 的「AI 生成」行改为由 M7 承接（仍不做 AI 直接出码）；新增「AI 只画草稿，编译 100% 确定性」定位口径；依据 `docs/wave2-ai-generation-plan.md`（开源优先最高准则 + 三条红线）；验证映射表补 FR-63~68 六行 |
 | 1.1r4 | 2026-10-14 | AutoClaw | **M5 进度注记（非范围变更）**：FR-39 多 Page（新建/复制/重命名/删除/排序/切换 + reducer 出口单点回写 `pages`）、FR-40~43 Prototype 面板（触发器/动作/过渡三段选择器含置灰档、Overlay 九宫、broken link、Flow 起点）、FR-46/50 原型出码（`index.html`+`index.css`+`runtime.js`、§4.1 `data-interaction` 白名单投影协议、§4.3 单 HTML 多 Page 容器、无交互不引 runtime）落地。**修复真缺陷**：`createNewPage()` 硬编码 `id:'page'` 致多页共用同一 id（新测试首跑暴露）。**断言报备**：m2 smoke「Prototype 占位禁用」改为「已启用」（FR-40 落地后原断言锁定的是占位态，步数不变）。**未做项**：FR-44 Present 演示模式/连接线/内联预览；`SELECT_PAGE` 每页独立历史为简化实现（切页即换栈，`EditorState.history` 字段留而未用）；置灰档触发器/动作/过渡按 P0 不实现（已登记）。FR-45 跨 Page Navigate 不实现（待入矩阵「不支持项」栏） |
 
 
