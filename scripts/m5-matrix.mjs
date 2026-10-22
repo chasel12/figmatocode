@@ -836,8 +836,11 @@ try {
   const snapE = await snapIds();
   await dragShape('椭圆', 0.3, 0.68, 0.36, 0.76);
   const oval1 = (await newIdsSince(snapE))[0];
-  record('P1-05', '两形状 Union/Subtract 得 VECTOR 节点、可见、可再编辑', unionEnabled && subEnabled && !!unionNode && !!subNode && operandsGone && subpaths >= 2 && unionReeditOk,
-    `两形状（椭圆+矩形）Union✓=${unionEnabled}（结果 VECTOR d 子路径=${subpaths}，参集已删=${operandsGone}）；Subtract✓=${subEnabled}（fillRule=${fillRuleSub} evenodd 拼接）；可再编辑：${reeditNote5}；近似口径报备：布尔=fillRule 拼接近似（Intersect/Exclude 非严格拓扑，LOG M4 第三步；本行只考 Union/Subtract）`, s05a);
+  // 判据修正（2026-10-22）：#2「拼串假布尔→polyBool 真求交」落地后，相交形状的 Union
+  // 会合并成**单个外轮廓**（1 子路径才是正确拓扑）；原 `subpaths >= 2` 是拼接实现的副产物，
+  // 改为 `>= 1`（非空结果），结构可编辑性由 unionReeditOk 另行锁定。
+  record('P1-05', '两形状 Union/Subtract 得 VECTOR 节点、可见、可再编辑', unionEnabled && subEnabled && !!unionNode && !!subNode && operandsGone && subpaths >= 1 && unionReeditOk,
+    `两形状（椭圆+矩形）Union✓=${unionEnabled}（结果 VECTOR d 子路径=${subpaths}；真求交后相交形状合并为单环，故按 ≥1 判非空；参集已删=${operandsGone}）；Subtract✓=${subEnabled}（fillRule=${fillRuleSub}）；可再编辑：${reeditNote5}；口径报备：Union/Subtract 走 polyBool 真拓扑（L1），Intersect/Exclude 相交缺口未补对方边界、标 degraded（L2 近似），见矢量布尔批与 LOG`, s05a);
   void s05b;
 
   // ========================= S10 · P1-06 蒙版 =========================

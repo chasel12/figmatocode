@@ -29,7 +29,7 @@ const childEnv = { ...process.env, TEMP: tmpDir, TMP: tmpDir };
 /** 四道门禁（与 ci.yml 一一对应；npx 在 Windows 下需 shell） */
 const GATES = [
   { id: 'tsc', label: '门禁① tsc（类型检查零错）', cmd: 'npx', args: ['tsc', '--noEmit'] },
-  { id: 'test', label: '门禁② test（vitest run）', cmd: 'npx', args: ['vitest', 'run'] },
+  { id: 'test', label: '门禁② test（vitest run）', cmd: 'node', args: ['scripts/vitest-run.mjs'] },
   { id: 'build', label: '门禁③ build（tsc + vite build → dist/app）', cmd: 'npm', args: ['run', 'build'] },
   { id: 'e2e', label: '门禁④ e2e（pages + shot + diff，16/16 ≥98%）', cmd: 'npm', args: ['run', 'e2e'] },
 ];

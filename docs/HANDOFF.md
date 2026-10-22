@@ -160,16 +160,20 @@ scripts/            gen-ai-schema.mjs / extract-tokens.mjs / icons-import.mjs / 
 ### 10.3 门禁与复跑
 
 ```bash
+npm test              # 统一入口（= scripts/vitest-run.mjs：固定 TEMP + 串行 + 校验文件数）667 例
+npm run build         # 统一入口（= scripts/build.mjs：固定 TEMP 后跑 tsc --noEmit && vite build）
 npm run ai:assets     # 构建期资产（风格包/图标/语料）——改了抽取脚本才需要
 npm run ai:schema     # 契约 schema
 npm run ai-matrix     # 离线 10 项（+ 有 key 时 10 个 golden prompt 实跑）
-npx tsc --noEmit && npx vitest run    # 667 例（AI 域 45 例）
 ```
 
+> **别再直接用 `npx vitest run` / `npx vite build`**：本机沙箱下它们会踩坑 2/坑 3（静默漏跑测试、
+> 构建删临时文件失败）。`npm test` / `npm run build` 已封装好，CI 与 `ci-local` / `m4-matrix` 也走同一入口。
+>
 > 实跑档尚未执行（本机无 key）。拿到 key 后：`ANTHROPIC_API_KEY=... npm run ai-matrix`，
 > 把 §6 的「一次通过率 ≥60% / 自修后 ≥90%」结果回填 plan §11.1 与 checklist 附表 D。
 
-### 10.4 本机两个环境坑（非代码，复跑门禁前必读）
+### 10.4 本机三个环境坑（非代码，复跑门禁前必读）
 
 **坑 1 — `npm run e2e` 被沙箱批量删除守卫拦**
 
@@ -185,23 +189,41 @@ Error: [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":156,"threshold"
 用 PowerShell `Get-CimInstance Win32_Process` 定位命令行含 `vite` 的 node 进程并 `taskkill //PID <pid> //F`
 （`wmic` 在本机被安全策略禁用，别用）。
 
-**坑 2 — `npm run build` 报 esbuild 删临时文件 `Access is denied`**
+**坑 2 — esbuild 删临时文件 `Access is denied`（`npm run build`）**
 
 ```
 [vite:esbuild-transpile] remove C:\Users\ASUS\AppData\Local\Temp\esbuild-<hash>: Access is denied
 ```
 
-**重试无效**（每次新建 hash 目录仍失败），是系统 Temp 被扫描/索引服务持句柄，不是偶发。
-处置：把临时目录重定向到项目内（`.tmp-esbuild/` 已在 `.gitignore`）：
+**重试无效**（每次新建 hash 目录仍失败）。**已由 `scripts/build.mjs` 封装**：把 `TEMP`/`TMP`/`TMPDIR`
+固定到项目内 `.tmp-esbuild/tmp`（已在 `.gitignore`），`npm run build` 直接可用，无需手动设环境变量。
 
-```bash
-mkdir -p .tmp-esbuild/tmp
-TEMP="C:/Users/ASUS/Desktop/project/figmacode/.tmp-esbuild/tmp" \
-TMP="C:/Users/ASUS/Desktop/project/figmacode/.tmp-esbuild/tmp" \
-npm run build
+**坑 3 — vitest 静默漏跑测试文件（最危险，会假绿）**
+
+```
+Unhandled Error
+Error: EPERM: operation not permitted, open '...\Temp\_Tt3KlT9KpWHTiHpF3IML\ssr\40b9f1f3...'
+ ❯ wrappedPromisesWriteFile D:/WorkbuddyAI/.../node-brokered-fs-shim.cjs:701:20
 ```
 
-**坑 3（断言类，非环境）— 门禁脚本硬编码页签列表**
+vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒绝写入 → **个别测试文件加载失败
+但不计入 failed**，汇总只报 `Test Files 48 passed (48)`（真实 50 个文件 / 667 例）。看起来全绿，实际漏跑。
 
-`scripts/m2-smoke.mjs` 第 1 步用**全等**断言左栏页签。新增/删除左栏页签（如 M7 的「AI」）会让它失败，
-这不是回归。按语义同步期望值即可（已在脚本内留「断言报备」注释）。
+两个诱因叠加：① 系统 Temp 被拒；② 多 worker 并发写同一 SSR 缓存文件（失败 hash 恒定）。
+**已由 `scripts/vitest-run.mjs` 封装**：固定 TEMP 到项目内 + 默认 `--no-file-parallelism` +
+跑完用 json reporter 校验「收集文件数 == `tests/*.test.ts` 数量」，不等即 exit 1。
+
+> 自检口诀：`npm test` 末尾必须出现 `[vitest-run] 文件数校验通过：50/50`。没有这行就说明没走统一入口。
+
+**坑 4（断言类，非环境）— 门禁脚本硬编码结构/数量**
+
+产品演进后门禁脚本里写死的「数量/字面」断言会误判 FAIL，**不是功能回归**。已修正三处（均留注释）：
+
+| 脚本 | 原断言 | 现状 | 修正 |
+|---|---|---|---|
+| `m2-smoke.mjs` | 左栏页签全等 `页面,图层,资产` | M7 新增「AI」页签 | 期望扩为 `页面,图层,资产,AI` |
+| `m4-matrix.mjs` | `optCount === 4` | `#4a` 交付 stretch 档后两轴各 5 项 | 改为语义断言：FR-35 四档必须存在，stretch 作增强项记录 |
+| `m5-matrix.mjs` | 布尔结果 `subpaths >= 2` | `#2` 真求交后相交形状 Union 合并为单环（1 子路径才正确） | 改为 `>= 1`（非空），可编辑性由 `unionReeditOk` 锁定 |
+
+> 判断方法：FAIL 行的明细里各子项都是 `true`，只有数量/字面不符 → 先怀疑断言过时，
+> 去 `git log` 找对应产品改动，**不要直接改产品代码**。

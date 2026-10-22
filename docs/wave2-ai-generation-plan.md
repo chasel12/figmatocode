@@ -166,12 +166,14 @@ npm run ai-matrix    # 评测轨（离线 10 项；有 key 时追加 10 个 gold
 npx tsc --noEmit && npx vitest run   # 667 例（新增 45 例 AI 域）
 ```
 
-### 11.4 全量门禁复跑结果（2026-10-21，M7 落地后一次性全绿）
+### 11.4 全量门禁复跑结果（2026-10-21 ~ 22，M7 落地后全绿）
+
+**M7 新增域（第一轮）：**
 
 | 门禁 | 命令 | 结果 |
 |---|---|---|
 | 类型 | `npx tsc --noEmit` | **0 错** |
-| 单测 | `npx vitest run` | **667/667**（50 文件；新增 AI 域 45 例） |
+| 单测 | `npm test` | **667/667**（50 文件；新增 AI 域 45 例） |
 | 构建 | `npm run build` | 通过；主包 **905.87 kB**（gzip 291.02）+ 3 个懒加载 chunk：SDK 326.88 / lucide 290.67 / fewshots 111.35 |
 | 页面与断言 | `npm run pages` | 19 页；`assert-pages` **266/266** |
 | 像素回归 | `npm run shot && npm run diff` | **19/19 页 ≥98%**（最低 98.89% @13-绝对定位页；`19-样片-原型跳转` 100.00%） |
@@ -183,10 +185,35 @@ npx tsc --noEmit && npx vitest run   # 667 例（新增 45 例 AI 域）
 | 评测轨（离线） | `npm run ai-matrix` | **10/10** |
 | 评测轨（实跑） | `ANTHROPIC_API_KEY=… npm run ai-matrix` | 未执行（本机无 key，见 §11.2-8） |
 
-**两处环境性坑（非代码问题，已记入 HANDOFF §10）：**
+**v1 既有矩阵（第二轮补跑，验证零回归）：**
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 画布↔出码 | `npm run canvasdiff` | **18/19**，avg **98.13%**（唯一 MISS=14 长文本 92.06%，与历史基线逐位一致，差异 #1 已豁免） |
+| M12 矩阵 | `node scripts/m12-matrix.mjs` | **24/24**（revision 锚定 HEAD） |
+| M4 矩阵 | `node scripts/m4-matrix.mjs` | **12/12** |
+| M5 矩阵 | `node scripts/m5-matrix.mjs` | **16/16** |
+| M6 附录 | `node scripts/m6-appendix.mjs` | 附 A **19/19** · 附 B **11/11** · 附 C **7/7** |
+| CI 四门禁 | `npm run ci-local` | **4/4**（tsc 17.6s / test 48.3s / build 21.2s / e2e 61.3s） |
+| ZIP 产物 | `npm run zip-assert` | **76/76** |
+| 参数审计 | `npm run audit-params` | **51/51** |
+| 用户流程 | `npm run user-flow` | **12/12** |
+| 千节点性能 | `npm run perf-1000` | FR-60 达标：按时率 **99.68%**（掉帧 2/623），idle avg 60.5fps |
+
+**三处环境性坑（非代码，已记入 HANDOFF §10.4，其中两处已封装进 npm 脚本）：**
 
 1. `npm run e2e` 的 `build-pages.ts` 用 `rmSync(dist/pages|dist/taro)` 递归删 >50 个文件，会被本机沙箱的批量删除守卫拦（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）。处置：跑门禁时前置 `CODEBUDDY_SAFE_DELETE_ENABLED=0`，或先 `mv` 走旧产物。
-2. `npm run build` 在 `vite:esbuild-transpile` 阶段报 `remove <系统 Temp>/esbuild-*: Access is denied`（Windows 系统 Temp 被扫描句柄占用，重试 hash 变化仍失败）。处置：把 `TEMP`/`TMP` 重定向到项目内 `.tmp-esbuild/tmp`（该目录已在 `.gitignore`）。
+2. `npm run build` 在 `vite:esbuild-transpile` 阶段报 `remove <系统 Temp>/esbuild-*: Access is denied`（重试无效）。**已封装**：`scripts/build.mjs` 固定 TEMP 到 `.tmp-esbuild/tmp`。
+3. **vitest 静默漏跑**（最危险）：SSR transform 写系统 Temp 被沙箱 fs shim 拒（`EPERM`），个别测试文件加载失败却**不计 failed**，汇总只报 `48 passed`（真实 50 文件）。诱因是「系统 Temp 受限 + 多 worker 并发写同一缓存文件」。**已封装**：`scripts/vitest-run.mjs` 固定 TEMP + 默认串行 + 校验「收集文件数 == `tests/*.test.ts` 数量」，不等即 exit 1。`npm test`、`ci.yml`、`ci-local.mjs`、`m4-matrix.mjs` 全部改走该入口。
 
-**一处断言报备（门禁脚本，非产品代码）：** `scripts/m2-smoke.mjs` 第 1 步对左栏页签做全等断言，M7 新增「AI」页签后期望值由 `页面,图层,资产` 扩为 `页面,图层,资产,AI`（菜单栏 7 / 工具条 13 未变，步数仍 27）。
+**三处断言报备（门禁脚本，非产品代码）：**
+
+| 脚本 | 原断言 | 现状与修正 |
+|---|---|---|
+| `m2-smoke.mjs` | 左栏页签全等 `页面,图层,资产` | M7 新增「AI」页签 → 扩为 `页面,图层,资产,AI`（菜单 7 / 工具条 13 未变，步数仍 27） |
+| `m4-matrix.mjs` | `optCount === 4` | `#4a` 交付 stretch 档后两轴各 5 项 → 改为语义断言「FR-35 四档必须存在 + stretch 作增强项记录」 |
+| `m5-matrix.mjs` | 布尔结果 `subpaths >= 2` | `#2` 真求交后相交形状 Union 合并为单环（1 子路径才正确）→ 改为 `>= 1`（非空），可编辑性由 `unionReeditOk` 锁定 |
+
+> 后两处属**历史遗留**（产品已演进、脚本判据未同步），非 M7 引入；本轮复跑时暴露并修正。
+
 

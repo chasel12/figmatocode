@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/build.mjs",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "node scripts/vitest-run.mjs",
     "pages": "npx vite-node scripts/build-pages.ts && node scripts/assert-pages.mjs",
     "shot": "node scripts/screenshot.mjs",
     "diff": "node scripts/diff.mjs",

@@ -646,6 +646,15 @@ try {
       });
     }
     const optCount = axisOpts.length === 2 ? axisOpts[0].split('/').length : 0;
+    // 判据修正（2026-10-22）：#4a 交付 stretch 组合档（LEFT_RIGHT / TOP_BOTTOM）后，
+    // 两轴各 5 项，原先写死的 optCount === 4 必然误判 FAIL。
+    // 改为语义断言：FR-35 的 4 个基础档必须存在；stretch 组合档作为增强项记录、不计 FAIL。
+    const BASE_H = ['LEFT', 'RIGHT', 'CENTER', 'SCALE'];
+    const BASE_V = ['TOP', 'BOTTOM', 'CENTER', 'SCALE'];
+    const hOpts = axisOpts.length === 2 ? axisOpts[0].split('/') : [];
+    const vOpts = axisOpts.length === 2 ? axisOpts[1].split('/') : [];
+    const baseOk = BASE_H.every((o) => hOpts.includes(o)) && BASE_V.every((o) => vOpts.includes(o));
+    const stretchOk = hOpts.includes('LEFT_RIGHT') && vOpts.includes('TOP_BOTTOM');
     // 设子1=RIGHT、子2=CENTER、子3=SCALE（水平轴），第4子保持缺省 LEFT；垂直默认 TOP
     const setH = async (rowIdx, val) => {
       await clickLayerRow(rowIdx);
@@ -764,10 +773,10 @@ try {
     }
     // 判据同步（2026-10-18）：PM 已裁决「按 FR-35 枚举 = 4 档 × 2 轴」
     // （LEFT/RIGHT/CENTER/SCALE 水平、TOP/BOTTOM/CENTER/SCALE 垂直；checklist 原「5 向」文案已改）。
-    // 故 optCount 按 4 判，stretch 档（Left+Right / Top+Bottom）列 GA 后增强项、不计 FAIL。
+    // 判据再修正（2026-10-22）：#4a 交付 stretch 档后两轴变 5 项，改为 baseOk 语义断言（见上）。
     record('P1-12', 'Constraints 4 档 2 轴 + 拖父重算 + Ctrl 忽略 + Auto Layout 互斥',
-      optCount === 4 && codeOk && behaviorOk && ctrlOk && excl,
-      `档位=4 档×2 轴（[${axisOpts.join(' × ')}]，符合 FR-35 枚举；stretch 档列 GA 后增强）；出码断言 right:/calc(50%+/百分比 left+width=${codeOk})；${note}；Auto layout 流内子项显示"约束不生效"占位=${excl}`,
+      baseOk && codeOk && behaviorOk && ctrlOk && excl,
+      `档位=${optCount} 项×2 轴（[${axisOpts.join(' × ')}]；FR-35 基础四档齐备=${baseOk}，stretch 组合档=${stretchOk ? '已交付' : '未交付'}）；出码断言 right:/calc(50%+/百分比 left+width=${codeOk})；${note}；Auto layout 流内子项显示"约束不生效"占位=${excl}`,
       'dist/m4-matrix/p112-拖父重算.png');
   }
 
@@ -830,8 +839,15 @@ try {
   let ciYmlOk = false;
   try {
     const yml = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
-    const gates = ['tsc', 'vitest run', 'npm run build', 'npm run e2e'];
-    const missing = gates.filter((g) => !yml.includes(g));
+    // 判据同步（2026-10-22）：测试门禁改走统一入口 `node scripts/vitest-run.mjs`
+    // （固定 TEMP + 串行 + 校验收集文件数，防静默漏跑），故不再按字面 `vitest run` 匹配。
+    const gates = [
+      ['tsc', (s) => s.includes('tsc')],
+      ['vitest', (s) => s.includes('vitest-run.mjs') || s.includes('vitest run')],
+      ['build', (s) => s.includes('npm run build')],
+      ['e2e', (s) => s.includes('npm run e2e')],
+    ];
+    const missing = gates.filter(([, hit]) => !hit(yml)).map(([name]) => name);
     ciYmlOk = missing.length === 0 && yml.includes('actions/checkout') && yml.includes('upload-artifact') && yml.includes('playwright install');
     notes.push(`ci.yml：四门禁齐全=${missing.length === 0}${missing.length ? ' 缺[' + missing + ']' : ''}，checkout/artifact 归档/playwright install=${ciYmlOk}`);
   } catch (e) { notes.push('ci.yml 缺失：' + e.message); }
@@ -869,7 +885,8 @@ try {
     } catch { tscForeign = false; }
   }
   try {
-    vitOut = stripAnsi(execSync('npx vitest run 2>&1', { cwd: root, encoding: 'utf8', timeout: 420000, maxBuffer: 32 * 1024 * 1024 }));
+    // 走统一入口：固定 TEMP 到项目内 + 校验收集文件数（避免 Temp EPERM 导致静默漏跑、假绿）
+    vitOut = stripAnsi(execSync('node scripts/vitest-run.mjs 2>&1', { cwd: root, encoding: 'utf8', timeout: 420000, maxBuffer: 32 * 1024 * 1024 }));
     vitPass = /Test Files\s+\d+ passed/.test(vitOut) && !/Test Files\s+\d+ failed/.test(vitOut);
   } catch (e) {
     vitOut = stripAnsi(e.stdout ?? e.message);
@@ -878,7 +895,7 @@ try {
   const vitSummary = (vitOut.match(/Test Files[^\n]*\n[^\n]*/m) || ['(未取到摘要)'])[0].trim().slice(0, 200);
   const tscGate = tscPass ? 'PASS（0 error）' : tscForeign ? '工作树报错全部落在并发轨未提交文件（非 HEAD 基线）→ 归因并发在制品' : 'FAIL';
   writeFileSync(join(outDir, 'p115-tsc.txt'), `npx tsc --noEmit\n${tscPass ? 'PASS exit 0' : tscForeign ? 'ATTRIB-FOREIGN（工作树并发在制品）' : 'FAIL'}\n${tscOut}`, 'utf8');
-  writeFileSync(join(outDir, 'p115-vitest.txt'), `npx vitest run\n${vitPass ? 'PASS' : 'FAIL'}\n${vitSummary}\n`, 'utf8');
+  writeFileSync(join(outDir, 'p115-vitest.txt'), `node scripts/vitest-run.mjs\n${vitPass ? 'PASS' : 'FAIL'}\n${vitSummary}\n`, 'utf8');
   notes.push(`本轨补跑（HEAD=${revisionAnchor().head.slice(0, 8)}）：tsc=${tscGate}；vitest=${vitPass ? 'PASS' : 'FAIL'}（${vitSummary.replace(/\n/g, ' / ')}）`);
   const gateFreshOk = vitPass && (tscPass || tscForeign);
   record('P1-15', 'git+CI（FR-58：无 remote → 替代本地执行凭证口径）',

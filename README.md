@@ -44,8 +44,8 @@ UI AST ──► Layout Compiler ──► Code Generator ──► Taro / HTML
 ```bash
 npm install
 npm run dev         # 启动可视化编辑器
-npm test            # 编译器单元测试（vitest，667 例）
-npm run build       # 类型检查 + 构建编辑器到 dist/app
+npm test            # 编译器单元测试（统一入口：固定 TEMP + 串行 + 校验收集文件数）
+npm run build       # 类型检查 + 构建编辑器到 dist/app（统一入口：固定 TEMP，规避 esbuild 删临时文件失败）
 npm run e2e         # 全链路：生成 19 个测试页 → 截图 → Pixel Diff
 npm run canvasdiff  # FR-51② 画布↔出码对比（需先 VITE_E2E_HOOK=1 npm run build）
 npm run showcase    # FR-57 样片：对照卡 + 五区审计 → dist/showcase/
@@ -64,12 +64,14 @@ npm run ai-matrix   # M7 评测轨（离线档 10 项；设 ANTHROPIC_API_KEY �
 
 > **链序提示**：改动 `src/` 后若直接跑 `present-smoke`/`canvasdiff`/矩阵脚本，须先
 > `npm run precanvasdiff` 重建 e2e hook（`dist/app`），否则会拿旧构建得到假结果。
-> 另：`build`/`vitest` 在系统 TEMP 下可能报 `[vite:esbuild-transpile] ... Access is denied`
-> （Windows 系统 Temp 被扫描句柄占用，**重试无效**），属环境限制非代码缺陷——将 `TEMP`/`TMP`
-> 指向工作区内目录即可（如 `.tmp-esbuild/tmp`，已在 `.gitignore`）。
-> `npm run e2e` 若报 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，是宿主沙箱拦 `rmSync` 批量删除
+> **环境提示（Windows 本机）**：系统 Temp 受限会导致两类假象，均已封装进 `npm test` / `npm run build`：
+> ① `build` 报 `[vite:esbuild-transpile] ... Access is denied`（重试无效）；
+> ② **更危险**：vitest 的 SSR 缓存写 Temp 被拒 → 个别测试文件加载失败却**不计 failed**，
+> 汇总只报 `48 passed`（真实 50 文件）。请走 `npm test`，并确认末尾有
+> `[vitest-run] 文件数校验通过：50/50`。
+> 另：`npm run e2e` 若报 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，是沙箱拦 `rmSync` 批量删除
 > （`dist/pages`、`dist/taro` 各 150+ 文件），命令前置 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 即可。
-> 两坑细节见 `docs/HANDOFF.md` §10.4。
+> 三坑细节与判据修正见 `docs/HANDOFF.md` §10.4。
 
 `npm run e2e` 会在 `dist/pages/<页面>/` 下输出：
 

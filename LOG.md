@@ -1977,3 +1977,39 @@ tsc **0 错** · vitest **667/667**（50 文件）· build 通过（主包 **905
 
 **清理**：一次性探针 `scripts/_ai-ui-smoke.mjs` 按 HANDOFF 铁律验后删除（截图保留 `dist/ai-ui/`）；`.tmp-esbuild/old/`（含腾挪的旧 `dist/pages`）与 `.tmp-build/`（node-compile-cache 残留）已清。
 
+
+---
+
+## 2026-10-22 · M7 收尾第二轮：v1 全矩阵补跑 + 两个「静默假绿」根治
+
+**目标**：M7 只跑过新域门禁，v1 既有矩阵（canvasdiff/m12/m4/m5/m6/ci-local/zip/audit/user-flow/perf）尚未在 M7 之后复跑。本轮补齐，确认零回归。
+
+**补跑结果（全绿）**：canvasdiff **18/19 avg 98.13%**（唯一 MISS=14 长文本 92.06%，与历史逐位一致）· m12 **24/24** · m4 **12/12** · m5 **16/16** · 附 A/B/C **19/11/7** · ci-local **4/4**（tsc 17.6s/test 48.3s/build 21.2s/e2e 61.3s）· zip-assert **76/76** · audit-params **51/51** · user-flow **12/12** · perf-1000 FR-60 达标（按时 **99.68%**，掉帧 2/623，比历史 95.27% 更好）。
+
+### 揪出并根治的两个「静默假绿」（本轮最有价值的发现）
+
+**① vitest 会静默漏跑测试文件（最危险）**
+
+现象：`npx vitest run` 汇总 `Test Files 48 passed (48)`，而 `tests/` 实际有 50 个文件 / 667 例。连跑三次得到 48/593、49/630、50/667 三种数字。
+
+根因：vite 的 SSR transform 把中间模块写到临时目录，本机沙箱 fs shim（`node-brokered-fs-shim.cjs`）返回 `EPERM`；**加载失败的文件不计入 failed**，汇总仍显示 passed。失败 hash 恒定（`40b9f1f3…`）= 被多 worker 并发写同一缓存文件的共享模块。两个诱因叠加：系统 Temp 被拒 + 并发竞争。
+
+处置：新增 `scripts/vitest-run.mjs` 作为统一入口——固定 `TEMP/TMP/TMPDIR` 到 `.tmp-esbuild/tmp`、默认 `--no-file-parallelism`、跑完用 json reporter 校验「`testResults.length` == `tests/*.test.ts` 数量」，不等即 **exit 1**。`npm test`、`ci.yml`、`ci-local.mjs`、`m4-matrix.mjs` 全部改走该入口。
+
+> 踩坑记录：第一版校验误用 `numTotalTestSuites`（=describe 套件数 194），报出「194/50」；正确字段是 `testResults.length`。串行代价 +15s（31s→46s），换确定性值得。
+
+**② `npm run build` 的 esbuild 坑不是偶发**
+
+`[vite:esbuild-transpile] remove <Temp>/esbuild-<hash>: Access is denied` 两次不同 hash 均失败，证明稳定复现而非抖动。新增 `scripts/build.mjs` 封装（固定 TEMP → `tsc --noEmit` → `vite build`），`npm run build` 从此直接可用，不再需要手动设环境变量。
+
+### 三处门禁脚本判据过时（产品已演进，脚本未同步）
+
+| 脚本 | 原断言 | 为何失效 | 修正 |
+|---|---|---|---|
+| `m2-smoke.mjs` | 左栏页签全等 `页面,图层,资产` | M7 新增「AI」页签 | 扩为 `页面,图层,资产,AI` |
+| `m4-matrix.mjs` | `optCount === 4` | `#4a` 交付 stretch 组合档后两轴各 5 项 | 改语义断言：FR-35 四档必须存在 + stretch 作增强项记录 |
+| `m5-matrix.mjs` | 布尔结果 `subpaths >= 2` | `#2` 真求交后相交形状 Union 合并为单环（1 子路径才正确拓扑） | 改 `>= 1`（非空），可编辑性由 `unionReeditOk` 锁定 |
+
+> 三处**只改门禁脚本，未动产品代码**，均留「判据修正/断言报备」注释。识别方法：FAIL 行明细里各子项都 `true`、只有数量/字面不符 → 先怀疑断言过时，去 `git log` 找对应产品改动。
+
+**文档**：plan §11.4 拆成「M7 新增域 / v1 既有矩阵」两表并补三坑三报备；checklist 附表 D 的 D5 行补全矩阵数字；HANDOFF §10.3/§10.4 改为「统一入口 + 三个坑 + 三处断言修正」；README 快速开始与链序提示同步（含 `[vitest-run] 文件数校验通过：50/50` 自检口诀）。

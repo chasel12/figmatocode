@@ -41,9 +41,9 @@ jobs:
       - name: Gate 1 — tsc
         run: npx tsc --noEmit
 
-      # 门禁②：单元测试（vitest run）
+      # 门禁②：单元测试（统一入口：固定 TEMP + 串行 + 校验收集文件数，防静默漏跑）
       - name: Gate 2 — test
-        run: npx vitest run
+        run: node scripts/vitest-run.mjs
 
       # 门禁③：构建（tsc --noEmit && vite build → dist/app）
       - name: Gate 3 — build
