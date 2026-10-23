@@ -169,10 +169,10 @@ function matrixPage(): UIPage {
     frame(
       '渐变四型',
       [
-        swatch('Linear', { fills: [g('GRADIENT_LINEAR', 0)], borderRadius: 8, height: 48, heightMode: 'FIXED' }),
-        swatch('Radial', { fills: [g('GRADIENT_RADIAL', 0)], borderRadius: 8, height: 48, heightMode: 'FIXED' }),
-        swatch('Angular', { fills: [g('GRADIENT_ANGULAR', 0)], borderRadius: 8, height: 48, heightMode: 'FIXED' }),
-        swatch('Diamond', { fills: [g('GRADIENT_DIAMOND', 0)], borderRadius: 8, height: 48, heightMode: 'FIXED' }),
+        swatch('Linear', { fills: [g('GRADIENT_LINEAR', 0)], borderRadius: 8 }),
+        swatch('Radial', { fills: [g('GRADIENT_RADIAL', 0)], borderRadius: 8 }),
+        swatch('Angular', { fills: [g('GRADIENT_ANGULAR', 0)], borderRadius: 8 }),
+        swatch('Diamond', { fills: [g('GRADIENT_DIAMOND', 0)], borderRadius: 8 }),
       ],
       { mode: 'HORIZONTAL', widthMode: 'FILL', heightMode: 'HUG', gap: 8, align: 'CENTER' },
     ),

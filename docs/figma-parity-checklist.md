@@ -265,6 +265,43 @@
 PM 配 key 后执行 `ANTHROPIC_API_KEY=… npm run ai-matrix`，报告会写入 `dist/ai-matrix/report.json` 的 `mode=live` 段，
 届时回填本表 D1/D2 与计划书 §11.1 的 W6 行。
 
+## 附 E：`.fig` 导入导出对照（M5/M6，2026-10-23）
+
+> 本节是**文件互操作**维度，不属 GA 四模块（附 A/B/C + FR-57）。判据：`npm run fig:check`
+> 三关（导入 / 往返 / CSS），报告 `dist/fig/report.json`。完整实施记录见
+> `docs/multi-target-codegen-plan.md` §11。
+
+| # | 能力 | Figma `.fig` 侧 | 我们（AST 侧） | 判定 |
+|---|---|---|---|---|
+| E1 | 文件容器 | zip：`canvas.fig` + `meta.json` + `thumbnail.png` + `images/` | 同构写出（`canvas.fig` 走 fig-kiwi 容器） | ✅ 双向 |
+| E2 | 节点树 | fig-kiwi schema（`@open-pencil/kiwi@0.16.0`，MIT） | `UIPage[]` 直映射，无中间层 | ✅ 双向 |
+| E3 | 兄弟顺序 | fractional index（定长 base62） | 码点比较还原（`localeCompare` 会排乱） | ✅ 双向 |
+| E4 | 自动布局 | `stackMode` / `PrimarySizing` / `CounterSizing` / `Align` / `spacing` / `padding` | `layout` 全字段（主轴按排列方向取宽/高） | ✅ 双向 |
+| E5 | 填充父容器（FILL） | **无原语**：`StackSize` 没有 FILL | `widthMode/heightMode: 'FILL'` | ⚠ 换算（`stackChildPrimaryGrow` + 子项 `stackChildAlignSelf`） |
+| E6 | 包裹内容（HUG） | `RESIZE_TO_FIT` | `HUG` | ✅ 双向 |
+| E7 | 文本 | `fontName`（`postscript` 必填）/ `fontSize` / `lineHeight` / `letterSpacing` / `textAlign` / `textAutoResize` | `style` 同名 + `textFieldsOf` | ✅ 双向（`fontFamily` 缺省用 `Inter` 哨兵） |
+| E8 | 填充 | `Paint[]`：SOLID / GRADIENT_LINEAR / GRADIENT_RADIAL / IMAGE | `fills` / `background` / 图片 `src` | ✅ 双向 |
+| E9 | 描边 | `strokeWeight` / `strokeAlign` / `strokeJoin` / `strokeCap` / `dashPattern` | `border` 全字段 | ✅（AST 缺省对齐是 INSIDE，Figma 是 CENTER） |
+| E10 | 效果 | DROP_SHADOW / INNER_SHADOW / FOREGROUND_BLUR / BACKGROUND_BLUR | `effects[]` | ✅；**PROGRESSIVE_BLUR 降级**（差异 #34） |
+| E11 | 圆角 | `rectangleCornerRadii` + `cornerSmoothing` | `borderRadius` + `cornerSmoothing` | ✅ 双向（float32，比对取 4 位） |
+| E12 | 图片资源 | `images/` 表 + `Image.hash`（**byte[20]**） | dataURL → blob | ✅ 双向 |
+| E13 | 按钮 | **无 button 原语** | `BUTTON` 节点 | ⚠ 拆成 FRAME + 名为 `Label` 的文本子节点（差异 #35） |
+| E14 | 组件 / 实例 | COMPONENT / INSTANCE + overrides | 无 | ❌ 摊平成 Frame（plan §11.6） |
+| E15 | Variables | `variableCollections` / `variableModes` | 无 | ❌ 不写（与 §六 组件/样式同口径） |
+| E16 | 原型交互 | 交互 / flow 起点 | 无 | ❌ 不写（原型在自家 AST 内独立表达） |
+| E17 | 矢量几何 | `vectorData`（blob 命令流） | 无命令几何 | ❌ 不写（差异 #13 同族） |
+
+**实跑结果（2026-10-23）：**
+
+```
+导入关  PASS  4 个真实 Figma 文件（circle-text / gold-preview / slots / variable-override-precedence）
+往返关  PASS  18/19 页结构无损 · 1 页报备降级（18-样片-参数矩阵 PROGRESSIVE_BLUR）
+CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
+```
+
+**样本**：`tests/fixtures/fig/` 下 4 个，取自 `github.com/open-pencil/open-pencil` 的
+`tests/fixtures/*.fig`（Git LFS，须走 `media.githubusercontent.com/media/...`）。
+
 ## 结果汇总
 
 | 项 | 数值 |
@@ -274,6 +311,7 @@ PM 配 key 后执行 `ANTHROPIC_API_KEY=… npm run ai-matrix`，报告会写入
 | **行走查结果** | **PASS 70 / FAIL 0 / P2 对照声明 3 = 100% ≥95% ✅**（P1-01 于 2026-10-18 方案 A 拍板后改判 PASS，差异 #4 结案；★ 核心行零 FAIL。历史口径 10-17 曾为 69/1=98.6%） |
 | **四模块结果** | 附 A **19/19 ✅** · 附 B **11/11 ✅** · 附 C **7/7 ✅** · FR-57 样片 **五区 5/5 ✅**（avg 99.51%）→ **四模块全 100% ✅** |
 | 采样证据 | `scripts/m6-appendix.mjs` → `dist/m6-appendix/report.json` + `appendix.md` + 截图（附 A/B/C 逐项）；附 A 为「数据层+产物层」双关判定 |
+| **`.fig` 互操作（附 E，非 GA 四模块）** | 导入 **4/4** 真实文件 · 往返 **18/19** 页（1 页报备降级）· CSS **18/19** 页 · 17 项能力对照：双向 ✅ 11 / 换算 ⚠ 2 / 不做 ❌ 4。报告 `dist/fig/report.json` |
 | 门禁回归 | **2026-10-21（M7 落地后全量复跑）**：tsc 0 错 · vitest **667/667** · e2e **19/19 ≥98%** · viewport **76/76** · walkthrough **9/9** · m1 **22/22** · m2 **27/27** · present-smoke **18/18** · pages 断言 **266/266** · build 主包 905.87 kB（gzip 291.02）· ai-matrix 离线 **10/10**。历史快照（2026-10-18）：vitest 525/525 · canvasdiff 18/19（avg 97.87%，唯一 MISS=14 页差异 #1 已豁免）· m12 24/24 · ci-local 4/4 |
 | 阻断项 | **零**（差异 #4 已于 2026-10-18 结案：PM 拍板方案 A「≥95% 帧按时 <1.5×vsync」，实测按时率 **95.27%** 达标，P1-01 转正；全议题签署见 `go-no-go.md`）。P0 全绿、四模块 100% |
 
@@ -305,7 +343,8 @@ PM 配 key 后执行 `ANTHROPIC_API_KEY=… npm run ai-matrix`，报告会写入
 | 21 | 矩形容纳子节点致**出码静默丢失**（**2026-10-18 参数+流程审计实锤**）：选中 RECTANGLE 后经 Palette 添加节点 → 子节点进画布可见、但产物里消失（画布↔出码不一致） | `store.ts effectiveParentId()` 只判 `isContainer()`（RECTANGLE 为 true），而 **5 处出码/布局路径都把 RECTANGLE 当叶子跳过递归**（compile:196/layout:272/html:69/taro:36/prototype:136）；`findContainerAt()` 已排除矩形，唯 Palette 路径漏判 | **✅ 已修复**：`effectiveParentId` 排除 RECTANGLE（与 Figma 一致：矩形不可含子节点）；`tests/rect-container.test.ts` 7 例锁（含 Frame 仍正确嵌套防误伤） | 审计轨 / 2026-10-18 |
 | 22 | 文本「截断」开关**点亮但产物无变化**（**2026-10-18 参数审计实锤**）：打开截断、面板显示「最大行 2」，出码无任何 `-webkit-line-clamp` | 开关只写 `textTruncation:'ENDING'` **不写 maxLines**；「最大行」输入框显示 `S.maxLines ?? 2` 的回退值、不回写 store；而 compile:620 判据要求 `maxLines > 0` | **✅ 已修复**：开关开启时一并写 `maxLines: S.maxLines ?? 2`；`tests/text-truncate.test.ts` 4 例锁 + 端到端复测出码出现 `-webkit-line-clamp: 2` | 审计轨 / 2026-10-18 |
 | 23 | 噪点「颜色」参数**空转**（**2026-10-18 深度审计实锤**）：面板有颜色控件并写入 store，改色后出码字节不变 | `html.ts` 的 NOISE 分支只用 `feColorMatrix saturate(0)` 出灰度，完全不读 `effect.color` | **✅ 已修复**：有 color 时灰度噪点与实色 `feFlood`+`feBlend multiply` 着色；无 color 保持原灰度（向后兼容）。`reference.ts` 复用 `collectFxDefs` 单点双端生效；`fr19-effects.test.ts` 增 1 例 | 审计轨 / 2026-10-18 |
-| 24 | 导出页**字体路径绝对化**（**2026-10-18 用户流程审计实锤**）：导出 html 的 `@font-face` 用 `/fonts/*.woff2`，`file://` 或子目录部署时 404，回退系统字体 | `src/font.ts` 的 `FONT_FACE_CSS` 硬编码绝对路径；ZIP 导出亦不含字体文件 | **✅ 已修复（2026-10-20 `d5eb5d7` + FR-52 专单）**：fontFaceCss(base) 参数化（缺省 '/fonts' 站点口径零变化）；CodeModal/zip-assert 双装配 ZIP 根 `assets/fonts/` 随包 4 woff2 + preview 页相对基座；同专单接通 FR-52 三断言 **zip-assert 76/76**（assets/19=zipKit 图片 dataURL 外提+字体随包、相对引用19、根 id19=html/reference 根元素落锚）。详见 `docs/audit-report.md` §4.4 D2 注记 | 审计轨 / 修复 2026-10-20 || 25 | FR-71 React 出口样式口径：计划「TSX + **SCSS Modules**」 | 产物是普通 `.css` + 全局类名，无 `.module.scss` | 类名由 compiler 按节点 id 生成（如 `.page-1` / `.frame-3`），天然全局唯一，CSS Modules 的隔离价值为零；跳过 sass 依赖少一个构建失败点 | **接受（实现口径变更）**：plan §10.4 已报备，React 出口四关实跑 99.52% | 主线 / 2026-10-22 |
+| 24 | 导出页**字体路径绝对化**（**2026-10-18 用户流程审计实锤**）：导出 html 的 `@font-face` 用 `/fonts/*.woff2`，`file://` 或子目录部署时 404，回退系统字体 | `src/font.ts` 的 `FONT_FACE_CSS` 硬编码绝对路径；ZIP 导出亦不含字体文件 | **✅ 已修复（2026-10-20 `d5eb5d7` + FR-52 专单）**：fontFaceCss(base) 参数化（缺省 '/fonts' 站点口径零变化）；CodeModal/zip-assert 双装配 ZIP 根 `assets/fonts/` 随包 4 woff2 + preview 页相对基座；同专单接通 FR-52 三断言 **zip-assert 76/76**（assets/19=zipKit 图片 dataURL 外提+字体随包、相对引用19、根 id19=html/reference 根元素落锚）。详见 `docs/audit-report.md` §4.4 D2 注记 | 审计轨 / 修复 2026-10-20 |
+| 25 | FR-71 React 出口样式口径：计划「TSX + **SCSS Modules**」 | 产物是普通 `.css` + 全局类名，无 `.module.scss` | 类名由 compiler 按节点 id 生成（如 `.page-1` / `.frame-3`），天然全局唯一，CSS Modules 的隔离价值为零；跳过 sass 依赖少一个构建失败点 | **接受（实现口径变更）**：plan §10.4 已报备，React 出口四关实跑 99.52% | 主线 / 2026-10-22 |
 | 26 | FR-72 Vue 出口样式口径：计划「SFC + **scoped**」 | SFC 内联 `<style>`，**非 scoped** | plan §8 自己把「scoped 与像素关」列为风险（`[data-v-xxx]` 影响选择器权重）；类名已唯一，非 scoped 少一层像素变量 | **接受（实现口径变更）**：Vue 四关 99.52%，与 React 逐页一致 | 主线 / 2026-10-22 |
 | 27 | FR-74「路由」：计划未指定形态 | React/Vue 用 vite **MPA**（每页独立 HTML），Taro 用 **hash 路由 SPA** | MPA 下构建关与像素关最稳（真实 HTML 可直接 goto，无需等 hydration）；接入方要 SPA 自行换 router。Taro h5 官方形态就是 SPA，强行多 HTML 会绕过其路由 | **接受（实现口径变更）**：plan §10.4 已报备 | 主线 / 2026-10-22 |
 | 28 | FR-79「图片进 `assets/`」 | 图片落 **`public/assets/`**，引用 `/assets/img-N.<ext>` | 相对路径会被 Rollup 当模块 import 解析（Vue 实测 `Rollup failed to resolve import "assets/img-1.svg"`）；走 public 让 Vite 按 base 自动改写 URL | **接受（实现口径变更）**：修复后 Vue 构建关由 FAIL 转 PASS | 主线 / 2026-10-22 |
@@ -314,3 +353,8 @@ PM 配 key 后执行 `ANTHROPIC_API_KEY=… npm run ai-matrix`，报告会写入
 | 31 | FR-75「三端构建门禁真跑 build」 | Taro 分支注入 `TARO_NO_MINIMIZE=1`（关压缩）后构建，产物默认仍压缩 | 压缩器 worker 池（12 个 fork 出的 worker）在带 fs 拦截的宿主里会死锁：19 页写完 12 个 css chunk 后永久等待；同一命令在普通终端 21s 完成。门禁验证的是「能不能构建 + 产物像素对不对」，与是否压缩无关 | **接受（实现口径变更）**：Taro 构建关 PASS 36.4s，像素 18/19（豁免 1） | 主线 / 2026-10-23 |
 | 32 | 门禁 `--target all` 的实现形态 | 每端起一个独立子进程，汇总读三份 `report.json` | 同一进程连跑三端时，第三端 webpack 会停在 emit 阶段（CPU 21s 后不再前进）；单跑正常。属宿主 fs 拦截层同进程状态累积，非产物问题 | **接受（设计决策）**：`all` 端到端 2m25s 稳定通过 | 主线 / 2026-10-23 |
 | 33 | 门禁子进程的 stdio 策略 | 异步 `spawn` + `stdio:['ignore','pipe','pipe']` + `createWriteStream(log,{flags:'w'})` | 三条死路实测：`execSync`+pipe 会 ENOBUFS；同步 spawn + `stdio:'ignore'` 子进程拿 NUL 句柄卡在 emit；`createWriteStream(log,'w')` 被宿主 fs shim 当 encoding 解析（`ERR_INVALID_ARG_VALUE: Received 'w'`） | **已解决**：三种写法都踩过并记录在 HANDOFF §11.2 第 6 条 | 主线 / 2026-10-23 |
+| 34 | `.fig` 无「填充父容器」原语（附 E5） | AST 的 `widthMode/heightMode: 'FILL'` 在 Figma schema 里没有对应枚举（`StackSize` 只有 FIXED/HUG/RESIZE_TO_FIT_*，`StackAlign` 没有 STRETCH） | 表达模型不同：Figma 用**子项**的 `stackChildPrimaryGrow`（主轴）与 `stackChildAlignSelf='STRETCH'`（交叉轴）承载 | **接受（换算）**：导出按父容器排列方向写 grow/stretch；导入按「grow>0 → 主轴 FILL」「STRETCH 且交叉尺寸≈父内容盒 → 交叉轴 FILL」反推。往返关 18/19 无损 | 主线 / 2026-10-23 |
+| 35 | `.fig` 无 BUTTON 原语（附 E13） | AST 的 `BUTTON` 节点在 Figma 里无对应 type | Figma 里按钮就是「Frame + 一个文本」 | **接受（结构映射）**：导出拆成 FRAME + 名为 `Label` 的文本子节点（居中翻译成 `stackAlign`）；导入按「FRAME 单子项且子项是名为 `Label` 的 TEXT」合回 BUTTON | 主线 / 2026-10-23 |
+| 36 | `PROGRESSIVE_BLUR` 往返降级（附 E10） | 18-样片-参数矩阵页的渐进模糊，往返后变 `LAYER_BLUR` | `EffectType` 枚举无 PROGRESSIVE_BLUR（Figma 的渐进模糊是 UI 层的多效果组合，不是单一 effect 类型） | **接受（信息丢失，已入 `KNOWN_LOSS` 白名单）**：`scripts/fig-check.ts` 命中白名单计「降级」不计「失败」，并打印原因；CSS 关同步豁免该页 | 主线 / 2026-10-23 |
+| 37 | `style.boxShadow` 无法存进 `.fig` | demo 数据里两处 CSS 阴影串（`0 -4px 16px rgba(0,0,0,.08)`）往返后丢失 | `.fig` 只有结构化 `Effect[]`，没有 CSS 字符串通道 | **已修复（数据侧迁移）**：`src/demo/pages.ts` 两处改为 `effects: [{ kind:'DROP_SHADOW', ... }]`（`compile.ts` 注释即此迁移口径）。三端像素关复跑 99.52%/99.52%，与迁移前逐页一致 | 主线 / 2026-10-23 |
+| 38 | 叶子节点的 `layout.mode` 不往返 | 叶子 `mode` 往返后回落到工厂默认值 | Figma 不存「叶子自身布局模式」（叶子不参与父容器的 stack 方向）；而 `compile.ts:224` 会把 `mode==='ABSOLUTE'` 当绝对定位 | **接受（有损但必要）**：导出不写叶子 mode，导入回落默认值。写成 ABSOLUTE 会让整页元素全部脱流（CSS 关曾出现 `position:absolute` + `width:max-content`） | 主线 / 2026-10-23 |

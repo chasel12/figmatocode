@@ -14,8 +14,8 @@
  * 这样门禁在无网环境也能跑——「能不能构建」是代码问题，「能不能下载」是网络问题，不该混。
  */
 import { chromium } from 'playwright';
-import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -55,6 +55,15 @@ for (const t of TARGETS) {
   }
 }
 
+/** 起一个子验证进程并等它退出（异步，父进程事件循环保持活跃，见下） */
+function runChild(selfPath, args) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [selfPath, ...args], { stdio: 'inherit', windowsHide: true });
+    child.on('close', (code) => resolve(typeof code === 'number' ? code : 1));
+    child.on('error', () => resolve(1));
+  });
+}
+
 /**
  * `--target all`：**每个 target 起一个独立子进程**，不在同一个进程里连跑三端。
  *
@@ -62,15 +71,20 @@ for (const t of TARGETS) {
  * 会卡在 emit 阶段（CPU 21s 后不再前进，产物写一半）。单跑 taro 则 70s 正常完成。
  * 这是宿主 fs 拦截层在同一进程里累积状态导致的问题，不是产物问题；
  * 拆成三个进程既绕开它，也让内存/句柄状态每端归零。
+ *
+ * **子进程必须用异步 `spawn` + await，不能用 `spawnSync`**：`spawnSync` 会把父进程的
+ * 事件循环整个阻塞住，子进程的 fs 操作（经 shim 中转）得不到及时服务，构建从 40s
+ * 拖成 6 分钟仍在爬（实测 CPU 20s 内只涨 1.1s）。这与本文档其它「同步即卡」的坑同源。
  */
 if (requested === 'all') {
   const selfPath = fileURLToPath(import.meta.url);
   const rest = argv.filter((a, i) => a !== '--target' && argv[i - 1] !== '--target');
-  let failed = 0;
+  const codes = new Map();
   for (const t of ['react', 'vue', 'taro']) {
-    const r = spawnSync(process.execPath, [selfPath, '--target', t, ...rest], { stdio: 'inherit' });
-    if (r.status !== 0) failed += 1;
+    codes.set(t, await runChild(selfPath, ['--target', t, ...rest]));
   }
+  let failed = 0;
+  for (const [, code] of codes) if (code !== 0) failed += 1;
   // 汇总从三份 report.json 读，避免重复实现判定逻辑
   console.log('\n--- 汇总 ---');
   for (const t of ['react', 'vue', 'taro']) {
@@ -176,26 +190,29 @@ function hasLocalDeps(dir) {
 }
 
 /**
- * 跑子进程命令（异步 + 流式落盘）。
+ * 跑子进程命令（异步 + 增量落盘）。
  *
- * 这里踩过两个坑，都是「假死」而不是报错，值得记：
+ * 这条函数被三个「假死」坑反复教育过，每次现象都是「不报错、CPU 归零、日志停在半路」：
  *
- * 1. **`execSync` + `stdio:'pipe'`**：webpack 的 assets 清单会把管道塞满 → ENOBUFS，
- *    表现为「构建卡住直到超时」。
- * 2. **`execSync` / `spawnSync` + `stdio:'ignore'`**：Windows 下给子进程的是 NUL 句柄，
- *    Taro 的 webpack 子进程链会卡在 emit 阶段不动（同一命令在 bash 里 48s 完成，
- *    经同步 spawn 跑 180s 超时，日志里只有一行 punycode 警告——webpack 一个字节都没吐）。
+ * 1. **`execSync` + `stdio:'pipe'`**：webpack 的 assets 清单塞满管道 → ENOBUFS。
+ * 2. **`execSync` / `spawnSync` + `stdio:'ignore'`**：Windows 下给子进程 NUL 句柄，
+ *    Taro 的 webpack 链卡在 emit（同一命令 bash 里 48s 完成，同步 spawn 180s 超时，
+ *    日志只有一行 punycode 警告）。
+ * 3. **`child.stdout.pipe(createWriteStream(...))`** 与 **`data` 事件里 `appendFileSync`**：
+ *    两者都会卡。宿主 fs shim 的写入路径与「子进程持续吐数据」叠在一起时，
+ *    父进程的写调用迟迟不返回 → 管道无人消费 → 子进程阻塞在 write。
+ *    实测日志恰好停在 279 字节（npm banner + punycode 警告），CPU 6~25s 后归零；
+ *    同一条命令 `> file` 重定向或不经门禁直接 spawn，34~44s 就完成。
+ *    这是**最难查的一个**——代码看起来完全正确，只是「构建期有大输出」才复发。
  *
- * 所以：异步 `spawn` + `stdout/stderr` 用 pipe 接到文件流（持续消费，不会撑爆缓冲）。
- * 顺带好处是构建期间日志实时可读，卡住时能直接看到停在哪一步。
+ * 现在的做法：`stdout/stderr` 用 pipe，但**全程不碰文件**——只在内存里累积，
+ * 子进程结束后（或超时被杀时）一次性 `writeFileSync` 落盘。判据不依赖 shim 的流/写实现。
  */
 function run(cmd, cwd, timeout = 900_000, extraEnv) {
   const started = Date.now();
   const logFile = join(cwd, '.codegen-cmd.log');
   if (process.env.CODEGEN_DEBUG) console.log(`[run] ${cmd}  (cwd=${cwd})`);
   return new Promise((resolve) => {
-    // 用 options 对象而非 `'w'` 字符串：宿主 fs shim 会把第二参数当 encoding 解析
-    const stream = createWriteStream(logFile, { flags: 'w', encoding: 'utf8' });
     const child = spawn(cmd, {
       cwd,
       shell: true,
@@ -204,26 +221,33 @@ function run(cmd, cwd, timeout = 900_000, extraEnv) {
       env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     });
     if (process.env.CODEGEN_DEBUG) console.log(`[run] pid=${child.pid}`);
-    child.stdout.pipe(stream);
-    child.stderr.pipe(stream);
+
+    let memory = '';
+    const MAX_MEMORY = 4_000_000;
+    const onData = (buf) => {
+      if (memory.length < MAX_MEMORY) memory += buf.toString('utf8');
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
 
     let timer = null;
+    let done = false;
     const finish = (exitCode, error) => {
+      if (done) return;
+      done = true;
       if (timer) clearTimeout(timer);
-      stream.end(() => {
-        let out = '';
-        try {
-          out = readFileSync(logFile, 'utf8');
-        } catch {
-          /* 日志没写成 */
-        }
-        resolve({
-          ok: exitCode === 0 && !error,
-          exitCode,
-          durationMs: Date.now() - started,
-          output: String(out).trim().slice(-4000),
-          ...(error ? { error } : {}),
-        });
+      // 一次性落盘：跑的过程中不写文件（见上面第 3 条）
+      try {
+        writeFileSync(logFile, memory);
+      } catch {
+        /* 日志写不了不影响判定 */
+      }
+      resolve({
+        ok: exitCode === 0 && !error,
+        exitCode,
+        durationMs: Date.now() - started,
+        output: String(memory).trim().slice(-4000),
+        ...(error ? { error } : {}),
       });
     };
 

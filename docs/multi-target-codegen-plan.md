@@ -329,7 +329,7 @@ Taro 的 `Button`/`Image` 在 h5 下是自定义元素，带内置样式；产�
 但 **Taro 版本升级会改变内置样式**，故 Taro 像素值按「尽力值」记录，不与 React/Vue 同口径比较。
 这是 §8 风险表「Taro 版本兼容」的兑现方式：**构建关必须过，像素关记录实测不虚报**。
 
-### 10.4 与计划的偏差报备（7 条）
+### 10.4 与计划的偏差报备（16 条）
 
 | # | 计划口径 | 实际实现 | 理由 |
 |---|---|---|---|
@@ -340,6 +340,16 @@ Taro 的 `Button`/`Image` 在 h5 下是自定义元素，带内置样式；产�
 | 5 | §4「Taro 建议升 4.x」 | Taro **4.0.9** + webpack **5.91.0 精确锁** | `@tarojs/webpack5-runner@4.0.9` 的 peer 就是 `5.91.0`，用 `^` 直接 ERESOLVE |
 | 6 | FR-79「图片进 assets/」 | 图片进 **`public/assets/`**，URL 用 `/assets/x` | 相对路径会被 Rollup 当 import 解析（Vue 实测报错 `Rollup failed to resolve import "assets/img-1.svg"`）；走 public 让 Vite 按 base 自动改写 |
 | 7 | FR-75「真跑 build」 | 门禁跑 Taro 时注入 **`TARO_NO_MINIMIZE=1`**（关压缩），产物默认仍压缩 | 压缩器的 worker 池在带 fs 拦截的宿主里会死锁：19 页里写完 12 个 css chunk 后永久等待（同一命令在普通终端 21s 完成）。门禁验证的是「能不能构建 + 产物像素对不对」，压缩与否不影响这两件事；产物本身默认走压缩，不受影响 |
+| 8 | G5「`.fig` 往返一致」 | 往返**结构 18/19 无损 + 1 页报备降级**（渐进模糊） | Figma 的 `EffectType` 没有渐进模糊原语，只能降级成 `FOREGROUND_BLUR`；门禁把它列进 `KNOWN_LOSS` 白名单并打印原因，不静默吞掉 |
+| 9 | 导入「组件实例展开为普通 Frame」 | ✅ 但**组件/Variables/Prototype 语义不写** | 与 §7「明确不做」一致：只做视觉层。实例被摊平成 Frame，名字保留 |
+| 10 | 矢量节点 | 导出写 `VECTOR` 但**不写命令几何**（`d` 丢失） | Figma 的矢量几何是独立命令 blob（需额外解码器），当前只保留节点与描边样式；门禁比对口径不含 `vector.d` |
+| 11 | AST 的 `FILL` 尺寸模式 | 导出换算成**具体像素** + `stackChildPrimaryGrow` / `stackChildAlignSelf` 标记 | Figma 的 `StackSize` 没有 FILL，不换算 frame 会以 0 宽塌陷；标记让导入能还原 FILL（否则主轴 flex 语义丢失） |
+| 12 | AST 的 `BUTTON` | 导出拆成 **FRAME + 唯一 `Label` 文本子节点**，导入按同一约定合回 | Figma 无 BUTTON 原语；不拆文字会直接消失（视觉层最大坑）。约定：只有「单 TEXT 子节点且名为 Label」才判为按钮 |
+| 13 | AST 的 `IMAGE` 无 src | 导出写 **1×1 透明 PNG + 哨兵 hash**（40 个 0） | Figma 没有「空图片节点」，写不出填充就退化成矩形，往返后 `object-fit`/`border-radius` 全丢 |
+| 14 | 旧 `boxShadow` 字符串 | demo 数据迁移到 FR-19 `effects`；导出按 CSS 颜色串（含 `rgba()`）解析 | `.fig` 存不下原始 CSS 串；`effects` 才是迁移目标（compile.ts 注释即此口径）。迁移后 `box-shadow` 变成合法 CSS，像素关 99.52% 不变 |
+| 15 | 显式 `fontFamily: 'Inter'` | 导出把「未指定字体族」写成 `Inter`，导入把 `Inter` 还原成 undefined | Figma 的 `fontName.family` 必填；AST「不写」会落到 `FONT_STACK`，两者编译结果不同。代价：真实文件里显式指定 Inter 会退化成默认栈 |
+| 16 | FR-75 门禁的日志落盘方式 | 子进程 `data` 事件只在**内存**累积，退出时一次性 `writeFileSync`；`--target all` 的子进程用异步 `spawn` + await | 第 4 条「假死」死路：只要「跑的过程中写文件」（`pipe(createWriteStream)` 或 `appendFileSync` 都算），宿主 fs shim 的写调用就迟迟不返回 → 管道无人消费 → 子进程永久阻塞在 write（日志停在 279 字节、CPU 6~25s 后归零，而同命令 `> file` 34~44s 完成）。另外 `spawnSync` 会堵死父进程事件循环，taro 从 40s 拖成 6 分钟。改后 `all` 端到端 3m07s |
+
 
 **另两条环境事实（非设计偏差，写进 HANDOFF 免得复跑踩）**：
 
@@ -350,7 +360,7 @@ Taro 的 `Button`/`Image` 在 h5 下是自定义元素，带内置样式；产�
   处置：写一个只含 registry 的临时 npmrc，`npm install --userconfig .tmp/npmrc-noproxy`。
 - **同一进程里连跑三端会卡死第三端**（`--target all` 原实现）：react + vue 的构建与截图跑完后，
   taro 的 webpack 会停在 emit 阶段（CPU 21s 后不再前进）。现改为 `all` 模式**每端起一个独立子进程**，
-  端到端 2m25s 稳定通过。详见 HANDOFF §11.4。
+  端到端 3m07s 稳定通过。详见 HANDOFF §11.2 坑 8。
 
 ### 10.5 门禁怎么跑
 
@@ -364,9 +374,93 @@ npm run codegen:verify -- --target react --only pixel   # 单关调试
 这样门禁在无网环境也能跑——「能不能构建」是代码问题，「能不能下载」是网络问题，不该混为一谈。
 `report.json` 里 `deps` 字段如实标注来源。
 
-### 10.6 M5/M6 未开始的原因
+### 10.6 M5/M6 的启动方式（原「未开始」说明，已被 §11 取代）
 
-`.fig` 编解码（`@open-pencil/kiwi`）是 P1，且 §8 自己标了「必需字段未知」的高风险。
-M1–M4 打通了「一套 AST → 三个可构建可验证出口」的主干，M5/M6 是在主干上**增加输入输出格式**，
-不影响已有出口的正确性。按 §6 的建议顺序（先证明四关可行再复制），当前停在 M4 是符合计划的。
+M1–M4 打通了「一套 AST → 三个可构建可验证出口」的主干，M5/M6 是在主干上**增加输入输出格式**。
+按 §6 的建议顺序（先证明四关可行再复制），当时停在 M4 是符合计划的。
+
+2026-10-23 已启动并完成，见 §11。
+
+---
+
+## 11. 实施记录：`.fig` 导入导出（M5/M6，2026-10-23 落地）
+
+### 11.1 完成范围
+
+| 文件 | 作用 |
+|---|---|
+| `src/fig/codec.ts` | `@open-pencil/kiwi` 适配层（动态 import + 缓存，主包不背 600KB） |
+| `src/fig/paint.ts` | 颜色 / 填充 / 描边 / 效果双向映射（含 `rgba()`、`transparent`、渐变角度 ↔ transform） |
+| `src/fig/import.ts` | `.fig` 字节 → `UIPage[]`：zip 解包、节点树、兄弟序、FILL 还原、BUTTON 合回、占位图识别 |
+| `src/fig/export.ts` | `UIPage[]` → `.fig` 字节：尺寸解析、fractional index、图片 blob、meta.json |
+| `src/fig/index.ts` | 统一出口 |
+| `scripts/fig-check.ts` | 三关门禁（导入 / 往返 / CSS），报告 → `dist/fig/report.json` |
+| `tests/fig.test.ts` | 16 例：真实文件解码、paint 互逆、导出约定、往返一致 |
+
+### 11.2 三关实跑（2026-10-23）
+
+```
+导入关  PASS  4 个真实 Figma 文件
+        ✓ circle-text.fig                    1 页 / 5 节点 / 44ms
+        ✓ gold-preview.fig                   1 页 / 58 节点 / 394ms
+        ✓ slots.fig                          2 页 / 40 节点 / 34ms
+        ✓ variable-override-precedence.fig   2 页 / 32 节点 / 10ms
+
+往返关  PASS  18/19 页结构无损 · 1 页已报备降级
+        ⚠ 18-样片-参数矩阵: PROGRESSIVE_BLUR 无 Figma 原语，降级为 LAYER_BLUR
+
+CSS 关  PASS  18/19 页样式一致 · 1 页已报备降级
+```
+
+**样本来源**：`github.com/open-pencil/open-pencil` 的 `tests/fixtures/*.fig`（Git LFS，需走
+`media.githubusercontent.com/media/...`）。仓库里放了 4 个（含 550KB 的 gold-preview），
+6.8MB 的 material3 / nuxtui 两次下载均被截断（`invalid zip data`），未纳入。
+
+### 11.3 往返比对口径（`scripts/fig-check.ts` 的 `normalize`）
+
+`.fig` 是 Figma 的格式，不可能 1:1 装下我们的 AST。比对前抹掉的是**「表达方式差异」**，
+不是**「信息丢失」**——后者一律进 `KNOWN_LOSS` 白名单并打印原因：
+
+| 归一化 | 原因 |
+|---|---|
+| id / name | 往返后 id 重新分配（`fig-N`），名字只影响图层列表 |
+| `FILL` → `FIXED` | Figma 的 StackSize 没有 FILL，用 grow/stretch 表达 |
+| HUG / FILL 轴的尺寸数值 → 0 | 尺寸由布局决定，`.fig` 里存的是换算后的绝对值 |
+| TEXT 的宽高 → 0 | 尺寸由字体度量决定，`.fig` 里只是估算缓存 |
+| 叶子布局模式 → 工厂默认值 | `.fig` 不存「叶子自身布局模式」；写 ABSOLUTE 会被编译器当成绝对定位 |
+| 单层 SOLID `fills` 与 `background` 二选一 | AST 两种写法同义 |
+| `borderRadius: 0` / `border.style: 'solid'` / `border.align: 'INSIDE'` / `dash: [4,4]` / `opacity: 1` / `visible: true` | 都是各自系统的默认值，写与不写等价 |
+| 数值保留 4 位小数 | `.fig` 数值字段是 **float32**，`0.42` 读回来是 `0.41999998688697815` |
+| 空 `children` ≡ 无 `children` | 矩形读回来是容器，但可能一个子项都没有 |
+
+CSS 关只比**声明体集合**（类名由 id 生成，选择器必然不同），并抹掉三类等价写法：
+颜色大小写、`border-radius:0`、`0px` 的单位。
+
+### 11.4 踩过的坑（同步在 HANDOFF §12.2）
+
+1. **`localeCompare` 不能用来排 Figma 的 fractional index**：ICU 给标点的权重与码点序不一致
+   （实测 `'$'.localeCompare('%') === 1`），会把兄弟顺序排乱。改用码点比较 + 定长 3 位 base62
+   （变长编码在进位处同样会排错：`'10' < 'B'` 但 62 应排在 11 之后）。
+2. **`Image.hash` 是 `byte[]` 不是字符串**：写 hex 串会被 kiwi 直接拒（`Expected byte array`）。
+   导出要把 40 位 hex 展开成 20 字节（Figma 的 sha1 长度），导入要把字节拼回 hex 才能查 `images/`。
+3. **`Blob` 是 struct 不是裸 byte[]**：`blobs: blobs.map(b => ({ bytes: b }))`，直接给
+   `Uint8Array[]` 会报 `Missing required field "bytes"`。
+4. **`StackSize` 没有 FILL、`StackAlign` 没有 STRETCH**：FILL 走
+   `stackChildPrimaryGrow` / 子项 `stackChildAlignSelf`；父容器的交叉轴拉伸也只能写在子项上。
+5. **主轴是「排列方向」不是「宽度」**：VERTICAL 容器的 `stackPrimarySizing` 是**高度**。
+   写反了会让所有 HUG 容器的宽高模式互换。
+6. **`fontName.postscript` 必填**（可空串）、**`EffectType` 是 `FOREGROUND_BLUR` 不是 `LAYER_BLUR`**。
+
+### 11.5 门禁怎么跑
+
+```bash
+npm run fig:check                                   # 三关 + 报告 → dist/fig/report.json
+npm run fig:check -- --samples .tmp/fig-samples     # 追加外部真实样本目录
+npx vitest run tests/fig.test.ts                    # 16 例单测
+```
+
+### 11.6 已知不做（与 §7 一致）
+
+组件与实例语义（摊平成 Frame）、Variables、Prototype、矢量命令几何、样式 token。
+
 

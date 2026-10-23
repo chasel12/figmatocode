@@ -276,16 +276,17 @@ vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒
    `rmSync` 递归删会撞沙箱批量删除守卫（>50 文件即拒）。改成**默认覆盖写**，
    页面路径由 `pagePathOf` 确定性推导、同输入同路径，覆盖即一致；要真清跑 `--clean`。
 
-6. **门禁跑子进程的三条死路（都表现为「假死」，不报错）**
+6. **门禁跑子进程的四条死路（都表现为「假死」，不报错）**
    | 写法 | 现象 |
    |---|---|
    | `execSync` + `stdio:'pipe'` | webpack 的 assets 清单塞满管道 → ENOBUFS / 卡到超时 |
    | `execSync`/`spawnSync` + `stdio:'ignore'` | Windows 下子进程拿 NUL 句柄，Taro 的 webpack 链卡在 emit（180s 超时，日志只有一行 punycode 警告） |
    | `createWriteStream(log, 'w')` | 宿主 fs shim 把第二参数当 **encoding** 解析 → `ERR_INVALID_ARG_VALUE: Received 'w'` |
+   | **`child.stdout.pipe(createWriteStream(...))`** / **`data` 事件里 `appendFileSync`** | **最隐蔽的一个**：只要「跑的过程中写文件」，宿主 fs shim 的写调用就迟迟不返回 → 管道无人消费 → 子进程永久阻塞在 write。日志恰好停在 279 字节（npm banner + punycode 警告），CPU 6~25s 后归零；同一条命令 `> file` 重定向 **34~44s** 就完成。代码看起来完全正确，只有「构建期有大输出」才复发 |
 
-   现在的写法：**异步 `spawn` + `stdio:['ignore','pipe','pipe']` + 两个 pipe 接到
-   `createWriteStream(log, { flags:'w', encoding:'utf8' })`**（options 对象，不是字符串），
-   再挂一个超时看门狗。好处是构建期间日志实时可读，卡住时能直接看出停在哪一步。
+   现在的写法：**异步 `spawn` + `stdio:['ignore','pipe','pipe']`，全程不碰文件**——
+   只在内存里累积，子进程退出（或超时被杀）时一次性 `writeFileSync` 落盘。
+   别把它「优化」成流式 pipe 或增量 append：那两条都是第 4 条死路。
 
 7. **压缩器 worker 池会死锁（Taro 专属）**
    Terser / CssMinimizer 默认按 CPU 核数开 worker（本机 12 个），worker 由
@@ -295,11 +296,14 @@ vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒
    处置：生成的 Taro 配置里给 `webpackChain` 加开关，门禁注入 `TARO_NO_MINIMIZE=1` 时
    `optimization.minimize(false)`；产物默认仍压缩。
 
-8. **同一进程连跑三端，第三端必卡**
+8. **同一进程连跑三端，第三端必卡；子进程必须异步起**
    `--target all` 原实现在一个进程里跑完 react + vue 的构建与截图后，taro 的 webpack
    会停在 emit（CPU 21s 后不再前进）。单跑 taro 70s 正常。
-   `all` 模式改成**每个 target 起一个独立子进程**（`spawnSync(process.execPath, [self, '--target', t, ...])`），
-   汇总从三份 `report.json` 读。端到端 2m25s 稳定通过。
+   第一版处置是**每个 target 起一个独立子进程**，但用的是 `spawnSync`——结果 taro 从
+   40s 拖成 **6 分钟还在爬**（20s 内 CPU 只涨 1.1s）。原因是 `spawnSync` 把父进程事件循环
+   整个堵住，子进程经 shim 中转的 fs 操作拿不到及时服务。
+   现在用**异步 `spawn` + await**，端到端 3m07s 稳定通过（react 6.4s / vue 7.0s / taro 45.5s 构建）。
+   一句话记法：**在这台机器上，同步 = 卡**（同步子进程、同步写文件都算）。
 
 ### 11.3 复跑
 
@@ -315,3 +319,68 @@ npm run codegen:verify -- --target react --only pixel   # 单关调试
 绕过：`npm install --userconfig .tmp/npmrc-noproxy`（该文件只写 registry）。
 
 **Taro 首次构建 50~60s，重装依赖约 10 分钟（1176 包）**——别在循环里重装。
+
+---
+
+## 12. `.fig` 导入导出 · M5/M6（2026-10-23 新增）
+
+计划书 §11 是完整实施记录（完成范围 / 三关实跑 / 比对口径 / 已知不做），这里只放**接手要用的东西**。
+
+### 12.1 代码地图
+
+| 文件 | 职责 |
+|---|---|
+| `src/fig/codec.ts` | `@open-pencil/kiwi`（MIT）适配层，**动态 import + 缓存**，主包不背 600KB |
+| `src/fig/paint.ts` | 颜色 / 填充 / 描边 / 效果双向映射（`rgba()`、`transparent`、渐变角度 ↔ transform） |
+| `src/fig/import.ts` | `.fig` 字节 → `UIPage[]`：zip 解包、节点树、兄弟序、FILL 还原、BUTTON 合回、占位图识别 |
+| `src/fig/export.ts` | `UIPage[]` → `.fig` 字节：`measureTree` 尺寸解析、fractional index、图片 blob、`meta.json` |
+| `scripts/fig-check.ts` | 三关门禁（导入 / 往返 / CSS），报告 → `dist/fig/report.json` |
+| `tests/fig.test.ts` | 16 例：真实文件解码、paint 互逆、导出约定、19 页往返 |
+
+`.fig` = zip（`canvas.fig` + `meta.json` + `thumbnail.png` + `images/`），`canvas.fig` 是 fig-kiwi
+容器（8 字节 magic + version + deflate schema + 压缩 data）。**schema 不用自己写**，`initCodec()`
+从包里取。
+
+### 12.2 六个坑（前三条能让人查一整天）
+
+1. **`localeCompare` 排不了 fractional index**
+   ICU 给标点的权重与码点序不一致（实测 `'$'.localeCompare('%') === 1`），兄弟顺序会乱。
+   改**码点比较**（`a < b`），且 index 必须**定长** base62——变长编码在进位处同样错
+   （`'10' < 'B'`，但 62 应排在 11 之后）。
+
+2. **`Image.hash` 是 `byte[]` 不是字符串**
+   写 hex 串直接被 kiwi 拒（`Expected byte array`）。导出把 40 位 hex 展开成 20 字节
+   （Figma 用 sha1 长度），导入把字节拼回 hex 才能查 `images/` 表。
+
+3. **`Blob` 是 struct 不是裸 byte[]**
+   `blobs: blobs.map(b => ({ bytes: b }))`。直接给 `Uint8Array[]` 报
+   `Missing required field "bytes"`。
+
+4. **`StackSize` 没有 FILL、`StackAlign` 没有 STRETCH**
+   FILL 只能靠 `stackChildPrimaryGrow = 1`；交叉轴拉伸是**子项的** `stackChildAlignSelf = 'STRETCH'`，
+   父容器上没有对应字段。导入侧反推时顺序很重要：先看 grow 判主轴 FILL，再看
+   `alignSelf === 'STRETCH'` **且子项交叉尺寸≈父内容盒**才判交叉轴 FILL，否则只当普通拉伸。
+
+5. **主轴是「排列方向」不是「宽度」**
+   VERTICAL 容器的 `stackPrimarySizing` 是**高度**。写反了所有 HUG 容器的宽高模式互换，
+   表现是「整页塌成一列」。
+
+6. **`fontName.postscript` 必填**（可空串）、**`EffectType` 用 `FOREGROUND_BLUR`**（不是 LAYER_BLUR）。
+
+另外两条口径类：`.fig` 数值是 **float32**（`0.42` → `0.41999998688697815`），比对前统一
+`toFixed(4)`；AST 的 `border.align` 缺省是 **INSIDE**（Figma 是 CENTER），导出要 `?? 'INSIDE'`。
+
+### 12.3 复跑
+
+```bash
+npm run fig:check                                  # 三关 + dist/fig/report.json
+npm run fig:check -- --samples .tmp/fig-samples    # 追加外部样本目录
+npx vitest run tests/fig.test.ts                   # 16 例
+```
+
+样本在 `tests/fixtures/fig/`（4 个真实 Figma 导出，来自 `open-pencil` 仓库 `tests/fixtures`，
+Git LFS 需走 `media.githubusercontent.com/media/...`）。
+
+**降级不是失败**：`scripts/fig-check.ts` 的 `KNOWN_LOSS` 白名单目前只有一条
+（`18-样片-参数矩阵` 的 `PROGRESSIVE_BLUR`，Figma 无对应原语 → `LAYER_BLUR`）。
+加白名单等于承认信息丢失，**必须先确认 Figma 真的表达不了**。

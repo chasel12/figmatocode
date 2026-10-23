@@ -159,7 +159,10 @@ function productDetailPage(): UIPage {
           gap: 10,
           align: 'CENTER',
         },
-        { background: C.card, boxShadow: '0 -4 16 rgba(0,0,0,0.08)' },
+        {
+          background: C.card,
+          effects: [{ kind: 'DROP_SHADOW', x: 0, y: -4, blur: 16, spread: 0, color: 'rgba(0,0,0,0.08)' }],
+        },
       ),
     ],
     { rootLayout: { mode: 'VERTICAL', justify: 'START' }, rootStyle: { background: C.bg } },
@@ -433,7 +436,7 @@ function tabPage(): UIPage {
         card('内容1', [txt('为你推荐', { fontSize: 15, fontWeight: 600, color: C.text }), txt('这里是推荐内容的正文，展示多行文本的排版效果。', { fontSize: 13, color: C.dim, lineHeight: 20 }, { widthMode: 'FILL' })]),
         card('内容2', [txt('热门讨论', { fontSize: 15, fontWeight: 600, color: C.text }), txt('这里是热门讨论的正文内容，同样支持自动换行。', { fontSize: 13, color: C.dim, lineHeight: 20 }, { widthMode: 'FILL' })]),
       ]),
-      hstack('底部标签栏', [tab('⌂', '首页', true), tab('◎', '发现', false), tab('＋', '发布', false), tab('☺', '我的', false)], { padding: [8, 8, 24, 8], widthMode: 'FILL', gap: 0, justify: 'SPACE_BETWEEN' }, { background: C.card, boxShadow: '0 -2 12 rgba(0,0,0,0.06)' }),
+      hstack('底部标签栏', [tab('⌂', '首页', true), tab('◎', '发现', false), tab('＋', '发布', false), tab('☺', '我的', false)], { padding: [8, 8, 24, 8], widthMode: 'FILL', gap: 0, justify: 'SPACE_BETWEEN' }, { background: C.card, effects: [{ kind: 'DROP_SHADOW', x: 0, y: -2, blur: 12, spread: 0, color: 'rgba(0,0,0,0.06)' }] }),
     ],
     { rootLayout: { justify: 'SPACE_BETWEEN' }, rootStyle: { background: C.bg } },
   );

@@ -2220,3 +2220,76 @@ react + vue 一直 PASS。Taro 单跑却 30–70s 正常。属**门禁自身**�
 
 **文档**：plan §10.2/§10.4（第 7 条偏差 + 同进程连跑说明）、HANDOFF §11.2（坑 6/7/8）、
 checklist 附表 31–33。
+
+## 2026-10-23（续）· `.fig` 导入导出（M5/M6）+ 门禁第四个「假死」坑
+
+**背景**：M1–M4 只打通「AST → 三端代码」，输入侧还只有自家 JSON。M5/M6 要能读 Figma 的
+`.fig`、也能写回去。原阻塞点是**没有真实样本**（自往返只能证明自洽，证明不了 Figma 兼容）。
+处置：从 `github.com/open-pencil/open-pencil` 的 `tests/fixtures` 取 4 个真实导出文件
+（Git LFS，须走 `media.githubusercontent.com/media/...`），6.8MB 的 material3/nuxtui 两次下载
+均被截断（`invalid zip data`，python `zipfile` 独立验证确认非实现问题），未纳入。
+
+**落地**（新增 4 文件 + 1 门禁 + 1 测试）
+
+| 文件 | 作用 |
+|---|---|
+| `src/fig/codec.ts` | `@open-pencil/kiwi@0.16.0`（MIT，623KB）适配层，动态 import 不背进主包 |
+| `src/fig/paint.ts` | 颜色/填充/描边/效果双向映射（`rgba()`、`transparent`、渐变角度 ↔ transform） |
+| `src/fig/import.ts` | `.fig` 字节 → `UIPage[]` |
+| `src/fig/export.ts` | `UIPage[]` → `.fig` 字节 |
+| `scripts/fig-check.ts` | 三关门禁（导入 / 往返 / CSS）→ `dist/fig/report.json` |
+| `tests/fig.test.ts` | 16 例 |
+
+**三关实跑**
+
+```
+导入关  PASS  4 个真实文件（circle-text / gold-preview / slots / variable-override-precedence）
+往返关  PASS  18/19 页结构无损 · 1 页报备降级（18-样片-参数矩阵 PROGRESSIVE_BLUR）
+CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
+```
+
+**口径**：`.fig` 装不下 AST 是必然的。比对前抹掉的是**「表达方式差异」**（id/name、FILL 换算、
+HUG 轴尺寸、TEXT 宽高、叶子布局模式、单层纯色 fills↔background、各类默认值、float32 4 位小数），
+**「信息丢失」**一律进 `KNOWN_LOSS` 白名单并打印原因，不静默吞掉。
+
+**六个坑（前三条能查一整天，已写进 HANDOFF §12.2）**
+
+1. `localeCompare` 排不了 Figma 的 fractional index（ICU 给标点权重 ≠ 码点序，实测
+   `'$'.localeCompare('%') === 1`），且 index 必须**定长** base62（变长在进位处错：`'10' < 'B'`）。
+2. `Image.hash` 是 `byte[]` 不是字符串 → 40 位 hex 要展开成 20 字节。
+3. `Blob` 是 struct 不是裸 byte[] → `{ bytes }`。
+4. `StackSize` 无 FILL、`StackAlign` 无 STRETCH → 靠 `stackChildPrimaryGrow` + 子项 `stackChildAlignSelf`。
+5. 主轴是「排列方向」不是「宽度」→ VERTICAL 容器的 `stackPrimarySizing` 是高度。
+6. `fontName.postscript` 必填、`EffectType` 用 `FOREGROUND_BLUR`。
+
+**门禁第四个「假死」坑（本轮最费时间）**
+
+taro 四关跑到「构建关」后永久静默：日志停在 **279 字节**（npm banner + punycode 警告），
+CPU 6~25s 后归零。但**同一条命令直接 `> file` 重定向 34~44s 就完成**。逐层排除：
+
+| 假设 | 实验 | 结论 |
+|---|---|---|
+| 管道背压（`pipe(createWriteStream)`） | 改成 `data` 里 `appendFileSync` | ❌ 仍卡（279 字节） |
+| stdin 是 NUL 句柄 | 探针：`stdio:['ignore'|'pipe'|'inherit', ...]` 三种都跑 | ❌ 三种都能 34~38s 完成 |
+| 压缩器 worker 池 | 已注入 `TARO_NO_MINIMIZE=1` | ❌ 与本次无关 |
+| **跑的过程中写文件** | 改成「只在内存累积、退出时一次性 `writeFileSync`」 | ✅ **1m40s 通过** |
+| `all` 模式用 `spawnSync` 起子进程 | 改异步 `spawn` + await | ✅ taro 从 6 分钟爬行 → 45.5s |
+
+结论：**在这台机器上「同步 = 卡」**——同步子进程、跑的过程中同步写文件都算。
+门禁现在全程不碰文件，只在结束时落盘。
+
+**三端四关复跑（`--target all --allow-miss taro:1`，端到端 3m07s）**
+
+| target | 语法 | 类型 | 构建 | 像素 |
+|---|---|---|---|---|
+| react | PASS 39 文件 | PASS 0 错 | PASS 19 html / 6.4s | **99.52%** 19/19 |
+| vue | PASS 19 文件 | PASS 0 错 | PASS 19 html / 7.0s | **99.52%** 19/19 |
+| taro | PASS 42 文件 | PASS 0 错 | PASS 1 html / 45.5s | **99.38%** 18/19（豁免 1，06 页 97.68%） |
+
+与 `.fig` 改动前**逐页一致**，证明 demo 数据的 `boxShadow → effects` 迁移与 showcase 清理无像素影响。
+
+**回归**：`tsc --noEmit` 0 错 · vitest **703/703**（52 文件校验通过）。
+
+**文档**：plan §10.4（偏差扩到 16 条）、新增 plan §11（实施记录）、HANDOFF §12（`.fig` 代码地图 +
+6 坑 + 复跑）、HANDOFF §11.2 坑 6/8 补第 4 条死路与「同步=卡」、checklist 附 E（17 项能力对照）+
+差异 34–38。
