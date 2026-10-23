@@ -5,3 +5,6 @@ export * from './project';
 export * from './vector';
 export * from './runtime';
 export * from './prototype';
+export * from './emit-context';
+export * from './tsx-emitter';
+export * from './react';

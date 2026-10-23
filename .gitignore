@@ -20,3 +20,6 @@ preview-dbg.log
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本地 npm 代理旁路配置（docs/HANDOFF §11.3 里让用户自建，不入库）
+.tmp/

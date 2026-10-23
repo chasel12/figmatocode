@@ -2130,3 +2130,93 @@ add('B5', 'W2 验收：稳定前缀命中 prompt cache（第 2 页起 cache_read
 
 **文档**：plan §11.6（含完整检查点表）、checklist 附表 D 补「W4 编辑链路补充验证」段。
 **安全**：key 仅环境变量 + localStorage；探针已删；截图留 `dist/ai-ui/edit-0*.png`。
+
+## 2026-10-22 · FR-70~75 多目标出码（一套 AST → React / Vue / Taro 三出口 + 四关门禁）
+
+**起点**：`src/generator/` 只有 `taro.ts`（57 行，单页）+ `project.ts`（`pages` 硬编码
+`['pages/index/index']`），Taro 锁 3.6.25。计划书 `docs/multi-target-codegen-plan.md` 给了 25 人日 WBS。
+
+**关键判断（§2.1，事后证明成立）**：`CompiledPage`（className + CSS 声明）**已经是 IR**，
+不新建中间层。只补三样：语义标签、资源清单、页面元信息。`schema/types.ts` 与 `compile.ts` 零改动。
+
+**交付**
+- `emit-context.ts`（FR-70）：`EmitContext` / `semanticTag` / `AssetRef` 双口径 / `pagePathOf` / `deriveTabBar`
+- `tsx-emitter.ts`：React 与 Taro 共用 TSX emitter（只差一张标签表 + 一个 `imageAttr`）
+- `react.ts` / `vue.ts` / `taro-project.ts`：三个出口，**都是多页工程**
+- `codegen.ts` / `codegen-verify.mjs`：四关门禁（语法 / 类型 / 构建 / 像素）
+- `tests/codegen.test.ts`：20 例
+
+**实跑（19 页全量，2026-10-22）**
+
+| target | 语法 | 类型 | 构建 | 像素 |
+|---|---|---|---|---|
+| react | PASS 39 文件 | PASS 0 错 | PASS 19 html / 6.1s | **99.52%** 19/19 |
+| vue | PASS 19 文件 | PASS 0 错 | PASS 19 html / 6.6s | **99.52%** 19/19 |
+| taro | PASS 42 文件 | PASS 0 错 | PASS 1 html / 55.9s | 99.38% **18/19** |
+
+**React 与 Vue 的像素值逐页完全一致**（连最差三页 04/13/05 的 98.79/98.89/99.00 都一样）。
+这不是巧合，是三出口 DOM 盒子树同构的证据——`#root{display:contents}` 让页面根成为 body 直接子元素，
+加同一套 CSS、同一份字体、同一套标签选择，两个框架就没有可差的地方。
+**像素关真正验证的是「结构等价」，不是「两个框架渲染一致」。**
+
+**Taro 唯一 MISS：06 订单详情 97.68%。** 已定位：差异带 83% 集中在底部两个按钮，
+盒子实测 `y=483.5 h=40 padding=10px 20px display:flex align-items:center` 与设计稿完全一致，
+但 `taro-button-core` 内的匿名 flex item 行盒受内置 `line-height` 影响，文本垂直偏约 8px。
+对照 HTML 出口同按钮只差 190px（0.65%）→ 基准没坏，是组件层差异。**接受并记录，不改基准**（理由同 canvasdiff 豁免）。
+
+**五个坑（都值得记）**
+
+1. **标签表漏传 = 静默产出 `div`/`span`**。装配 ctx 时忘了传 `tagMap`，产物 h5 能跑、小程序必挂，
+   语法关和类型关**都发现不了**（`div` 在 TSX 里完全合法）。现在 `generateTaro` 内部强制覆盖
+   `TARO_TAG_MAP` + 单测断言「含 `<View` 且不含 `<div`」。
+2. **相对路径图片被 Rollup 当模块 import**。Vue 报 `Rollup failed to resolve import "assets/img-1.svg"`。
+   改 `public/assets/` + `/assets/x`。
+3. **Taro 的 babel peer 两个都得手写**：`@babel/preset-react` 在 peerDependencies、
+   `@babel/plugin-proposal-class-properties` 被直接引用却不在 deps 里。且 `preset-react` 必须锁 `^7`（8.x 要 core ^8）。
+4. **webpack 必须精确 `5.91.0`**：`@tarojs/webpack5-runner@4.0.9` 的 peer 是精确版本，`^` 直接 ERESOLVE。
+5. **构建输出不能走管道**：同一个 `taro build` 手动跑 30s，经 `execSync` 的 `stdio:'pipe'` 跑 10 分钟不返回
+   （webpack assets 清单 + progress 把管道塞满）。改成重定向到文件 + `stdio:'ignore'`，只看退出码 + 回读日志。
+
+**环境事实**：本机 npm 全局 `proxy=127.0.0.1:7890` 但代理未启动，所有 `install` 均 `ECONNREFUSED`；
+绕过方式 `npm install --userconfig .tmp/npmrc-noproxy`（该文件只写 registry）。
+门禁因此支持双依赖模式（`deps=local` / `deps=workspace`）——「能不能构建」是代码问题，「能不能下载」是网络问题。
+
+**文档**：plan §10（实跑档 + 6 条偏差报备）、HANDOFF §11（代码地图 + 五个坑 + 复跑）、
+checklist 附表 25–30。M5/M6（`.fig` 导入导出）未开始，按 §6 建议顺序停在 M4。
+
+## 2026-10-23 · 门禁治「假死」：三端四关首次全部可复跑
+
+**背景**：`codegen:verify --target all` 之前三次跑都卡在 Taro 构建（320s / 5m30s / 7m35s 后被杀），
+react + vue 一直 PASS。Taro 单跑却 30–70s 正常。属**门禁自身**的问题，不是产物问题。
+
+**定位过程（四步排除法，每步都做了对照实验）**
+
+| 假设 | 实验 | 结论 |
+|---|---|---|
+| `execSync` + `stdio:'ignore'` 给 NUL 句柄 | 同命令 bash 直跑 48s、同步 spawn 180s 超时 | ✅ 是坑之一，改 fd 重定向 |
+| `createWriteStream(log, 'w')` | 直接抛 `ERR_INVALID_ARG_VALUE: Received 'w'` | ✅ 宿主 fs shim 把第二参数当 encoding，改 options 对象 |
+| playwright / pngjs / babel 的 import 影响子进程 | 最小脚本逐个加回，47s 稳定 | ❌ 无关 |
+| 压缩器 worker 池死锁 | 产物停在「12 个 css chunk」= 本机 worker 数；关压缩后 36s 通过 | ✅ 主因 |
+| 同进程连跑三端状态累积 | `all` 卡、单跑正常 | ✅ 改为每端独立子进程 |
+
+**修复（只动门禁与生成的 Taro 配置，产品链路未改）**
+
+1. `scripts/codegen-verify.mjs`：`run()` 改**异步 spawn + 双 pipe 接 `createWriteStream(options)`**，
+   带超时看门狗；日志实时可读（卡住时能看出停在哪一步）。
+2. `scripts/codegen-verify.mjs`：`--target all` 改为**每端起独立子进程**，汇总读三份 `report.json`。
+3. `src/generator/taro-project.ts`：生成的 Taro 配置加 `webpackChain`，`TARO_NO_MINIMIZE=1` 时
+   `optimization.minimize(false)`；否则把各 minimizer 的 `parallel` 关掉。
+   门禁给 Taro 分支注入该环境变量，**产物默认仍压缩**。
+
+**复跑（2026-10-23，19 页全量，`--target all --allow-miss taro:1`，端到端 2m25s）**
+
+| target | 语法 | 类型 | 构建 | 像素 |
+|---|---|---|---|---|
+| react | PASS 39 文件 | PASS 0 错 | PASS 19 html / 7.1s | **99.52%** 19/19 |
+| vue | PASS 19 文件 | PASS 0 错 | PASS 19 html / 6.5s | **99.52%** 19/19 |
+| taro | PASS 42 文件 | PASS 0 错 | PASS 1 html / 36.4s | **99.38%** 18/19（豁免 1，06 页 97.68%） |
+
+**回归**：`tsc --noEmit` 0 错 · vitest **687/687（51 文件校验通过）**。
+
+**文档**：plan §10.2/§10.4（第 7 条偏差 + 同进程连跑说明）、HANDOFF §11.2（坑 6/7/8）、
+checklist 附表 31–33。

@@ -233,3 +233,85 @@ vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒
 
 > 判断方法：FAIL 行的明细里各子项都是 `true`，只有数量/字面不符 → 先怀疑断言过时，
 > 去 `git log` 找对应产品改动，**不要直接改产品代码**。
+
+## 11. 多目标出码 · FR-70~75（2026-10-22 新增）
+
+计划书：`docs/multi-target-codegen-plan.md`（正文是计划，§10 是落地实跑档）。
+
+### 11.1 代码地图
+
+| 文件 | 职责 |
+|---|---|
+| `src/generator/emit-context.ts` | FR-70 统一上下文：`EmitContext` / `semanticTag` / `AssetRef` 双口径 / `pagePathOf` / `deriveTabBar` |
+| `src/generator/tsx-emitter.ts` | React + Taro 共用 TSX emitter（`emitTsxBody`），两者只差一张标签表 + 一个 `imageAttr` |
+| `src/generator/react.ts` | React 18 多页 MPA（vite `rollupOptions.input` 动态展开） |
+| `src/generator/vue.ts` | Vue 3 多页 MPA（SFC，`<style>` 非 scoped） |
+| `src/generator/taro-project.ts` | Taro 4.0.9 多页 SPA（hash 路由 + 推导 tabBar + 资源进 src） |
+| `scripts/codegen.ts` | 产物生成 → `dist/codegen/<target>/` + `codegen-manifest.json` |
+| `scripts/codegen-verify.mjs` | 四关门禁（语法/类型/构建/像素）+ `report.json` |
+| `tests/codegen.test.ts` | 20 例：语义标签 / 路径 / tabBar / 资源 / **三出口 DOM 同构** / 脚手架 |
+
+### 11.2 五个坑（按踩到的顺序，都是真坑）
+
+1. **标签表漏传 = 静默产出 `div`/`span`**
+   `generateTaroMultiPageProject` 装配 ctx 时忘了传 `tagMap`，产物是 `<div>/<span>`——
+   h5 能跑、小程序必挂，语法关和类型关**都发现不了**。现在 `generateTaro` 内部强制覆盖
+   `TARO_TAG_MAP`，并加单测断言「产物含 `<View` 且不含 `<div`」。
+
+2. **相对路径图片会被 Rollup 当模块 import**
+   Vue 构建报 `Rollup failed to resolve import "assets/img-1.svg"`。Vite 会静态分析 SFC/模板里的
+   `src="..."`。改用 `public/assets/` + `/assets/x`（Vite 按 base 自动改写，且不当模块解析）。
+
+3. **Taro 的 babel peer 两个都得手写**
+   `babel-preset-taro@4.0.9` 把 `@babel/preset-react` 放在 **peerDependencies**，
+   又直接引用 `@babel/plugin-proposal-class-properties`（旧名，**不在自己 deps 里**）。
+   不写进 devDependencies 就是 `Cannot find module`，构建关必挂。
+   `preset-react` 必须锁 `^7`——8.x 要求 `@babel/core ^8`，与本工程 core 7.x 直接 ERESOLVE。
+
+4. **webpack 必须精确 `5.91.0`**
+   `@tarojs/webpack5-runner@4.0.9` 的 peer 是**精确版本** `5.91.0`，写 `^5.95.0` 立刻 ERESOLVE。
+
+5. **产物目录不能递归清**
+   目录里同时有 `node_modules`（删了要重装 10 分钟）和上次构建的 `dist`，
+   `rmSync` 递归删会撞沙箱批量删除守卫（>50 文件即拒）。改成**默认覆盖写**，
+   页面路径由 `pagePathOf` 确定性推导、同输入同路径，覆盖即一致；要真清跑 `--clean`。
+
+6. **门禁跑子进程的三条死路（都表现为「假死」，不报错）**
+   | 写法 | 现象 |
+   |---|---|
+   | `execSync` + `stdio:'pipe'` | webpack 的 assets 清单塞满管道 → ENOBUFS / 卡到超时 |
+   | `execSync`/`spawnSync` + `stdio:'ignore'` | Windows 下子进程拿 NUL 句柄，Taro 的 webpack 链卡在 emit（180s 超时，日志只有一行 punycode 警告） |
+   | `createWriteStream(log, 'w')` | 宿主 fs shim 把第二参数当 **encoding** 解析 → `ERR_INVALID_ARG_VALUE: Received 'w'` |
+
+   现在的写法：**异步 `spawn` + `stdio:['ignore','pipe','pipe']` + 两个 pipe 接到
+   `createWriteStream(log, { flags:'w', encoding:'utf8' })`**（options 对象，不是字符串），
+   再挂一个超时看门狗。好处是构建期间日志实时可读，卡住时能直接看出停在哪一步。
+
+7. **压缩器 worker 池会死锁（Taro 专属）**
+   Terser / CssMinimizer 默认按 CPU 核数开 worker（本机 12 个），worker 由
+   `child_process.fork` 派生、继承父进程的 `NODE_OPTIONS` 与已打开 fd。在带 fs 拦截的宿主里
+   个别 worker 卡死在启动阶段 —— 19 页里**写完 12 个 css chunk 后永久等待**（12 = worker 数，
+   说明 12 个跑完、等第 13 个）。同一命令在普通终端 21s 完成。
+   处置：生成的 Taro 配置里给 `webpackChain` 加开关，门禁注入 `TARO_NO_MINIMIZE=1` 时
+   `optimization.minimize(false)`；产物默认仍压缩。
+
+8. **同一进程连跑三端，第三端必卡**
+   `--target all` 原实现在一个进程里跑完 react + vue 的构建与截图后，taro 的 webpack
+   会停在 emit（CPU 21s 后不再前进）。单跑 taro 70s 正常。
+   `all` 模式改成**每个 target 起一个独立子进程**（`spawnSync(process.execPath, [self, '--target', t, ...])`），
+   汇总从三份 `report.json` 读。端到端 2m25s 稳定通过。
+
+### 11.3 复跑
+
+```bash
+npm run codegen:all        # 三端产物
+npm run codegen:verify     # 四关全量
+npm run codegen:verify -- --target react --only pixel   # 单关调试
+```
+
+**依赖策略**：目标工程有 `node_modules` → `deps=local`；否则复用主仓 → `deps=workspace`。
+「能不能构建」是代码问题，「能不能下载」是网络问题，门禁不该混为一谈。
+本机 npm 全局 `proxy=127.0.0.1:7890` 但代理未启动 → 所有 install `ECONNREFUSED`；
+绕过：`npm install --userconfig .tmp/npmrc-noproxy`（该文件只写 registry）。
+
+**Taro 首次构建 50~60s，重装依赖约 10 分钟（1176 包）**——别在循环里重装。

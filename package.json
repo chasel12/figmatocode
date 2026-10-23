@@ -35,7 +35,12 @@
     "ai:icons": "node scripts/icons-import.mjs",
     "ai:fewshots": "vite-node scripts/extract-fewshots.ts",
     "ai:assets": "npm run ai:tokens && npm run ai:icons && npm run ai:fewshots",
-    "ai-matrix": "vite-node scripts/ai-matrix.ts"
+    "ai-matrix": "vite-node scripts/ai-matrix.ts",
+    "codegen:react": "vite-node scripts/codegen.ts --target react",
+    "codegen:vue": "vite-node scripts/codegen.ts --target vue",
+    "codegen:taro": "vite-node scripts/codegen.ts --target taro",
+    "codegen:all": "vite-node scripts/codegen.ts --target all",
+    "codegen:verify": "node scripts/codegen-verify.mjs --target all"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.137.0",

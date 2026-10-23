@@ -4,11 +4,8 @@ import { scssFromPage } from '../compiler/css-model';
 import { generateTaroTsx } from './taro';
 import { generateHtml } from './html';
 import { FONT_STACK } from '../font';
+import type { GeneratedFile } from './emit-context';
 
-export interface GeneratedFile {
-  path: string;
-  content: string;
-}
 
 function slugify(name: string): string {
   const s = name
