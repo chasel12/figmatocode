@@ -114,7 +114,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
     id: 'custom',
     label: '自定义端点',
     protocol: 'openai',
-    models: ['（填端点支持的模型名）'],
+    models: ['qwen3-coder'],
     defaultModel: '',
     keyPlaceholder: '按端点要求填写，可留空',
     note: '任何 OpenAI 兼容端点（vLLM / LM Studio / 公司内网网关）：填 baseURL 与模型名',
