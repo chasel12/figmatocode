@@ -468,3 +468,120 @@ npx vitest run tests/fig.test.ts                    # 16 例单测
 组件与实例语义（摊平成 Frame）、Variables、Prototype、矢量命令几何、样式 token。
 
 
+---
+
+## 12. 延伸交付：任意模型接入 + `.fig` 产品入口（2026-10-24）
+
+M1–M6 完成后，核对「产品愿景 vs 代码」时发现两处**计划书未覆盖**的缺口：
+① 只能接 Anthropic 协议的模型，「可接任意大模型 API」只兑现一半；
+② `.fig` 能力只到库层，编辑器里没有入口（用户摸不到）。
+两项都不在 §6 里程碑内，作为延伸交付补齐，本节记录口径与实跑。
+
+### 12.1 任意模型：按**协议**分层，而不是按公司堆表
+
+原实现只有 `createAnthropicClient`，供应商表里两家都走 Anthropic Messages 协议。
+这次改成 **协议 × 供应商** 两层：
+
+| 层 | 内容 |
+|---|---|
+| `Protocol` | `'anthropic' \| 'openai'`，决定用哪个 client 实现 |
+| `ProviderDef.protocol` | 每家声明自己默认走哪种协议 |
+| `createLlmClient()` | 统一工厂，调用方只认它（加协议时不动调用点） |
+| `createOpenAiCompatClient()` | 手写 `POST {baseURL}/chat/completions` + SSE 解析，约 130 行、**零新增依赖** |
+
+现有 6 家：Anthropic / DeepSeek（anthropic 协议）、OpenAI / Gemini / Ollama / 自定义端点（openai 协议）。
+
+**为什么不引 `openai` SDK**：只需要一个 POST + SSE 解析，手写行为完全可控，也避免与
+`@anthropic-ai/sdk` 的 fetch/stream 依赖叠加。代价是要自己处理兼容层差异（见 12.2）。
+
+### 12.2 兼容层差异：探测 + 降级，不假装支持
+
+| 差异 | 处置 |
+|---|---|
+| `response_format.json_schema` | 只有 `jsonSchema: true` 的供应商才发；且 `strict: false`——我们的契约 schema 不满足 OpenAI 严格子集（要求所有字段 required + `additionalProperties:false`），开 strict 会被直接拒。不支持的端点走 prompt 契约，由闸门 + 自修环兜住（与 DeepSeek 那次同一思路） |
+| `max_completion_tokens` vs `max_tokens` | 新字段优先；400 且报文提到该字段时自动退回旧字段重试一次 |
+| 用量字段命名 | `prompt_tokens_details.cached_tokens` / `prompt_cache_hit_tokens` 两种都认 |
+| 本地端点无 key | `keyOptional: true`（Ollama / 自定义），`aiAvailable` 不再要求 key 非空 |
+| 模型清单会过期 | OpenAI / Gemini / Ollama / 自定义标 `modelEditable`，面板给输入框，下拉只作建议值 |
+| 未知模型的价格 | `isPriced()` 判否时面板显示「未计价」，**不回退成别家价格**（回退会给出错误印象） |
+
+### 12.3 `.fig` 产品入口
+
+新增 `src/fig/project.ts`（产品入口层），与 `import.ts` / `export.ts`（纯数据层）分工：
+
+| 函数 | 职责 |
+|---|---|
+| `pagesToProject(pages, name)` | `UIPage[]` → `UIProject`（components/tokens/flows 一律空表——`.fig` 的实例已摊平成 Frame，再编造组件定义只会产出孤儿） |
+| `importFigFile(file)` | `File` → 工程；空页直接抛错（空工程载入只会让人以为文件坏了） |
+| `exportFigBlob(project, name)` | 工程 → `Blob`（多页一并写出，Figma 侧就是多 Canvas） |
+
+Toolbar 两处接线：
+- 「打开…（含 .fig）」与「导入 Figma 文件（.fig）…」共用同一个隐藏 input，按扩展名分派；
+- 新增「另存为 Figma 文件（.fig）」。
+- **动态 `import('../fig/project')`**：`.fig` 是可选格式，主包不为它背体积（实测独立 chunk 58.7KB / gzip 22.5KB，首次打开时按需加载）。
+
+`schema/types.ts` 与 `compile.ts` **零改动**（§1 铁律）：工程语义在入口层显式补齐，不往 AST 上加字段。
+
+### 12.4 实跑
+
+```
+单测       726/726（54 文件）· 新增 ai-providers 17 例 + fig-project 6 例
+类型       tsc --noEmit 0 错
+构建       主包 914.36 kB（+6.7 kB，来自 OpenAI client）/ .fig 独立 chunk 58.70 kB
+UI 真跑    PASS 3/3（Playwright）
+           ✓ 文件菜单含 .fig 导入/另存两项且可点
+           ✓ 导入 slots.fig → 2 页（Page 1 / Slots fixture）· 7 图层行 · 画布渲染 · 0 弹窗
+           ✓ 另存 → slots.fig 29,947 B
+```
+
+单测里有一条**真实 HTTP 往返**（本地起 http server 模拟端点，分三块写 SSE，含跨块半包），
+验证路径 `/v1/chat/completions`、`Bearer` 头、末尾斜杠归一、正文拼接与用量映射。
+
+### 12.5 三个坑
+
+1. **`getBaseURL()` 返回空串，用 `??` 不会回退默认端点**
+   `'' ?? def.baseURL` 结果是 `''`——OpenAI / Ollama 一上来就报「未配置端点地址」。
+   必须用 `||`。这个是单测抓到的（第一次跑 4 例红）。
+2. **OpenAI 的 `prompt_tokens` 含缓存命中部分**（cached 是子集），而 Anthropic 的
+   `input_tokens` 不含 `cache_read`。`estimateCostCny` 的公式按 Anthropic 口径写，
+   映射时保持同形（input 含 cached），否则成本会被算低一半。
+3. **`.fig` 不能静态 import 进 Toolbar**：会把 import/export/paint 全拖进首屏。
+   改为动态 import 后主包只涨了 OpenAI client 的 6.7 kB。
+
+### 12.6 仍然不做
+
+- 浏览器直连仍受 CORS 限制：OpenAI 官方端点允许浏览器直连（SDK 侧已 `dangerouslyAllowBrowser`），
+  但部分网关会拦；拦了就填「自定义端点」走自己的代理（`VITE_AI_PROXY_BASE` 亦可）。
+- 组件 / Variables / Prototype / 矢量几何语义（与 §7、§11.6 一致）。
+- 没有后端：key 只在本机 localStorage，生成时只有提示词与选中节点结构出网。
+
+### 12.7 门禁根因修正：`--target all` 的父进程不能加载 playwright
+
+`all` 模式下 taro 构建**必卡**（两次 240s 超时、CPU 归零、0 html），单跑 34~68s 正常。
+此前两次归因都不对：
+
+| 曾经的判断 | 实际 | 结果 |
+|---|---|---|
+| 「同一进程连跑三端状态累积」→ 改独立子进程 | 部分正确但不够 | 仍卡 |
+| 「`spawnSync` 阻塞事件循环」→ 改异步 `spawn` | 真实存在但不是本次根因 | 仍卡 |
+| **父进程顶层 `import { chromium } from 'playwright'`** | ✅ 根因 | 改按需加载后 **2m03s 全绿** |
+
+**判定实验**（`\.tmp/layer-probe.mjs`）：多包一层 node、但不加载 playwright，跑 taro → **99s 通过**。
+说明「层数」和「父进程存活」都不是问题，**父进程里有什么**才是。
+
+处置：`playwright` / `pngjs` / `pixelmatch` 全部改成像素关内的 `await import()`。
+父进程只留 `spawn` + fs + babel parser，起完子进程就等。
+
+**复跑（2026-10-24）**：`--target all --allow-miss taro:1`，端到端 **2m03s**
+
+| target | 语法 | 类型 | 构建（attempts） | 像素 |
+|---|---|---|---|---|
+| react | 39 文件 | 0 错 | 6.3s（1 次） | 99.52% 19/19 |
+| vue | 19 文件 | 0 错 | 6.6s（1 次） | 99.52% 19/19 |
+| taro | 42 文件 | 0 错 | **33.8s（1 次）** | 99.38% 18/19（豁免 1） |
+
+顺带补的两道保险（都不是本次根因，但留着）：
+- 构建超时 900s → 180s/240s，让卡死尽快暴露；
+- 失败自动**重试一次**，`attempts` 写进 `report.json` 并打日志（不静默重试）；
+- 超时杀**整棵进程树**（`taskkill /T /F`）——`child.kill()` 只杀 shell，npm/taro 作为孙进程
+  会继续持有 stdout 管道，导致 `close` 永不触发，「超时」形同虚设（实测超时后又被拖 4 分钟）。

@@ -312,6 +312,7 @@ CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
 | **四模块结果** | 附 A **19/19 ✅** · 附 B **11/11 ✅** · 附 C **7/7 ✅** · FR-57 样片 **五区 5/5 ✅**（avg 99.51%）→ **四模块全 100% ✅** |
 | 采样证据 | `scripts/m6-appendix.mjs` → `dist/m6-appendix/report.json` + `appendix.md` + 截图（附 A/B/C 逐项）；附 A 为「数据层+产物层」双关判定 |
 | **`.fig` 互操作（附 E，非 GA 四模块）** | 导入 **4/4** 真实文件 · 往返 **18/19** 页（1 页报备降级）· CSS **18/19** 页 · 17 项能力对照：双向 ✅ 11 / 换算 ⚠ 2 / 不做 ❌ 4。报告 `dist/fig/report.json` |
+| **AI 供应商接入（非 GA 矩阵）** | **6 家 / 2 种协议**（Anthropic、DeepSeek 走 Messages；OpenAI、Gemini、Ollama、自定义端点走 `/chat/completions`）· 单测 17 例含真实 HTTP 往返 · 未收录模型显示「未计价」不回退别家价格 |
 | 门禁回归 | **2026-10-21（M7 落地后全量复跑）**：tsc 0 错 · vitest **667/667** · e2e **19/19 ≥98%** · viewport **76/76** · walkthrough **9/9** · m1 **22/22** · m2 **27/27** · present-smoke **18/18** · pages 断言 **266/266** · build 主包 905.87 kB（gzip 291.02）· ai-matrix 离线 **10/10**。历史快照（2026-10-18）：vitest 525/525 · canvasdiff 18/19（avg 97.87%，唯一 MISS=14 页差异 #1 已豁免）· m12 24/24 · ci-local 4/4 |
 | 阻断项 | **零**（差异 #4 已于 2026-10-18 结案：PM 拍板方案 A「≥95% 帧按时 <1.5×vsync」，实测按时率 **95.27%** 达标，P1-01 转正；全议题签署见 `go-no-go.md`）。P0 全绿、四模块 100% |
 
@@ -358,3 +359,5 @@ CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
 | 36 | `PROGRESSIVE_BLUR` 往返降级（附 E10） | 18-样片-参数矩阵页的渐进模糊，往返后变 `LAYER_BLUR` | `EffectType` 枚举无 PROGRESSIVE_BLUR（Figma 的渐进模糊是 UI 层的多效果组合，不是单一 effect 类型） | **接受（信息丢失，已入 `KNOWN_LOSS` 白名单）**：`scripts/fig-check.ts` 命中白名单计「降级」不计「失败」，并打印原因；CSS 关同步豁免该页 | 主线 / 2026-10-23 |
 | 37 | `style.boxShadow` 无法存进 `.fig` | demo 数据里两处 CSS 阴影串（`0 -4px 16px rgba(0,0,0,.08)`）往返后丢失 | `.fig` 只有结构化 `Effect[]`，没有 CSS 字符串通道 | **已修复（数据侧迁移）**：`src/demo/pages.ts` 两处改为 `effects: [{ kind:'DROP_SHADOW', ... }]`（`compile.ts` 注释即此迁移口径）。三端像素关复跑 99.52%/99.52%，与迁移前逐页一致 | 主线 / 2026-10-23 |
 | 38 | 叶子节点的 `layout.mode` 不往返 | 叶子 `mode` 往返后回落到工厂默认值 | Figma 不存「叶子自身布局模式」（叶子不参与父容器的 stack 方向）；而 `compile.ts:224` 会把 `mode==='ABSOLUTE'` 当绝对定位 | **接受（有损但必要）**：导出不写叶子 mode，导入回落默认值。写成 ABSOLUTE 会让整页元素全部脱流（CSS 关曾出现 `position:absolute` + `width:max-content`） | 主线 / 2026-10-23 |
+| 39 | 计划外缺口：`.fig` 只能被门禁调用，编辑器无入口 | 文件菜单里「导入 Figma 文件」长期是 `disabled` 的占位项；`src/fig/` 只被 `scripts/fig-check.ts` 引用 | M5/M6 的验收口径是「格式映射正确」，未包含产品入口 | **✅ 已补齐（2026-10-24）**：文件菜单改为「打开…（含 .fig）」+「导入 Figma 文件（.fig）…」+「另存为 Figma 文件（.fig）」；新增 `src/fig/project.ts` 入口层，动态 import 不进首屏。Playwright 真跑 **3/3**（导入 slots.fig → 2 页 · 另存 29,947 B） | 主线 / 2026-10-24 |
+| 40 | 计划外缺口：只能接 Anthropic 协议的模型 | 供应商表两家（Anthropic / DeepSeek）都走 Messages 协议，OpenAI 协议的端点一个都接不了 | plan §7 只列了 Anthropic + DeepSeek 两家，未要求协议通用 | **✅ 已补齐（2026-10-24）**：按**协议**分层（`Protocol = anthropic \| openai`）+ 统一工厂 `createLlmClient()`；新增手写 `createOpenAiCompatClient`（零新增依赖），供应商扩到 6 家（OpenAI / Gemini / Ollama / 自定义端点）。兼容层差异按能力探测降级；未知模型价格显示「未计价」不回退。单测 17 例含真实 HTTP 往返 | 主线 / 2026-10-24 |

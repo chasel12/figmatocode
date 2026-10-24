@@ -296,14 +296,17 @@ vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒
    处置：生成的 Taro 配置里给 `webpackChain` 加开关，门禁注入 `TARO_NO_MINIMIZE=1` 时
    `optimization.minimize(false)`；产物默认仍压缩。
 
-8. **同一进程连跑三端，第三端必卡；子进程必须异步起**
-   `--target all` 原实现在一个进程里跑完 react + vue 的构建与截图后，taro 的 webpack
-   会停在 emit（CPU 21s 后不再前进）。单跑 taro 70s 正常。
-   第一版处置是**每个 target 起一个独立子进程**，但用的是 `spawnSync`——结果 taro 从
-   40s 拖成 **6 分钟还在爬**（20s 内 CPU 只涨 1.1s）。原因是 `spawnSync` 把父进程事件循环
-   整个堵住，子进程经 shim 中转的 fs 操作拿不到及时服务。
-   现在用**异步 `spawn` + await**，端到端 3m07s 稳定通过（react 6.4s / vue 7.0s / taro 45.5s 构建）。
-   一句话记法：**在这台机器上，同步 = 卡**（同步子进程、同步写文件都算）。
+8. **`--target all` 的父进程不能加载 playwright（这条查了两轮才对）**
+   现象：`all` 模式下 taro 的 webpack 必卡在 emit——两次 240s 超时、CPU 归零、产物 0 html；
+   而 `--target taro` 单跑 34~68s 就过。曾先后误判为「同一进程连跑三端状态累积」
+   和「`spawnSync` 阻塞事件循环」，两次都只治了症状。
+   **真正根因**：`all` 父进程顶层 `import { chromium } from 'playwright'` 把整个浏览器栈
+   加载进了父进程；带着它去 spawn taro 子进程，子进程的 webpack 就卡住。
+   判定实验：多包一层 node（不加载 playwright）跑 taro → **99s 通过**；把 playwright 改成
+   按需 `await import()` → `all` 端到端 **2m03s 全绿**（taro 构建 33.8s，一次成功）。
+   一句话记法：**父进程要轻**。谁不需要浏览器，就别在顶层 import 它。
+   （`spawnSync` 那段仍然保留：它确实会把父进程事件循环堵死、把 taro 从 40s 拖成 6 分钟，
+   只是不是本次卡死的根因。）
 
 ### 11.3 复跑
 
@@ -384,3 +387,49 @@ Git LFS 需走 `media.githubusercontent.com/media/...`）。
 **降级不是失败**：`scripts/fig-check.ts` 的 `KNOWN_LOSS` 白名单目前只有一条
 （`18-样片-参数矩阵` 的 `PROGRESSIVE_BLUR`，Figma 无对应原语 → `LAYER_BLUR`）。
 加白名单等于承认信息丢失，**必须先确认 Figma 真的表达不了**。
+
+---
+
+## 13. 任意模型接入 + `.fig` 产品入口（2026-10-24 新增）
+
+计划书 §12 是完整记录。这里只放接手要用的：代码在哪、怎么加一家、怎么验。
+
+### 13.1 代码地图
+
+| 文件 | 职责 |
+|---|---|
+| `src/editor/ai/client.ts` | 供应商表（6 家）+ 两种协议的 client + key/模型/端点槽位 + 成本估算 |
+| `src/fig/project.ts` | `.fig` 产品入口层：`File`/`Blob`、`pagesToProject`、按需加载 codec |
+| `src/editor/Toolbar.tsx` | 文件菜单：打开（按扩展名分派）/ 另存为 `.fig`；**动态 import** `../fig/project` |
+| `tests/ai-providers.test.ts` | 17 例：表自洽 / 槽位隔离 / SSE 解析 / 真实 HTTP 往返 |
+| `tests/fig-project.test.ts` | 6 例：工程包装 / 真实文件导入 / 往返页数一致 / 空工程报错 |
+
+### 13.2 加一家模型供应商（三步）
+
+1. 往 `PROVIDERS` 加一条：`id` / `label` / `protocol` / `baseURL` / `models` / `defaultModel` / `note`。
+2. 协议是 Anthropic Messages 的 → 什么都不用做；是 OpenAI 兼容的 → 同样什么都不用做。
+   **只有「两种都不是」才需要写新 client**，然后在 `createLlmClient` 里加一个分支。
+3. 模型清单不稳定就标 `modelEditable: true`（面板会渲染输入框），`jsonSchema` 按端点真实能力标。
+
+**别写死模型名当唯一真相**：模型迭代比代码快，写死的下拉必然过期。`modelEditable` 是给这个的。
+
+### 13.3 三个坑
+
+1. **`getBaseURL()` 返回空串，`??` 不会回退默认端点** → 必须 `||`。
+   （`'' ?? x` 是 `''`，OpenAI/Ollama 会直接报「未配置端点地址」）
+2. **用量口径不同**：OpenAI 的 `prompt_tokens` **含**缓存命中，Anthropic 的 `input_tokens` **不含**
+   `cache_read`。`estimateCostCny` 按 Anthropic 口径写，映射时要保持同形，否则成本算低一半。
+3. **`.fig` 只能动态 import**：静态 import 会把 import/export/paint 拖进首屏（实测 58.7KB）。
+
+### 13.4 怎么验
+
+```bash
+npx vitest run tests/ai-providers.test.ts tests/fig-project.test.ts   # 23 例
+npm run build && node .tmp/fig-ui-probe.mjs                          # UI 真跑（一次性探针）
+```
+
+UI 探针验三件事：菜单两项可点 → 导入 `slots.fig` 后 2 页/图层/画布/无弹窗 → 另存出非空 `.fig`。
+最近一次：**3/3 PASS**，另存 29,947 B。
+
+**没有真 key 时怎么验模型**：`tests/ai-providers.test.ts` 里有一条本地 http server 的
+真实往返（分块 SSE + 跨块半包），验路径、鉴权头、正文拼接、用量映射——比 mock fetch 更接近真实。

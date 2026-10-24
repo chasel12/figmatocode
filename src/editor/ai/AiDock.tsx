@@ -9,15 +9,18 @@ import { loadIcons } from '../../assets/icons';
 import {
   PROVIDERS,
   aiAvailable,
-  createAnthropicClient,
+  createLlmClient,
   describeAiError,
   estimateCostCny,
   getApiKey,
+  getBaseURL,
   getModel,
   getProvider,
+  isPriced,
   maskKey,
   providerDef,
   setApiKey,
+  setBaseURL,
   setModel,
   setProvider,
   type AiUsage,
@@ -94,6 +97,7 @@ export function AiDock() {
   const [provider, setProviderState] = useState<ProviderId>(getProvider());
   const [model, setModelState] = useState(() => getModel());
   const [keyDraft, setKeyDraft] = useState('');
+  const [baseDraft, setBaseDraft] = useState(() => getBaseURL());
   const [hasKey, setHasKey] = useState(() => aiAvailable());
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -116,6 +120,7 @@ export function AiDock() {
     setHasKey(aiAvailable(id));
     setModelState(getModel(id));
     setKeyDraft('');
+    setBaseDraft(getBaseURL(id));
     setResult(null);
     setError(null);
   };
@@ -146,7 +151,7 @@ export function AiDock() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const client = await createAnthropicClient({ model, provider });
+      const client = await createLlmClient({ model, provider });
       const [icons, fewShots] = await Promise.all([loadIcons(), loadFewShots()]);
       const iconMap = Object.fromEntries(Object.entries(icons.icons).map(([k, v]) => [k, v.d]));
       const base = {
@@ -280,6 +285,22 @@ export function AiDock() {
         </select>
       </div>
 
+      {prov.baseURLEditable && (
+        <div className="ai-setup">
+          <div className="ai-setup-note">
+            端点地址（OpenAI 兼容，形如 <code>https://your-gateway/v1</code>）：只存本机 localStorage。
+          </div>
+          <input
+            className="ai-key-input"
+            placeholder={prov.baseURL ?? 'https://your-gateway/v1'}
+            value={baseDraft}
+            onChange={(e) => setBaseDraft(e.target.value)}
+            onBlur={() => setBaseURL(baseDraft.trim(), provider)}
+            disabled={running}
+          />
+        </div>
+      )}
+
       {!hasKey && (
         <div className="ai-setup">
           <div className="ai-setup-note">
@@ -309,7 +330,45 @@ export function AiDock() {
         </div>
       )}
 
-      {hasKey && (
+      {prov.keyOptional && (
+        <div className="ai-setup">
+          <div className="ai-setup-note">
+            {prov.label} 的 key <b>可选</b>：本地端点留空即可；网关要鉴权时在此填写（同样只存本机，不进日志）。
+          </div>
+          <input
+            className="ai-key-input"
+            type="password"
+            placeholder={getApiKey(provider) ? maskKey(getApiKey(provider)) : prov.keyPlaceholder}
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            disabled={running}
+          />
+          <button
+            className="mini-btn"
+            disabled={!keyDraft.trim()}
+            onClick={() => {
+              setApiKey(keyDraft.trim(), provider);
+              setKeyDraft('');
+              pushLog(`已保存 ${prov.label} key（${maskKey(keyDraft.trim())}）`);
+            }}
+          >
+            保存 key
+          </button>
+          {getApiKey(provider) && (
+            <button
+              className="mini-btn"
+              onClick={() => {
+                setApiKey('', provider);
+                pushLog(`已清除 ${prov.label} key`);
+              }}
+            >
+              清除
+            </button>
+          )}
+        </div>
+      )}
+
+      {hasKey && !prov.keyOptional && (
         <div className="ai-key-row">
           <span title={`${prov.label} key 只存本机 localStorage`}>
             {prov.label} key {maskKey(getApiKey(provider))}
@@ -349,22 +408,36 @@ export function AiDock() {
         ))}
       </select>
 
-      <select
-        className="ai-select"
-        value={model}
-        onChange={(e) => {
-          setModelState(e.target.value);
-          setModel(e.target.value, provider);
-        }}
-        disabled={running}
-        title={`模型档位（${prov.label}）`}
-      >
-        {prov.models.map((m) => (
-          <option key={m} value={m}>
-            {m}
-          </option>
-        ))}
-      </select>
+      {prov.modelEditable ? (
+        <input
+          className="ai-key-input"
+          placeholder={`模型名，例：${prov.models[0]}`}
+          value={model}
+          onChange={(e) => {
+            setModelState(e.target.value);
+            setModel(e.target.value, provider);
+          }}
+          disabled={running}
+          title={`模型名按端点实际支持的填写（${prov.label} 的模型清单更新很快，写死会过期）`}
+        />
+      ) : (
+        <select
+          className="ai-select"
+          value={model}
+          onChange={(e) => {
+            setModelState(e.target.value);
+            setModel(e.target.value, provider);
+          }}
+          disabled={running}
+          title={`模型档位（${prov.label}）`}
+        >
+          {prov.models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      )}
 
       <textarea
         className="ai-prompt"
@@ -451,8 +524,8 @@ export function AiDock() {
 
       {usage && (
         <div className="ai-usage">
-          输入 {usage.inputTokens}（缓存读 {usage.cacheReadTokens}） · 输出 {usage.outputTokens} · 估算 ¥
-          {estimateCostCny(usage, model).toFixed(3)}
+          输入 {usage.inputTokens}（缓存读 {usage.cacheReadTokens}） · 输出 {usage.outputTokens} · 估算{' '}
+          {isPriced(model) ? `¥${estimateCostCny(usage, model).toFixed(3)}` : '未计价（该模型不在参考价表内）'}
         </div>
       )}
     </div>

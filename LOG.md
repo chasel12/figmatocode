@@ -2293,3 +2293,94 @@ CPU 6~25s 后归零。但**同一条命令直接 `> file` 重定向 34~44s 就�
 **文档**：plan §10.4（偏差扩到 16 条）、新增 plan §11（实施记录）、HANDOFF §12（`.fig` 代码地图 +
 6 坑 + 复跑）、HANDOFF §11.2 坑 6/8 补第 4 条死路与「同步=卡」、checklist 附 E（17 项能力对照）+
 差异 34–38。
+
+## 2026-10-24 · 补齐两处计划外缺口：任意模型接入 + `.fig` 产品入口
+
+**背景**：M1–M6 交付后核对「产品愿景 vs 代码」，发现两处计划书没覆盖的缺口——
+① 只能接 Anthropic 协议的模型（「可接任意大模型 API」只兑现一半）；
+② `.fig` 只到库层，编辑器里没入口（用户摸不到）。两项都不在 §6 里程碑内，作为延伸交付补齐。
+
+### 一、任意模型：按协议分层
+
+原实现只有 `createAnthropicClient`。改为 **协议 × 供应商** 两层：
+
+| 层 | 内容 |
+|---|---|
+| `Protocol` | `'anthropic' \| 'openai'` |
+| `ProviderDef.protocol` | 每家声明默认协议 |
+| `createLlmClient()` | 统一工厂，调用方只认它 |
+| `createOpenAiCompatClient()` | 手写 `POST /chat/completions` + SSE 解析，**零新增依赖** |
+
+供应商 2 家 → **6 家**：Anthropic / DeepSeek（Messages）、OpenAI / Gemini / Ollama / 自定义端点（OpenAI 兼容）。
+
+兼容层差异一律「探测 + 降级」，不假装支持：
+- `response_format.json_schema` 只对标注支持的端点发，且 `strict:false`（我们的契约 schema 不满足
+  OpenAI 严格子集：要求全字段 required + `additionalProperties:false`，开 strict 直接被拒）；
+- `max_completion_tokens` 新字段优先，400 且报文提到时自动退回 `max_tokens`；
+- 用量字段 `prompt_tokens_details.cached_tokens` / `prompt_cache_hit_tokens` 两种都认；
+- 本地端点 `keyOptional`，无 key 也能用；
+- 模型名 `modelEditable`（下拉只作建议值——模型清单比代码迭代快，写死必然过期）；
+- 未收录模型显示「**未计价**」，不回退成别家价格（回退只会给出错误印象）。
+
+### 二、`.fig` 产品入口
+
+新增 `src/fig/project.ts`（入口层，与纯数据层 `import.ts`/`export.ts` 分工）：
+`pagesToProject` / `importFigFile` / `exportFigBlob`。
+
+Toolbar：`打开…（含 .fig）`（按扩展名分派）+ `导入 Figma 文件（.fig）…` + `另存为 Figma 文件（.fig）`。
+**动态 import** `../fig/project`——`.fig` 是可选格式，主包不为它背体积（独立 chunk 58.7KB / gzip 22.5KB）。
+
+`schema/types.ts` 与 `compile.ts` 零改动：工程语义在入口层显式补齐（components/tokens/flows 空表，
+因为 `.fig` 的实例已摊平成 Frame，再编造组件定义只会产出孤儿）。
+
+### 实跑
+
+```
+单测      726/726（54 文件）· 新增 ai-providers 17 例 + fig-project 6 例
+类型      tsc --noEmit 0 错
+构建      主包 914.36 kB（+6.7 kB，来自 OpenAI client）
+UI 真跑   PASS 3/3（Playwright，一次性探针）
+          ✓ 文件菜单含 .fig 导入/另存两项且可点
+          ✓ 导入 slots.fig → 2 页（Page 1 / Slots fixture）· 7 图层行 · 画布渲染 · 0 弹窗
+          ✓ 另存 → slots.fig 29,947 B
+三端四关  react 99.52% 19/19 · vue 99.52% 19/19 · taro 99.38% 18/19（豁免 1），端到端 2m03s
+```
+
+单测里有一条**真实 HTTP 往返**：本地起 http server 模拟 OpenAI 端点，分三块写 SSE（含跨块半包），
+验路径 `/v1/chat/completions`、`Bearer` 头、末尾斜杠归一、正文拼接、用量映射。
+
+### 三个坑
+
+1. `getBaseURL()` 返回**空串**，`'' ?? def.baseURL` 结果是 `''` → 默认端点永远不生效，
+   OpenAI/Ollama 一上来就报「未配置端点地址」。必须用 `||`。（单测第一次跑 4 例红，抓到的）
+2. OpenAI 的 `prompt_tokens` **含**缓存命中（cached 是子集），Anthropic 的 `input_tokens` **不含**。
+   `estimateCostCny` 按 Anthropic 口径写，映射要保持同形，否则成本算低一半。
+3. `.fig` 不能静态 import 进 Toolbar，会把 import/export/paint 全拖进首屏。
+
+### 顺带：门禁「taro 在 all 模式下必卡」的根因终于找准了
+
+这一轮又复现了：`--target all` 下 taro 构建必卡（两次 240s 超时、CPU 归零、0 html），
+单跑 34~68s 正常。此前两次归因都不对：
+
+| 曾经的判断 | 实际 | 结果 |
+|---|---|---|
+| 「同一进程连跑三端状态累积」→ 改独立子进程 | 部分正确但不够 | 仍卡 |
+| 「`spawnSync` 阻塞事件循环」→ 改异步 spawn | 真实存在，但不是本次根因 | 仍卡 |
+| **父进程顶层 `import { chromium } from 'playwright'`** | ✅ 根因 | 按需加载后 **2m03s 全绿** |
+
+判定实验：多包一层 node、但**不加载 playwright**，跑 taro → **99s 通过**。
+说明层数与父进程存活都不是问题，**父进程里装了什么**才是。
+
+处置：`playwright` / `pngjs` / `pixelmatch` 改成像素关内的 `await import()`，
+父进程只留 spawn + fs + babel parser。
+
+另外补两道保险（不是根因，但都真踩过）：
+- 构建超时 900s → 180s/240s，失败自动**重试一次**，`attempts` 写进 report.json 并打日志；
+- 超时杀**整棵进程树**（`taskkill /T /F`）——`child.kill()` 只杀 shell，npm/taro 作为孙进程
+  继续持有 stdout 管道，`close` 永不触发，「超时」形同虚设（实测超时后又被拖 4 分钟）。
+
+**三端四关（2m03s）**：react 99.52% 19/19（6.3s）· vue 99.52% 19/19（6.6s）·
+taro 99.38% 18/19（**33.8s，一次成功**）。
+
+**文档**：plan §12（延伸交付完整记录）、HANDOFF §13（代码地图 + 加一家三步 + 三个坑 + 怎么验）、
+checklist 差异 39/40 + 结果汇总新增「AI 供应商接入」行、walkthrough 文案「供应商 2 选」→「≥2 选（现 6 家）」。

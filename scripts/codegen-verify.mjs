@@ -13,16 +13,23 @@
  * （版本同源：react 18.3.1 / vite 5.4.11 / typescript 5.6.3），report 里标注 deps 来源。
  * 这样门禁在无网环境也能跑——「能不能构建」是代码问题，「能不能下载」是网络问题，不该混。
  */
-import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join, relative } from 'node:path';
-import { PNG } from 'pngjs';
-import pixelmatch from 'pixelmatch';
 import { parse as babelParse } from '@babel/parser';
+
+/**
+ * **playwright / pngjs / pixelmatch 一律按需加载**（不要改回顶层 import）。
+ *
+ * `--target all` 的父进程只负责起子进程，它自己不需要浏览器；可它一旦在顶层
+ * `import { chromium } from 'playwright'`，父进程就会加载整个浏览器栈。
+ * 实测后果：父进程带着 playwright 起 taro 子进程时，taro 的 webpack 必卡在 emit
+ * （两次 240s 超时、CPU 归零），而**同样多包一层 node 但不加载 playwright** 则 99s 通过。
+ * 这与「父进程跑过截图后再起 taro 必卡」是同一现象的两面：污染源在父进程。
+ */
 
 /**
  * 构建关必须清 `dist/`（vite `emptyOutDir` / Taro 手工清），删的都是**可再生构建产物**
@@ -55,6 +62,26 @@ for (const t of TARGETS) {
   }
 }
 
+/**
+ * 杀掉整棵子进程树。
+ *
+ * `child.kill()` 只作用于直接子进程；我们的命令是 `npm run build`（cmd → npm → node），
+ * 孙进程会存活并继续持有 stdout 管道，导致父进程的 `close` 事件永不触发。
+ * Windows 用 `taskkill /T /F`，其它平台用进程组。
+ */
+function killTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } else {
+      process.kill(-pid, 'SIGKILL');
+    }
+  } catch {
+    /* 进程可能已退出 */
+  }
+}
+
 /** 起一个子验证进程并等它退出（异步，父进程事件循环保持活跃，见下） */
 function runChild(selfPath, args) {
   return new Promise((resolve) => {
@@ -75,17 +102,23 @@ function runChild(selfPath, args) {
  * **子进程必须用异步 `spawn` + await，不能用 `spawnSync`**：`spawnSync` 会把父进程的
  * 事件循环整个阻塞住，子进程的 fs 操作（经 shim 中转）得不到及时服务，构建从 40s
  * 拖成 6 分钟仍在爬（实测 CPU 20s 内只涨 1.1s）。这与本文档其它「同步即卡」的坑同源。
+ *
+ * **顺序：taro 放最前**。2026-10-24 复现：父进程跑完 react + vue（各含一次 playwright
+ * 启停）后再起 taro，构建必卡在 emit（两次 240s 超时）；而同样多包一层 node 但**先跑 taro**
+ * 则 99s 通过。污染源在父进程，跑过截图之后才显形，所以把最重的 taro 提到最前面。
  */
+const ALL_ORDER = ['taro', 'react', 'vue'];
+
 if (requested === 'all') {
   const selfPath = fileURLToPath(import.meta.url);
   const rest = argv.filter((a, i) => a !== '--target' && argv[i - 1] !== '--target');
   const codes = new Map();
-  for (const t of ['react', 'vue', 'taro']) {
+  for (const t of ALL_ORDER) {
     codes.set(t, await runChild(selfPath, ['--target', t, ...rest]));
   }
   let failed = 0;
   for (const [, code] of codes) if (code !== 0) failed += 1;
-  // 汇总从三份 report.json 读，避免重复实现判定逻辑
+  // 汇总从三份 report.json 读，避免重复实现判定逻辑（按固定顺序打印，与执行顺序无关）
   console.log('\n--- 汇总 ---');
   for (const t of ['react', 'vue', 'taro']) {
     let ok = false;
@@ -252,12 +285,12 @@ function run(cmd, cwd, timeout = 900_000, extraEnv) {
     };
 
     timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        /* 已退出 */
-      }
-      finish(1, `超时 ${(timeout / 1000).toFixed(0)}s 未结束`);
+      // **必须杀整棵进程树**：`child.kill()` 在 Windows 上只杀 shell（cmd），
+      // npm 与 taro 是孙进程，会继续跑并**持有 stdout 管道** → close 永不触发，
+      // 「超时」形同虚设（实测超时后又被拖了 4 分钟）。
+      killTree(child.pid);
+      // 兜底：管道若仍被占（孙进程杀不掉），3s 后无论如何结束这一次尝试
+      setTimeout(() => finish(1, `超时 ${(timeout / 1000).toFixed(0)}s 未结束`), 3000);
     }, timeout);
 
     child.on('error', (e) => finish(1, e.message));
@@ -295,6 +328,12 @@ function cleanBuildDir() {
   /* 有意留空 */
 }
 
+/**
+ * 构建关的超时：正常 react/vue 6~8s、taro 40~46s。给到 180/240s 是为了让「卡死」尽快
+ * 暴露出来并重试——原先 900s 的超时意味着一次抖动要等 15 分钟，重试就没有意义了。
+ */
+const BUILD_TIMEOUT = (target) => (target === 'taro' ? 240_000 : 180_000);
+
 async function checkBuild(target) {
   const dir = join(CODEGEN, target);
   const local = hasLocalDeps(dir);
@@ -305,18 +344,46 @@ async function checkBuild(target) {
     : `node "${join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js')}" build`;
   cleanBuildDir();
   // Taro 关掉压缩器：压缩器的 worker 池在带 fs 拦截的宿主里会死锁（见 taro-project.ts 注释）
-  const r = await run(cmd, dir, 900_000, target === 'taro' ? { TARO_NO_MINIMIZE: '1' } : undefined);
+  const env = target === 'taro' ? { TARO_NO_MINIMIZE: '1' } : undefined;
   const outDir = join(dir, 'dist');
-  // React/Vue 是多页 MPA（每页一个 html）；Taro h5 是 SPA（单 index.html + hash 路由）
-  const htmlFiles = walk(outDir).filter((f) => f.endsWith('.html'));
-  const htmlCount = htmlFiles.length;
-  const hasEntry = target === 'taro' ? existsSync(join(outDir, 'index.html')) : htmlCount > 0;
+
+  /**
+   * 重试一次的理由（不是掩盖问题）：
+   * 宿主 fs 拦截层会**偶发**把子进程卡死——CPU 归零、日志停在半路、产物一个 html 都没有，
+   * 而同一条命令重跑 40s 就过（HANDOFF §11.2 坑 6）。这是环境抖动，不是产物问题。
+   * 但也不能静默重试：attempts 会写进 report.json，日志里也打一行。
+   */
+  const attempts = [];
+  let last = null;
+  for (let i = 1; i <= 2; i += 1) {
+    const r = await run(cmd, dir, BUILD_TIMEOUT(target), env);
+    // React/Vue 是多页 MPA（每页一个 html）；Taro h5 是 SPA（单 index.html + hash 路由）
+    const htmlFiles = walk(outDir).filter((f) => f.endsWith('.html'));
+    const hasEntry = target === 'taro' ? existsSync(join(outDir, 'index.html')) : htmlFiles.length > 0;
+    attempts.push({
+      attempt: i,
+      ok: r.ok && hasEntry,
+      exitCode: r.exitCode,
+      durationMs: r.durationMs,
+      html: htmlFiles.length,
+      ...(r.error ? { error: r.error } : {}),
+    });
+    last = { r, htmlCount: htmlFiles.length, hasEntry };
+    if (r.ok && hasEntry) break;
+    if (i === 1) {
+      const why = r.error ?? (r.ok ? '没有产出入口 html' : `exit=${r.exitCode}`);
+      console.log(`        构建第 1 次未完成（${why}），重试一次…`);
+    }
+  }
+
+  const { r, htmlCount, hasEntry } = last;
   return {
     ok: r.ok && hasEntry,
     exitCode: r.exitCode,
     durationMs: r.durationMs,
     deps: local ? 'local' : 'workspace',
     html: htmlCount,
+    attempts,
     ...(r.ok ? {} : { output: r.output }),
   };
 }
@@ -387,6 +454,9 @@ async function checkPixel(target, manifest) {
   const port = server.address().port;
   const base = `http://127.0.0.1:${port}`;
 
+  const { chromium } = await import('playwright');
+  const { PNG } = await import('pngjs');
+  const { default: pixelmatch } = await import('pixelmatch');
   const browser = await chromium.launch();
   const rows = [];
   let pass = 0;

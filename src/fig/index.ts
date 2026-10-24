@@ -18,4 +18,11 @@ export {
 } from './import';
 export { exportFig, positionOf, countImageNodes, figBlobOf, type FigExportOptions, type FigExportResult, type OutNodeChange } from './export';
 export { loadFigCodec, resetFigCodec, type FigCodec } from './codec';
+export {
+  pagesToProject,
+  importFigFile,
+  exportFigBlob,
+  type FigOpenResult,
+  type FigSaveResult,
+} from './project';
 export { colorToHex, hexToColor, gradientAngle, angleToTransform, type FigColor } from './paint';

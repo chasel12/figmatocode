@@ -7,7 +7,7 @@ import { exportSelection } from './exporter';
 import { CodeModal } from './CodeModal';
 import { DiffModal } from './DiffModal';
 import { ShortcutsDialog } from './ShortcutsDialog';
-import { downloadText } from '../utils/zip';
+import { downloadBlob, downloadText } from '../utils/zip';
 import { findById } from '../schema/factory';
 import { isBooleanConvertible } from '../compiler/shapePath';
 import { presentBus } from './present/presentBus';
@@ -80,11 +80,37 @@ export function Toolbar() {
 
   const open = async (file: File) => {
     try {
+      // `.fig` 与自家 JSON 走同一个入口，按扩展名分派（用户不必记两种打开方式）
+      if (/\.fig$/i.test(file.name)) {
+        // 动态加载：`.fig` 是可选格式，主包不为它背体积（kiwi 运行时 623KB 同理）
+        const { importFigFile } = await import('../fig/project');
+        const { project, warnings, stats } = await importFigFile(file);
+        dispatch({ type: 'LOAD_PROJECT', project });
+        if (warnings.length) {
+          // 降级信息不弹窗打断（可能几十条），但要留在控制台可查
+          console.warn(`[fig] ${warnings.length} 条导入降级：\n${warnings.join('\n')}`);
+        }
+        console.info(`[fig] 已导入 ${stats.pages} 页 / ${stats.imported} 节点（原始 ${stats.rawNodes}）`);
+        return;
+      }
       const text = await file.text();
       const { project } = parseProject(text); // v1 单页与 v2 工程双兼容（project.ts 单源）
       dispatch({ type: 'LOAD_PROJECT', project });
     } catch (e) {
       alert(`打开失败：${e instanceof Error ? e.message : e}`);
+    }
+  };
+
+  /** 另存为 `.fig`：多页一并写出（Figma 侧打开就是多 Canvas） */
+  const saveFig = async () => {
+    try {
+      const { exportFigBlob } = await import('../fig/project');
+      const project = projectFromEditorState(state);
+      const { blob, stats } = await exportFigBlob(project, state.projectName || 'project');
+      downloadBlob(blob, `${state.projectName || 'project'}.fig`);
+      console.info(`[fig] 已导出 ${stats.pages} 页 / ${stats.nodes} 节点 / ${stats.images} 图片`);
+    } catch (e) {
+      alert(`导出 .fig 失败：${e instanceof Error ? e.message : e}`);
     }
   };
 
@@ -118,8 +144,9 @@ export function Toolbar() {
       id: '文件',
       items: [
         { label: '新建项目', shortcut: 'Ctrl+N', onClick: newPage },
-        { label: '打开…', shortcut: 'Ctrl+O', onClick: () => fileRef.current?.click() },
+        { label: '打开…（含 .fig）', shortcut: 'Ctrl+O', onClick: () => fileRef.current?.click() },
         { label: '保存 JSON', shortcut: 'Ctrl+S', onClick: save },
+        { label: '另存为 Figma 文件（.fig）', onClick: saveFig },
         { divider: true },
         { label: '导出代码 / ZIP', shortcut: 'Ctrl+E', onClick: () => setShowCode(true) },
         {
@@ -131,7 +158,7 @@ export function Toolbar() {
             }).catch((err: Error) => alert(err.message));
           },
         },
-        { label: '导入 Figma 文件（暂不支持）', disabled: true },
+        { label: '导入 Figma 文件（.fig）…', onClick: () => fileRef.current?.click() },
       ],
     },
     {
@@ -464,7 +491,7 @@ export function Toolbar() {
         <input
           ref={fileRef}
           type="file"
-          accept=".json,application/json"
+          accept=".json,.fig,application/json"
           style={{ display: 'none' }}
           onChange={(e) => {
             const f = e.target.files?.[0];

@@ -144,7 +144,7 @@ try {
   const keyPersisted = await page.evaluate(() => localStorage.getItem('ui-compiler.ai.key'));
   await page.screenshot({ path: join(OUT, '06c-AI面板未配key.png') });
   step(
-    'AI 面板：未配 key 整体置灰 + 供应商 2 选 + 风格包 3 选（M7 W5 / §8）',
+    'AI 面板：未配 key 整体置灰 + 供应商 ≥2 选（现 6 家）+ 风格包 3 选（M7 W5 / §8）',
     aiSetup > 0 && aiRunDisabled && providerOptions >= 2 && packOptions === 3 && keyPersisted === null,
     `配置区=${aiSetup} 填了提示词后生成按钮仍 disabled=${aiRunDisabled} 供应商选项=${providerOptions} 风格包选项=${packOptions} localStorage 无 key=${keyPersisted === null}`,
   );
