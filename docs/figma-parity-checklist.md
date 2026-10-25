@@ -404,3 +404,30 @@ CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
 
 **AI 契约同步**（最容易「做完等于没做」）：`AiBorderSpec.gradient` + `AiStyleSpec.decorations`，
 `kind` 是**枚举**、`additionalProperties: false`；`npm run ai:schema` 对象数 7→11 / 13→17。
+
+---
+
+## 附 G：交互态与布局表达力对照（B2/B3，2026-10-26）
+
+> 实施记录见 `docs/multi-target-codegen-plan.md` §14。
+> 判据：`tests/b2-states.test.ts`（13 例）+ `tests/b3-layout.test.ts`（12 例）。
+
+| # | 能力 | CSS 出码 | Konva 画布 | `.fig` 往返 | 判定 |
+|---|---|---|---|---|---|
+| G1 | 交互态 `:hover` / `:active` / `:focus-visible` | `CompiledPage.rules` 里的伪类块，`scssFromPage` 统一追加（六个出码器一次全支持） | **不预览**（画布不模拟交互） | 无伪类原语 | ⚠ 仅导出 / `KNOWN_LOSS` |
+| G2 | 禁用态 | `:disabled` + `.is-disabled` 双选择器 | 不预览 | 同上 | ⚠ 仅导出 / `KNOWN_LOSS` |
+| G3 | CSS Grid | `display:grid` + `grid-template-columns/rows` + 网格 gap；接管 flex | 画布按 flex 流排（不渲染网格） | kiwi 无网格表达 | ⚠ 导出精确 / `.fig` 降级 flex |
+| G4 | transform 组合 | `translate() rotate() scale()`，顺序固定，origin 缺省 `50% 50%` | 绕元素中心近似（自定义 origin 仅导出） | 无 CSS transform 原语 | ⚠ 画布近似 / `KNOWN_LOSS` |
+| G5 | `position: sticky / fixed` | `position` + `top`/`bottom`；与 `ABSOLUTE` 互斥 | **不预览**（画布无滚动概念） | 无原语 | ⚠ 仅导出 / `KNOWN_LOSS` |
+
+**两条结构结论**：
+
+1. **B2 是唯一需要动 `css-model.ts` 的批次** —— 伪类规则必须放 `CompiledPage.rules`，
+   不能进 `CompiledNode.css`：`buildReferenceDom` 会把 `node.css` 当静态样式渲染成基准图，
+   伪类混进去基准图就带上悬停态，像素关直接崩。而六个出码器都只调 `scssFromPage`，
+   所以只改这一处就全端生效。
+2. **`style.rotation` 不是通用旋转**（认知修正）：它只在 `LINE` 分支出码（`origin: 0 50%`，
+   语义=线段角度），矩形/Frame 之前完全没有旋转能力。B3 的 `transform` 是新能力。
+
+**诚实边界**：Taro 产物里也有 `:hover` 规则，但微信小程序不支持 CSS `:hover`（要靠 `hover-class`），
+静默无效；本轮不特判，属产品化工作。

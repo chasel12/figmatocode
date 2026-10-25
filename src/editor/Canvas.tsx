@@ -923,9 +923,30 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
   }
 
   const children = isContainer(node) ? node.children : [];
+  /**
+   * B3 元素级变换的画布近似（`StyleSchema.transform`）。
+   *
+   * 子节点用的是**绝对坐标**，所以不能直接给 Group 加 `rotation`（会绕画布原点转）。
+   * 做法：把 Group 的位置挪到元素中心、同时用 `offset` 抵消回去 ——
+   * 局部坐标不变，旋转/缩放绕中心发生。`origin` 非中心时画布仍按中心近似（面板标注）。
+   */
+  const tf = style.transform;
+  const tfProps: Record<string, unknown> =
+    tf && (tf.rotate || tf.scaleX != null || tf.scaleY != null || tf.translateX || tf.translateY)
+      ? {
+          x: geom.x + geom.width / 2 + (tf.translateX ?? 0),
+          y: geom.y + geom.height / 2 + (tf.translateY ?? 0),
+          offsetX: geom.x + geom.width / 2,
+          offsetY: geom.y + geom.height / 2,
+          rotation: tf.rotate ?? 0,
+          scaleX: tf.scaleX ?? 1,
+          scaleY: tf.scaleY ?? 1,
+        }
+      : {};
   return (
     <Group
       name={isRoot ? 'page-bg' : node.id}
+      {...tfProps}
       ref={(n) => {
         dragRef.current = n;
       }}

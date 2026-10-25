@@ -8,10 +8,23 @@
  *
  * 违例一律**不抛错**：收集成 `AiViolation[]` 返回，由上层决定喂回自修环还是展示。
  */
-import type { BorderSchema, ContainerNode, DecorationSpec, LayoutSchema, StyleSchema, UINode, UIPage, VectorNode } from '../../schema/types';
+import type {
+  BorderSchema,
+  ContainerNode,
+  DecorationSpec,
+  GridSchema,
+  LayoutSchema,
+  StateStyleSchema,
+  StatesSchema,
+  StyleSchema,
+  TransformSchema,
+  UINode,
+  UIPage,
+  VectorNode,
+} from '../../schema/types';
 import { createNode, createPage, nextId } from '../../schema/factory';
 import type { StylePack } from '../../tokens/packs/types';
-import type { AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStyleSpec, AiViolation } from './types';
+import type { AiBorderSpec, AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStatesSpec, AiStyleSpec, AiViolation } from './types';
 
 export interface BuildContext {
   pack: StylePack;
@@ -62,6 +75,72 @@ function applyColor(
   if (res.value != null) target.value = res.value;
 }
 
+/** AiBorderSpec → BorderSchema（基础样式与交互态共用；渐变走 `border.fill`，color 作降级回退） */
+function buildBorder(
+  spec: AiBorderSpec | undefined,
+  pack: StylePack,
+  path: string,
+  violations: AiViolation[],
+): BorderSchema | undefined {
+  if (!spec) return undefined;
+  const bc: { value?: string } = {};
+  applyColor(bc, `${path}.color`, spec.color, pack, violations);
+  const border: BorderSchema = {
+    width: Math.max(0, spec.width),
+    color: bc.value ?? '#000000',
+    style: spec.style ?? 'solid',
+  };
+  if (spec.gradient) {
+    const g = spec.gradient;
+    const fc: { value?: string } = {};
+    const tc: { value?: string } = {};
+    applyColor(fc, `${path}.gradient.from`, g.from, pack, violations);
+    applyColor(tc, `${path}.gradient.to`, g.to, pack, violations);
+    if (fc.value && tc.value) {
+      border.fill = {
+        type: 'GRADIENT_LINEAR',
+        angle: g.angle ?? 90,
+        stops: [
+          { position: 0, color: fc.value },
+          { position: 1, color: tc.value },
+        ],
+      };
+    }
+  }
+  return border;
+}
+
+/** B2 交互态：四槽位逐字段白名单搬运（不做隐式推断，布局字段类型层就不存在） */
+function buildStates(spec: AiStatesSpec | undefined, pack: StylePack, path: string, violations: AiViolation[]): StatesSchema | undefined {
+  if (!spec) return undefined;
+  const out: StatesSchema = {};
+  for (const key of ['hover', 'active', 'focus', 'disabled'] as const) {
+    const s = spec[key];
+    if (!s) continue;
+    const p = `${path}.${key}`;
+    const st: StateStyleSchema = {};
+    const bg: { value?: string } = {};
+    applyColor(bg, `${p}.background`, s.background, pack, violations);
+    if (bg.value) st.background = bg.value;
+    const fg: { value?: string } = {};
+    applyColor(fg, `${p}.color`, s.color, pack, violations);
+    if (fg.value) st.color = fg.value;
+    if (s.borderRadius != null) st.borderRadius = Math.max(0, s.borderRadius);
+    const bd = buildBorder(s.border, pack, `${p}.border`, violations);
+    if (bd) st.border = bd;
+    if (s.opacity != null) st.opacity = Math.min(1, Math.max(0, s.opacity));
+    if (s.effects?.length) {
+      st.effects = s.effects.map((e) => {
+        const c: { value?: string } = {};
+        applyColor(c, `${p}.effects.color`, e.color, pack, violations);
+        return { ...e, color: c.value };
+      });
+    }
+    if (Object.keys(st).length) out[key] = st;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** AiStyleSpec → StyleSchema（逐字段白名单搬运，不做任何隐式推断） */
 export function buildStyle(spec: AiStyleSpec | undefined, pack: StylePack, path: string, violations: AiViolation[]): StyleSchema {
   const style: StyleSchema = {};
@@ -76,33 +155,8 @@ export function buildStyle(spec: AiStyleSpec | undefined, pack: StylePack, path:
   if (fg.value != null) style.color = fg.value;
 
   if (spec.borderRadius != null) style.borderRadius = Math.max(0, spec.borderRadius);
-  if (spec.border) {
-    const bc: { value?: string } = {};
-    applyColor(bc, `${path}.border.color`, spec.border.color, pack, violations);
-    const border: BorderSchema = {
-      width: Math.max(0, spec.border.width),
-      color: bc.value ?? '#000000',
-      style: spec.border.style ?? 'solid',
-    };
-    if (spec.border.gradient) {
-      const g = spec.border.gradient;
-      const fc: { value?: string } = {};
-      const tc: { value?: string } = {};
-      applyColor(fc, `${path}.border.gradient.from`, g.from, pack, violations);
-      applyColor(tc, `${path}.border.gradient.to`, g.to, pack, violations);
-      if (fc.value && tc.value) {
-        border.fill = {
-          type: 'GRADIENT_LINEAR',
-          angle: g.angle ?? 90,
-          stops: [
-            { position: 0, color: fc.value },
-            { position: 1, color: tc.value },
-          ],
-        };
-      }
-    }
-    style.border = border;
-  }
+  const border = buildBorder(spec.border, pack, `${path}.border`, violations);
+  if (border) style.border = border;
   if (spec.fontSize != null) style.fontSize = spec.fontSize;
   if (spec.fontWeight != null) style.fontWeight = spec.fontWeight;
   if (spec.lineHeight != null) style.lineHeight = spec.lineHeight;
@@ -143,6 +197,29 @@ export function buildStyle(spec: AiStyleSpec | undefined, pack: StylePack, path:
       out.push(item);
     });
     if (out.length) style.decorations = out;
+  }
+  const states = buildStates(spec.states, pack, `${path}.states`, violations);
+  if (states) style.states = states;
+  if (spec.transform) {
+    const t = spec.transform;
+    const tf: TransformSchema = {};
+    if (t.rotate != null) tf.rotate = t.rotate;
+    if (t.scaleX != null) tf.scaleX = t.scaleX;
+    if (t.scaleY != null) tf.scaleY = t.scaleY;
+    if (t.translateX != null) tf.translateX = t.translateX;
+    if (t.translateY != null) tf.translateY = t.translateY;
+    if (t.origin) tf.origin = t.origin;
+    if (Object.keys(tf).length) style.transform = tf;
+  }
+  if (spec.grid) {
+    const g = spec.grid;
+    const grid: GridSchema = {};
+    if (g.columns) grid.columns = g.columns;
+    if (g.rows) grid.rows = g.rows;
+    if (g.columnGap != null) grid.columnGap = Math.max(0, g.columnGap);
+    if (g.rowGap != null) grid.rowGap = Math.max(0, g.rowGap);
+    if (g.autoFlow) grid.autoFlow = g.autoFlow;
+    if (Object.keys(grid).length) style.grid = grid;
   }
   return style;
 }

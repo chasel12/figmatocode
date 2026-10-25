@@ -1,6 +1,6 @@
-import type { BoxPadding, FillLayer, LayoutSchema, StyleSchema, UINode, UIPage } from '../schema/types';
+import type { BoxPadding, FillLayer, LayoutSchema, StatesSchema, StyleSchema, UINode, UIPage } from '../schema/types';
 import { hasText, isContainer } from '../schema/types';
-import type { CompiledNode, CompiledPage, CSSDecl } from './css-model';
+import type { CompiledNode, CompiledPage, CompiledRule, CSSDecl } from './css-model';
 import { FONT_STACK } from '../font';
 import { arcSpec } from './shapes';
 import { isShapeSvgNode } from './shapePath';
@@ -285,6 +285,8 @@ interface NodeContext {
   /** FR-23：父组内的蒙版节点（组内最上方可见图层）；null = 本节点未被蒙版裁切 */
   maskNode: UINode | null;
   viewport: { width: number; height: number };
+  /** B2：交互态伪类规则的收集器（整页一份，由 compilePage 创建） */
+  rules: CompiledRule[];
 }
 
 /** FR-23 蒙版查取：ctx 里携带的兄弟蒙版；蒙版自身不裁切自己（compileNode 传 null） */
@@ -303,6 +305,7 @@ function maskNodeOf(ctx: NodeContext): UINode | null {
  */
 export function compilePage(page: UIPage): CompiledPage {
   const nodes: CompiledNode[] = [];
+  const rules: CompiledRule[] = [];
   const classNames = buildClassNames(page);
 
   const root = page.root;
@@ -320,6 +323,7 @@ export function compilePage(page: UIPage): CompiledPage {
     childIndex: 0,
     maskNode: null,
     viewport: page.viewport,
+    rules,
   });
   void rootContentW;
 
@@ -327,7 +331,97 @@ export function compilePage(page: UIPage): CompiledPage {
     pageId: page.id,
     viewport: page.viewport,
     nodes,
+    // 无交互态时不写空数组：旧产物 / 旧测试的深比较不受影响
+    ...(rules.length ? { rules } : {}),
   };
+}
+
+/**
+ * B2 交互态允许进伪类的属性白名单（`docs/expression-gap-plan.md` 批次 2）。
+ *
+ * 只放**纯视觉**属性：任何尺寸/布局属性（width/height/display/flex/gap/padding/margin/
+ * position/overflow/line-height 之外的排版度量）都不在此列。两道防线：
+ * ① `StateStyleSchema` 类型层就没有 layout 字段；② 这里再按属性名筛一遍 ——
+ * 因为实现用的是「整份重算再 diff」的复用策略，会连带算出布局声明，必须挡住。
+ */
+const STATE_VISUAL_PROPS = new Set([
+  'background',
+  'background-color',
+  'background-image',
+  'background-origin',
+  'background-clip',
+  'background-repeat',
+  'background-size',
+  'background-position',
+  'box-shadow',
+  'filter',
+  'backdrop-filter',
+  'mix-blend-mode',
+  'opacity',
+  'color',
+  'text-decoration',
+  'text-decoration-color',
+  'outline',
+  'outline-offset',
+  'border',
+  'border-top',
+  'border-right',
+  'border-bottom',
+  'border-left',
+  'border-color',
+  'border-radius',
+  'corner-shape',
+  'clip-path',
+  'mask-image',
+  '-webkit-mask-image',
+]);
+
+/** 交互态槽位 → 选择器后缀（`disabled` 同时给伪类与 class 两个入口：div 没有 :disabled） */
+const STATE_SELECTORS: Record<keyof StatesSchema, string[]> = {
+  hover: [':hover'],
+  active: [':active'],
+  focus: [':focus-visible'],
+  disabled: [':disabled', '.is-disabled'],
+};
+
+/**
+ * B2 交互态出码：把「覆盖后的样式」整份重算一遍，与基础声明 diff，
+ * 只保留**发生变化**且在视觉白名单内的属性。
+ *
+ * 复用而非另写一套映射的好处：`fills`→多层渐变、`effects`→box-shadow 链、
+ * `border.fill`→background-clip 叠层、`decorations`→背景层 —— 这些逻辑一行都不用重写。
+ */
+function collectStateRules(node: UINode, baseCss: CSSDecl, className: string, ctx: NodeContext): void {
+  const states = node.style?.states;
+  if (!states) return;
+  for (const key of Object.keys(STATE_SELECTORS) as (keyof StatesSchema)[]) {
+    const override = states[key];
+    if (!override) continue;
+    const merged = { ...(node.style ?? {}), ...override, states: undefined } as StyleSchema;
+    let next: CSSDecl;
+    try {
+      next = compileDeclarations({ ...node, style: merged } as UINode, ctx);
+    } catch {
+      // 状态样式本身非法时宁可不出规则，也不能让整页编译失败
+      continue;
+    }
+    const decls: CSSDecl = {};
+    for (const [prop, value] of Object.entries(next)) {
+      if (!STATE_VISUAL_PROPS.has(prop)) continue;
+      if (baseCss[prop] === value) continue;
+      decls[prop] = value;
+    }
+    // 基础声明里有、覆盖后消失的视觉属性（如 hover 去掉描边）要显式清掉
+    for (const prop of Object.keys(baseCss)) {
+      if (!STATE_VISUAL_PROPS.has(prop)) continue;
+      if (prop in next) continue;
+      decls[prop] = prop.startsWith('background') ? 'none' : prop === 'box-shadow' ? 'none' : prop === 'filter' ? 'none' : prop === 'border' || prop.startsWith('border-') ? 'none' : prop === 'opacity' ? '1' : 'none';
+    }
+    if (!Object.keys(decls).length) continue;
+    for (const suffix of STATE_SELECTORS[key]) {
+      ctx.rules.push({ selector: `.${className}${suffix}`, decls });
+    }
+  }
 }
 
 function compileNode(
@@ -340,6 +434,8 @@ function compileNode(
   if (node.type === 'SLICE') return;
   const css = compileDeclarations(node, ctx);
   out.push({ id: node.id, className: classNames[node.id], css });
+  // B2 交互态：伪类规则单独成条（不进基础声明，避免 reference DOM 把伪类当静态样式渲染）
+  collectStateRules(node, css, classNames[node.id], ctx);
 
   if (!isContainer(node) || node.type === 'RECTANGLE') return;
 
@@ -374,6 +470,7 @@ function compileNode(
       childIndex: child.layout.mode === 'ABSOLUTE' ? 0 : childIndex,
       maskNode: child === groupMask ? null : groupMask,
       viewport: ctx.viewport,
+      rules: ctx.rules,
     });
     if (child.layout.mode !== 'ABSOLUTE') childIndex += 1;
   }
@@ -392,7 +489,21 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
 
   // ---- 容器布局 ----
   if (isContainer(node) && node.type !== 'RECTANGLE') {
-    if (L.mode === 'VERTICAL') {
+    /**
+     * B3 CSS Grid：设置 `style.grid` 即接管布局（`flex-direction` 不再生效）。
+     *
+     * 只改容器自身的声明 —— 子项的 FILL/FIXED 尺寸照旧出（FILL 子项在网格里表现为
+     * 「填满自己的格子」）。`.fig` 无网格原语，导出降级 flex 并进 `KNOWN_LOSS`。
+     */
+    if (S.grid && L.mode !== 'ABSOLUTE') {
+      css['display'] = 'grid';
+      if (S.grid.columns) css['grid-template-columns'] = S.grid.columns;
+      if (S.grid.rows) css['grid-template-rows'] = S.grid.rows;
+      const rg = S.grid.rowGap ?? S.grid.columnGap ?? 0;
+      const cg = S.grid.columnGap ?? 0;
+      if (rg || cg) css['gap'] = `${px(rg)} ${px(cg)}`;
+      if (S.grid.autoFlow && S.grid.autoFlow !== 'row') css['grid-auto-flow'] = S.grid.autoFlow;
+    } else if (L.mode === 'VERTICAL') {
       css['display'] = 'flex';
       css['flex-direction'] = 'column';
     } else if (L.mode === 'HORIZONTAL') {
@@ -402,9 +513,19 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       css['position'] = 'relative';
     }
 
+    // B3 滚动定位：仅出码侧（画布无滚动概念）；与 ABSOLUTE 互斥，ABS 已出 position: absolute
+    if (L.position && L.mode !== 'ABSOLUTE') {
+      css['position'] = L.position === 'FIXED' ? 'fixed' : 'sticky';
+      const top = L.stickyTop ?? (L.stickyBottom != null ? undefined : 0);
+      if (top != null) css['top'] = px(top);
+      else if (L.stickyBottom != null) css['bottom'] = px(L.stickyBottom);
+    }
+
     if (L.mode !== 'ABSOLUTE') {
       // FR-36：wrap 折行（gap 主轴 / gapCross 交叉轴，缺省交叉轴沿用 gap）；负 gap 按 Figma 允许
-      if (L.wrap === 'WRAP') {
+      if (S.grid) {
+        // 网格模式：wrap / flex gap 语义不适用，上面已按 rowGap/columnGap 出 gap
+      } else if (L.wrap === 'WRAP') {
         css['flex-wrap'] = 'wrap';
         const cross = L.gapCross ?? L.gap ?? 0;
         const rowGap = L.mode === 'VERTICAL' ? L.gap ?? 0 : cross;
@@ -800,6 +921,24 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
    * - `filter` 链已装好 blur/url(#…) → duotone 只能接在其后，提前会被 effects 块整体覆写。
    */
   if (node.type !== 'VECTOR' && !shapeSvg) compileDecorations(S, css);
+
+  /**
+   * B3 元素级变换（translate → rotate → scale，顺序固定可预测）。
+   *
+   * 与 LINE 的 `rotation` 无关：LINE 在下面自己的分支里出 `rotate()` + `origin: 0 50%`
+   * （那是「线段角度」），此处 `node.type === 'LINE'` 时跳过，避免两处互相覆写。
+   */
+  if (S.transform && node.type !== 'LINE') {
+    const t = S.transform;
+    const parts: string[] = [];
+    if (t.translateX || t.translateY) parts.push(`translate(${px(t.translateX ?? 0)}, ${px(t.translateY ?? 0)})`);
+    if (t.rotate) parts.push(`rotate(${t.rotate}deg)`);
+    if (t.scaleX != null || t.scaleY != null) parts.push(`scale(${round2(t.scaleX ?? 1)}, ${round2(t.scaleY ?? 1)})`);
+    if (parts.length) {
+      css['transform'] = parts.join(' ');
+      css['transform-origin'] = t.origin ?? '50% 50%';
+    }
+  }
 
   // ---- 排版 ----
   if (isText || isButton) {

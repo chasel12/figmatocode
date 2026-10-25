@@ -92,6 +92,47 @@ export interface AiDecorationSpec {
   cut?: number;
 }
 
+/** B2 交互态单态：只允许视觉字段（与 `StateStyleSchema` 同口径，收窄掉 decorations/points） */
+export interface AiStateStyle {
+  /** 填充色：hex 或令牌引用 */
+  background?: string;
+  /** 文本色：hex 或令牌引用 */
+  color?: string;
+  borderRadius?: number;
+  border?: AiBorderSpec;
+  /** 0-1 */
+  opacity?: number;
+  effects?: AiEffectSpec[];
+}
+
+export interface AiStatesSpec {
+  hover?: AiStateStyle;
+  active?: AiStateStyle;
+  focus?: AiStateStyle;
+  disabled?: AiStateStyle;
+}
+
+/** B3 元素级变换（缺省绕元素中心；顺序 translate → rotate → scale） */
+export interface AiTransformSpec {
+  rotate?: number;
+  scaleX?: number;
+  scaleY?: number;
+  translateX?: number;
+  translateY?: number;
+  /** CSS transform-origin，缺省 50% 50% */
+  origin?: string;
+}
+
+/** B3 CSS Grid（设置即接管容器布局，flex 语义失效） */
+export interface AiGridSpec {
+  /** grid-template-columns 原值，如 repeat(3, 1fr) */
+  columns?: string;
+  rows?: string;
+  columnGap?: number;
+  rowGap?: number;
+  autoFlow?: 'row' | 'column' | 'row dense' | 'column dense';
+}
+
 export interface AiStyleSpec {
   /** 填充色：hex 或 @token */
   background?: string;
@@ -101,6 +142,12 @@ export interface AiStyleSpec {
   border?: AiBorderSpec;
   /** B1 装饰层（只补 fills/effects 表达不了的视觉） */
   decorations?: AiDecorationSpec[];
+  /** B2 交互态：出码成伪类，画布不预览 */
+  states?: AiStatesSpec;
+  /** B3 元素级变换 */
+  transform?: AiTransformSpec;
+  /** B3 CSS Grid */
+  grid?: AiGridSpec;
   fontSize?: number;
   fontWeight?: number;
   lineHeight?: number;

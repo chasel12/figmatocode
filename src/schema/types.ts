@@ -88,6 +88,15 @@ export interface LayoutSchema {
   mode: LayoutMode;
   widthMode: SizeMode;
   heightMode: SizeMode;
+  /**
+   * B3 滚动定位：`STICKY` / `FIXED` **仅出码侧生效**（画布没有滚动概念，不预览）。
+   * 与 `mode: 'ABSOLUTE'` 互斥——ABSLOUTE 已经出 `position: absolute`，此处不再覆写。
+   */
+  position?: 'STICKY' | 'FIXED';
+  /** 配合 `position: STICKY` 的 `top`（px）；缺省 0 */
+  stickyTop?: number;
+  /** 配合 `position: STICKY` 的 `bottom`（px）；与 stickyTop 同时存在时以 top 为准 */
+  stickyBottom?: number;
   width?: number;
   height?: number;
   padding?: BoxPadding;
@@ -211,12 +220,81 @@ export interface DecorationSpec {
   cut?: number | [number, number, number, number];
 }
 
+/**
+ * B2 交互态的单态样式：**只允许覆盖视觉字段**。
+ *
+ * 刻意不含 `layout` 与任何尺寸字段 —— 交互态改布局会让「悬停时元素跳位」，
+ * 且画布无法预览（画布不模拟交互），一旦允许改布局就变成不可验证的改动。
+ * 编译侧还有一道白名单闸门（`compile.ts:STATE_VISUAL_PROPS`）兜底。
+ */
+export interface StateStyleSchema {
+  background?: string;
+  fills?: FillLayer[];
+  color?: string;
+  border?: BorderSchema;
+  borderRadius?: number | [number, number, number, number];
+  opacity?: number;
+  effects?: Effect[];
+  decorations?: DecorationSpec[];
+}
+
+/** B2 交互态：四个伪类槽位（`.fig` 无对应原语 → 全部 KNOWN_LOSS） */
+export interface StatesSchema {
+  hover?: StateStyleSchema;
+  active?: StateStyleSchema;
+  focus?: StateStyleSchema;
+  disabled?: StateStyleSchema;
+}
+
+/**
+ * B3 变换组合（`docs/expression-gap-plan.md` 批次 3）。
+ *
+ * 与既有的 `rotation` 区分：`rotation` 是 **LINE 的线段角度**（配合 `height:0 + border-top`，
+ * origin 固定 `0 50%`），语义完全不同。这里是**元素级**变换，缺省绕元素中心。
+ * 顺序固定 translate → rotate → scale（与 CSS `transform` 书写顺序一致，可预测）。
+ */
+export interface TransformSchema {
+  /** 旋转角 deg（顺时针） */
+  rotate?: number;
+  scaleX?: number;
+  scaleY?: number;
+  translateX?: number;
+  translateY?: number;
+  /** CSS `transform-origin`，缺省 `50% 50%`（元素中心，与 Figma 语义一致） */
+  origin?: string;
+}
+
+/**
+ * B3 CSS Grid：设置后容器走 `display: grid`，`flex-direction` 等 flex 专用声明不再生效。
+ *
+ * `.fig` 没有可逆原语 → 导出降级为 flex（列数信息丢失），进 `KNOWN_LOSS`。
+ * 子项尺寸沿用原 FILL/FIXED 声明：FILL 子项在网格里表现为「填满自己的格子」。
+ */
+export interface GridSchema {
+  /** `grid-template-columns` 原值，如 `repeat(3, 1fr)` 或 `1fr 2fr` */
+  columns?: string;
+  /** `grid-template-rows` 原值 */
+  rows?: string;
+  /** 列间距 px（缺省 0） */
+  columnGap?: number;
+  /** 行间距 px（缺省取 columnGap） */
+  rowGap?: number;
+  /** `grid-auto-flow`，缺省 row */
+  autoFlow?: 'row' | 'column' | 'row dense' | 'column dense';
+}
+
 export interface StyleSchema {
   background?: string;
   /** FR-17 多层填充（数组序=面板序=CSS 层序，首层在上；未设时回退 background 旧路径） */
   fills?: FillLayer[];
   /** B1 装饰层（封闭枚举，只补 fills/effects 表达不了的视觉） */
   decorations?: DecorationSpec[];
+  /** B2 交互态：出码成伪类规则，画布不预览，`.fig` 不往返 */
+  states?: StatesSchema;
+  /** B3 元素级变换组合（translate → rotate → scale），画布近似、`.fig` 近似 */
+  transform?: TransformSchema;
+  /** B3 CSS Grid（容器专用）；`.fig` 降级 flex */
+  grid?: GridSchema;
   color?: string;
   border?: BorderSchema;
   borderRadius?: number | [number, number, number, number];

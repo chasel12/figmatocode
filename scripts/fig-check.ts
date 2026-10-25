@@ -106,6 +106,19 @@ function normalizeStyle(style: UINode['style']): Record<string, unknown> {
    * 比对前抹掉，避免「必然丢失」被记成往返失败。
    */
   delete out.decorations;
+  /**
+   * B2 交互态（hover / active / focus / disabled）**整体降级**：Figma 没有伪类原语
+   * （交互在 Figma 里是 Prototype 的 `trigger`，与样式无关，且不在 AST 的这一层表达）。
+   * 导出丢弃、导入不还原，属已报备的 `KNOWN_LOSS`。
+   */
+  delete out.states;
+  /**
+   * B3 元素级变换与 CSS Grid：Figma 的 `rotation` 是节点属性（不是 CSS transform），
+   * 且网格布局在 kiwi schema 里没有可逆表达 —— 两者都导出丢弃、导入不还原，
+   * 属已报备的 `KNOWN_LOSS`（`docs/expression-gap-plan.md` 批次 3）。
+   */
+  delete out.transform;
+  delete out.grid;
   const fills = out.fills as { type?: string; color?: string }[] | undefined;
   if (Array.isArray(fills)) {
     if (fills.length === 1 && fills[0].type === 'SOLID' && (fills[0].color ?? '').toLowerCase() === String(out.background ?? '').toLowerCase()) {

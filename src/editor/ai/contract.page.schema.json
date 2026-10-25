@@ -160,6 +160,35 @@
       "type": "object",
       "additionalProperties": false
     },
+    "AiGridSpec": {
+      "description": "B3 CSS Grid（设置即接管容器布局，flex 语义失效）",
+      "properties": {
+        "autoFlow": {
+          "enum": [
+            "row",
+            "column",
+            "row dense",
+            "column dense"
+          ],
+          "type": "string"
+        },
+        "columnGap": {
+          "type": "number"
+        },
+        "columns": {
+          "description": "grid-template-columns 原值，如 repeat(3, 1fr)",
+          "type": "string"
+        },
+        "rowGap": {
+          "type": "number"
+        },
+        "rows": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    },
     "AiLayoutSpec": {
       "properties": {
         "align": {
@@ -323,6 +352,55 @@
       "type": "object",
       "additionalProperties": false
     },
+    "AiStateStyle": {
+      "description": "B2 交互态单态：只允许视觉字段（与 `StateStyleSchema` 同口径，收窄掉 decorations/points）",
+      "properties": {
+        "background": {
+          "description": "填充色：hex 或令牌引用",
+          "type": "string"
+        },
+        "border": {
+          "$ref": "#/definitions/AiBorderSpec"
+        },
+        "borderRadius": {
+          "type": "number"
+        },
+        "color": {
+          "description": "文本色：hex 或令牌引用",
+          "type": "string"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/AiEffectSpec"
+          },
+          "type": "array"
+        },
+        "opacity": {
+          "description": "0-1",
+          "type": "number"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiStatesSpec": {
+      "properties": {
+        "active": {
+          "$ref": "#/definitions/AiStateStyle"
+        },
+        "disabled": {
+          "$ref": "#/definitions/AiStateStyle"
+        },
+        "focus": {
+          "$ref": "#/definitions/AiStateStyle"
+        },
+        "hover": {
+          "$ref": "#/definitions/AiStateStyle"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    },
     "AiStyleSpec": {
       "properties": {
         "background": {
@@ -358,6 +436,10 @@
         "fontWeight": {
           "type": "number"
         },
+        "grid": {
+          "$ref": "#/definitions/AiGridSpec",
+          "description": "B3 CSS Grid"
+        },
         "letterSpacing": {
           "type": "number"
         },
@@ -367,6 +449,10 @@
         "opacity": {
           "type": "number"
         },
+        "states": {
+          "$ref": "#/definitions/AiStatesSpec",
+          "description": "B2 交互态：出码成伪类，画布不预览"
+        },
         "textAlign": {
           "enum": [
             "left",
@@ -375,6 +461,36 @@
             "justify"
           ],
           "type": "string"
+        },
+        "transform": {
+          "$ref": "#/definitions/AiTransformSpec",
+          "description": "B3 元素级变换"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiTransformSpec": {
+      "description": "B3 元素级变换（缺省绕元素中心；顺序 translate → rotate → scale）",
+      "properties": {
+        "origin": {
+          "description": "CSS transform-origin，缺省 50% 50%",
+          "type": "string"
+        },
+        "rotate": {
+          "type": "number"
+        },
+        "scaleX": {
+          "type": "number"
+        },
+        "scaleY": {
+          "type": "number"
+        },
+        "translateX": {
+          "type": "number"
+        },
+        "translateY": {
+          "type": "number"
         }
       },
       "type": "object",

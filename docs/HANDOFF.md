@@ -518,3 +518,45 @@ npm run codegen:verify:react                    # 此时比对才是同版本
   加 `rules?: CompiledRule[]`（`scssFromPage` 输出），六个出码器一次全支持 —— 这是**唯一**需要动
   `css-model.ts` 的批次。画布不预览，`.fig` 全 `KNOWN_LOSS`。
 - **B3 布局表达力**：CSS Grid（`.fig` 降级 flex）、transform 组合 + origin、`position: sticky/fixed`（仅导出侧）。
+
+---
+
+## 15. 交互态 B2 + 布局表达力 B3（2026-10-26 新增）
+
+计划书 §14 是完整记录。这里只放接手要用的。
+
+### 15.1 代码地图
+
+| 文件 | 职责 |
+|---|---|
+| `src/compiler/css-model.ts` | `CompiledRule` + `CompiledPage.rules?`；`scssFromPage` 在节点块之后追加规则块 |
+| `src/compiler/compile.ts` | `collectStateRules()` + `STATE_VISUAL_PROPS` 白名单 + `STATE_SELECTORS`；`style.grid` / `style.transform` / `layout.position` 出码 |
+| `src/schema/types.ts` | `StateStyleSchema` / `StatesSchema` / `TransformSchema` / `GridSchema`；`StyleSchema.states/transform/grid`；`LayoutSchema.position/stickyTop/stickyBottom` |
+| `src/editor/Canvas.tsx` | `tfProps`（绕元素中心近似 transform）；交互态与 sticky **不预览** |
+| `src/editor/PropertyPanel.tsx` | 「交互态」「变换」「网格布局」「滚动定位」四个分区 |
+| `src/editor/ai/types.ts` / `specToPage.ts` | `AiStateStyle`/`AiStatesSpec`/`AiTransformSpec`/`AiGridSpec` + `buildBorder()`（基础样式与交互态共用） |
+| `tests/b2-states.test.ts` / `tests/b3-layout.test.ts` | 25 例 |
+
+### 15.2 三条容易踩的
+
+1. **伪类绝不能进 `CompiledNode.css`**：`buildReferenceDom` 会把 `node.css` 当静态样式渲染成基准图，
+   伪类混进去基准图就带上「悬停态」→ 像素关崩。规则必须走 `CompiledPage.rules`。
+2. **`style.rotation` 不是通用旋转**：它只在 `LINE` 分支出码（`origin: 0 50%`，语义=线段角度）。
+   矩形/Frame 用 `style.transform.rotate`。`compileDecorations` 之后的 transform 段对 `LINE` 跳过，
+   否则两处互相覆写。
+3. **Grid 与 ABSOLUTE 互斥**：`mode === 'ABSOLUTE'` 时不出 `display:grid`，也不出 sticky/fixed
+   （ABS 已经出了 `position: absolute`）。
+
+### 15.3 只许改视觉的两道防线
+
+- 类型层：`StateStyleSchema` 没有 layout 字段；
+- 运行时：`STATE_VISUAL_PROPS` 白名单。**必须有第二道**——实现是「覆盖后整份重算再 diff」，
+  会连带算出布局声明，只靠类型挡不住 `as any`。
+
+### 15.4 还没做（诚实边界）
+
+- **Taro 伪类无效**：`scssFromPage` 是共享出口，Taro 产物里也有 `:hover` / `:focus-visible`，
+  但微信小程序不支持（要靠 `hover-class`）。属产品化工作，不在表达力范围。
+- **交互态画布不预览**：画布不模拟交互，假装支持会误导。右栏已标注。
+- **`transform` 自定义 origin 仅导出**：画布按元素中心近似。
+- **Grid 子项**：沿用原 FILL/FIXED 声明，未做 `grid-area` / `span` 的逐项定位。

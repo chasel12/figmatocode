@@ -7,6 +7,9 @@ import type {
   FillKind,
   DecorationSpec,
   FillLayer,
+  GridSchema,
+  StateStyleSchema,
+  StatesSchema,
   HorizontalConstraint,
   ImageAdjustments,
   JustifyMode,
@@ -15,6 +18,7 @@ import type {
   SizeMode,
   StyleSchema,
   TextAlign,
+  TransformSchema,
   UINode,
   VerticalConstraint,
 } from '../schema/types';
@@ -1617,6 +1621,217 @@ export function PropertyPanel() {
               {!decos.length && (
                 <div className="props-note">发光/内发光/噪点/纹理/毛玻璃/网格叠加在「效果」与「布局网格」里，不在此重复。</div>
               )}
+            </>
+          );
+        })()}
+      </div>
+
+      {/* B2 交互态：出码成伪类，画布不预览（画布不模拟交互，假装支持会误导） */}
+      <div className="prop-section">
+        <div className="prop-heading">交互态</div>
+        {(() => {
+          const states: StatesSchema = S.states ?? {};
+          const LABEL: Record<keyof StatesSchema, string> = { hover: '悬停', active: '按下', focus: '聚焦', disabled: '禁用' };
+          const commitStates = (next: StatesSchema) => {
+            const has = Object.values(next).some((v) => v && Object.keys(v).length);
+            setStyle({ states: has ? next : undefined }, true);
+            commit();
+          };
+          const patchState = (key: keyof StatesSchema, p: Partial<StateStyleSchema>) =>
+            commitStates({ ...states, [key]: { ...(states[key] ?? {}), ...p } });
+          return (
+            <>
+              {(Object.keys(LABEL) as (keyof StatesSchema)[]).map((key) => {
+                const st = states[key];
+                const on = !!st;
+                return (
+                  <div className="fill-layer" key={`state-${key}`}>
+                    <div className="fill-layer-head">
+                      <button
+                        type="button"
+                        className="mini-btn"
+                        title={on ? '移除该态' : '添加该态'}
+                        onClick={() => {
+                          if (on) {
+                            const next = { ...states };
+                            delete next[key];
+                            commitStates(next);
+                          } else {
+                            commitStates({ ...states, [key]: { background: '#4096FF' } });
+                          }
+                        }}
+                      >
+                        {on ? '删' : '加'}
+                      </button>
+                      <span>{LABEL[key]}</span>
+                      {on && <span className="props-note" style={{ marginLeft: 'auto' }}>{`:${key}`}</span>}
+                    </div>
+                    {on && st && (
+                      <>
+                        <Row label="背景">
+                          <ColorField
+                            value={st.background ?? ''}
+                            onInput={(v) => patchState(key, { background: v || undefined })}
+                            onCommit={commit}
+                          />
+                        </Row>
+                        <Row label="文字色">
+                          <ColorField
+                            value={st.color ?? ''}
+                            onInput={(v) => patchState(key, { color: v || undefined })}
+                            onCommit={commit}
+                          />
+                        </Row>
+                        <label className="eff-field">
+                          <span>不透明</span>
+                          <NumField
+                            value={Math.round((st.opacity ?? 1) * 100)}
+                            min={0}
+                            max={100}
+                            suffix="%"
+                            onInput={(v) => patchState(key, { opacity: v / 100 })}
+                            onCommit={commit}
+                          />
+                        </label>
+                        <label className="eff-field">
+                          <span>圆角</span>
+                          <NumField
+                            value={typeof st.borderRadius === 'number' ? st.borderRadius : 0}
+                            min={0}
+                            max={200}
+                            onInput={(v) => patchState(key, { borderRadius: v })}
+                            onCommit={commit}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="props-note">
+                交互态只出码、画布不预览；只允许改视觉（背景/文字色/透明度/圆角/描边/效果），改布局会被编译侧白名单挡掉。
+                `.fig` 无伪类原语，往返不保留。
+              </div>
+            </>
+          );
+        })()}
+      </div>
+
+      {/* B3 变换：translate → rotate → scale（画布绕中心近似） */}
+      <div className="prop-section">
+        <div className="prop-heading">变换</div>
+        {(() => {
+          const tf: TransformSchema = S.transform ?? {};
+          const patch = (p: Partial<TransformSchema>) => {
+            const next = { ...tf, ...p };
+            const empty = !next.rotate && !next.scaleX && !next.scaleY && !next.translateX && !next.translateY && !next.origin;
+            setStyle({ transform: empty ? undefined : next }, true);
+            commit();
+          };
+          return (
+            <>
+              <label className="eff-field">
+                <span>旋转</span>
+                <NumField value={tf.rotate ?? 0} min={-360} max={360} suffix="°" onInput={(v) => patch({ rotate: v || undefined })} onCommit={commit} />
+              </label>
+              <Row label="缩放">
+                <NumField value={Math.round((tf.scaleX ?? 1) * 100)} min={0} max={400} suffix="%" onInput={(v) => patch({ scaleX: v === 100 ? undefined : v / 100 })} onCommit={commit} />
+                <NumField value={Math.round((tf.scaleY ?? 1) * 100)} min={0} max={400} suffix="%" onInput={(v) => patch({ scaleY: v === 100 ? undefined : v / 100 })} onCommit={commit} />
+              </Row>
+              <Row label="位移">
+                <NumField value={tf.translateX ?? 0} min={-2000} max={2000} onInput={(v) => patch({ translateX: v || undefined })} onCommit={commit} />
+                <NumField value={tf.translateY ?? 0} min={-2000} max={2000} onInput={(v) => patch({ translateY: v || undefined })} onCommit={commit} />
+              </Row>
+              <Row label="原点">
+                <input
+                  type="text"
+                  value={tf.origin ?? ''}
+                  placeholder="50% 50%"
+                  onChange={(e) => patch({ origin: e.target.value || undefined })}
+                  onBlur={commit}
+                />
+              </Row>
+              <div className="props-note">画布按元素中心近似（自定义原点仅导出生效）；`.fig` 无 transform 原语，往返不保留。</div>
+            </>
+          );
+        })()}
+      </div>
+
+      {/* B3 CSS Grid：设置即接管容器布局（flex 语义失效） */}
+      <div className="prop-section">
+        <div className="prop-heading">网格布局</div>
+        {(() => {
+          const g: GridSchema | undefined = S.grid;
+          const patch = (p: Partial<GridSchema>) => {
+            const next = { ...(g ?? {}), ...p };
+            const empty = !next.columns && !next.rows && !next.columnGap && !next.rowGap && !next.autoFlow;
+            setStyle({ grid: empty ? undefined : next }, true);
+            commit();
+          };
+          return (
+            <>
+              <Row label="列模板">
+                <input
+                  type="text"
+                  value={g?.columns ?? ''}
+                  placeholder="repeat(3, 1fr)"
+                  onChange={(e) => patch({ columns: e.target.value || undefined })}
+                  onBlur={commit}
+                />
+              </Row>
+              <Row label="行模板">
+                <input
+                  type="text"
+                  value={g?.rows ?? ''}
+                  placeholder="auto"
+                  onChange={(e) => patch({ rows: e.target.value || undefined })}
+                  onBlur={commit}
+                />
+              </Row>
+              <Row label="间距">
+                <NumField value={g?.columnGap ?? 0} min={0} max={200} onInput={(v) => patch({ columnGap: v || undefined })} onCommit={commit} />
+                <NumField value={g?.rowGap ?? 0} min={0} max={200} onInput={(v) => patch({ rowGap: v || undefined })} onCommit={commit} />
+              </Row>
+              <div className="props-note">填了模板即接管布局（flex 方向/换行失效）；`.fig` 无网格原语，导出降级 flex。</div>
+            </>
+          );
+        })()}
+      </div>
+
+      {/* B3 滚动定位：仅出码侧（画布无滚动概念） */}
+      <div className="prop-section">
+        <div className="prop-heading">滚动定位</div>
+        {(() => {
+          const pos = node.layout.position ?? 'NONE';
+          const patch = (p: Partial<typeof node.layout>) => {
+            setLayout({ ...node.layout, ...p });
+          };
+          return (
+            <>
+              <Row label="方式">
+                <SelectField
+                  value={pos as 'NONE' | 'STICKY' | 'FIXED'}
+                  options={[
+                    { value: 'NONE', label: '跟随文档' },
+                    { value: 'STICKY', label: '粘性（滚动吸顶）' },
+                    { value: 'FIXED', label: '固定（视口）' },
+                  ]}
+                  onChange={(v) => patch({ position: v === 'NONE' ? undefined : v })}
+                />
+              </Row>
+              {pos !== 'NONE' && (
+                <label className="eff-field">
+                  <span>{pos === 'STICKY' ? '吸顶偏移' : '距顶'}</span>
+                  <NumField
+                    value={node.layout.stickyTop ?? 0}
+                    min={-2000}
+                    max={2000}
+                    onInput={(v) => patch({ stickyTop: v })}
+                    onCommit={commit}
+                  />
+                </label>
+              )}
+              <div className="props-note">仅导出生效，画布不预览；绝对定位模式下不适用。</div>
             </>
           );
         })()}

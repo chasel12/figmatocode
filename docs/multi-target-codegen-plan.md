@@ -701,3 +701,54 @@ npm run pages && npm run shot && npm run codegen:verify:react
 ```bash
 CODEBUDDY_SAFE_DELETE_ENABLED=0 npm run pages
 ```
+
+---
+
+## 14. 延伸交付：交互态 B2 与布局表达力 B3（2026-10-26）
+
+### 14.1 B2 交互态：唯一需要动 `css-model.ts` 的批次
+
+**结构决策**：伪类规则放 `CompiledPage.rules: CompiledRule[]`，由 `scssFromPage` 统一追加。
+因为六个出码器（html / project / prototype / react / vue / taro-project）**都只调 `scssFromPage`**，
+所以伪类只改这一处就全端生效 —— 不需要碰任何一个出码器。
+
+**为什么不能塞进 `CompiledNode.css`**：`buildReferenceDom` 会把 `node.css` 当**静态样式**渲染成基准图。
+伪类声明混进去会让基准图带上「悬停态」，像素关直接崩。
+
+**只许改视觉**（两道防线）：
+1. 类型层：`StateStyleSchema` 压根没有 layout 字段；
+2. 运行时：`compile.ts` 的 `STATE_VISUAL_PROPS` 白名单再筛一遍 ——
+   因为实现用的是「覆盖后整份重算再 diff」的复用策略，会连带算出布局声明，必须挡住。
+
+复用而非另写映射的好处：`fills`→多层渐变、`effects`→box-shadow 链、`border.fill`→
+background-clip 叠层、`decorations`→背景层，这些逻辑一行都不用重写。
+
+**disabled 双入口**：`:disabled`（原生 `<button>` 才有）+ `.is-disabled`（div 用）。
+只给 `:disabled` 会让所有 div 的禁用态失效。
+
+### 14.2 B3 布局表达力
+
+| 项 | 实现 | 边界 |
+|---|---|---|
+| CSS Grid | `style.grid` → `display:grid` + `grid-template-columns/rows` + 网格 gap；设置后**不出** `flex-direction`，与 `ABSOLUTE` 互斥 | `.fig` 无网格原语 → 降级 flex，`KNOWN_LOSS` |
+| transform 组合 | `style.transform` → `translate() rotate() scale()`，顺序固定、origin 缺省 `50% 50%` | 画布绕中心近似（自定义 origin 仅导出）；`.fig` 无原语 → `KNOWN_LOSS` |
+| sticky / fixed | `layout.position` + `stickyTop`/`stickyBottom` → `position: sticky/fixed` + `top`/`bottom` | **仅出码**，画布无滚动概念；与 `ABSOLUTE` 互斥 |
+
+**一个既有认知修正**：`style.rotation` **不是**通用旋转 —— 它只在 `LINE` 分支里出码
+（`rotate()` + `origin: 0 50%`，语义是「线段角度」）。矩形/Frame 之前**完全没有旋转能力**。
+所以 B3 的 `transform` 是新能力，且在 `node.type === 'LINE'` 时跳过，避免与线段角度互相覆写。
+
+### 14.3 偏差报备（接 §13.5，本轮 +3）
+
+| # | 计划口径 | 实际实现 | 理由 |
+|---|---|---|---|
+| 20 | 装饰/交互态「画布↔出码 95%」 | 交互态**画布完全不预览**；`transform` 画布按中心近似；`sticky/fixed` 不预览 | 画布不模拟交互与滚动，假装支持会误导。右栏逐项标注；像素关不受影响（伪类不进基准图，`transform` 进 `node.css` 两边同时变） |
+| 21 | `.fig` 往返「结构无损」 | `states` / `transform` / `grid` 全部 `KNOWN_LOSS`（导出丢弃、导入不还原） | Figma 无伪类原语；`rotation` 是节点属性不是 CSS transform；kiwi schema 无网格表达。`fig-check.ts` 的 `normalizeStyle` 里显式 `delete` 并注明 |
+| 22 | 计划 §1 铁律「`css-model.ts` 只做样式字符串拼接」 | 加了 `CompiledRule` + `CompiledPage.rules?` + `scssFromPage` 追加块 | B2 伪类无处可去：不进 `node.css`（污染基准图），不逐个改出码器（6 处重复）。纯增量，无 `rules` 时输出逐字节不变 |
+
+### 14.4 Taro 端伪类的诚实边界
+
+`scssFromPage` 是共享出口，所以 Taro 产物里也会有 `:hover` / `:focus-visible` 规则。
+**微信小程序不支持 CSS `:hover`**（要靠 `hover-class`），`:focus-visible` 同理。
+本轮不特判：这些选择器在小程序里是「无害但无效」的声明，静默不生效。
+真要支持得走 Taro 的 `hoverClass` 属性通道，属产品化工作，不在表达力范围内。

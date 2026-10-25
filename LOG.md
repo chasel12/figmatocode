@@ -2523,3 +2523,65 @@ checklist 差异 #41~#43 + 附 F。
 
 **下一步**：B2 交互态（`states` → 伪类，需要给 `CompiledPage` 加 `rules`，六个出码器一次全支持）、
 B3 布局表达力（Grid / transform 组合 / sticky-fixed）。
+
+## 2026-10-26 · 表达力补齐 B2 交互态 + B3 布局表达力（完整版收尾）
+
+### B2 交互态：唯一需要动 `css-model.ts` 的批次
+
+**结构决策**：伪类规则放 `CompiledPage.rules: CompiledRule[]`，`scssFromPage` 在节点块之后统一追加。
+六个出码器（html/project/prototype/react/vue/taro-project）**都只调 `scssFromPage`**，
+所以只改这一处就全端生效 —— 一个出码器都没碰。
+
+**为什么不能塞进 `CompiledNode.css`**：`buildReferenceDom` 会把 `node.css` 当**静态样式**渲染成基准图。
+伪类混进去 → 基准图带上「悬停态」→ 像素关直接崩。
+
+**只许改视觉的两道防线**：① `StateStyleSchema` 类型层压根没有 layout 字段；
+② `compile.ts` 的 `STATE_VISUAL_PROPS` 白名单再筛一遍。**第二道必须有** ——
+实现用的是「覆盖后整份重算再 diff」的复用策略（好处：fills→多层渐变、effects→box-shadow 链、
+border.fill→background-clip 叠层、decorations→背景层，这些逻辑一行都不用重写），
+但重算会连带算出布局声明，只靠类型挡不住 `as any`。
+
+`disabled` 给双入口：`:disabled`（原生 button）+ `.is-disabled`（div 用），只给前者会让 div 禁用态失效。
+
+### B3 布局表达力
+
+| 项 | 实现 | 边界 |
+|---|---|---|
+| CSS Grid | `style.grid` → `display:grid` + 模板 + 网格 gap；接管 flex，与 ABSOLUTE 互斥 | `.fig` 无原语 → 降级 flex，`KNOWN_LOSS` |
+| transform 组合 | `style.transform` → `translate() rotate() scale()`，顺序固定，origin 缺省中心 | 画布绕中心近似；`.fig` `KNOWN_LOSS` |
+| sticky / fixed | `layout.position` + `stickyTop/Bottom` | **仅出码**；与 ABSOLUTE 互斥 |
+
+**一个认知修正**：`style.rotation` **不是**通用旋转 —— 它只在 `LINE` 分支出码
+（`rotate()` + `origin: 0 50%`，语义是「线段角度」）。矩形/Frame 之前**完全没有旋转能力**。
+所以 transform 段在 `node.type === 'LINE'` 时跳过，避免与线段角度互相覆写。
+
+### 门禁实跑（2026-10-26）
+
+```
+tsc          0 错
+vitest       779/779（58 文件，B2 +13、B3 +12）
+fig 三关      PASS  导入 4/4 · 往返 18/19（1 页已报备）· CSS 18/19（同上）
+pages 断言   266/266（19 页）
+npm run build  PASS 13.73s
+```
+
+| target | 语法 | 类型 | 构建 | 像素 |
+|---|---|---|---|---|
+| react | PASS 39 文件 | PASS 0 错 | PASS 19 html / 6.7s | **99.52%** 19/19 |
+| vue | PASS 19 文件 | PASS 0 错 | PASS 19 html / 10.2s | **99.52%** 19/19 |
+| taro | PASS 42 文件 | PASS 0 错 | PASS 1 html / 60.0s | **99.38%** 18/19（豁免 1） |
+
+**像素与 B1 后逐页同值** —— 19 个 demo 页没有一页用交互态/Grid/transform/sticky，
+改动对既有产物零影响（也证明 `scssFromPage` 无 `rules` 时输出逐字节不变）。
+
+### 诚实边界（写进文档，不粉饰）
+
+- **Taro 伪类无效**：共享出口导致 Taro 产物里也有 `:hover` / `:focus-visible`，
+  但微信小程序不支持 CSS `:hover`（要靠 `hover-class`）。本轮不特判，静默不生效。
+- 交互态、sticky/fixed **画布不预览**；`transform` 自定义 origin 仅导出。
+- Grid 未做 `grid-area` / `span` 逐项定位，子项沿用原 FILL/FIXED 声明。
+
+### 偏差报备
+
+plan §14.3 第 20~22 条；checklist 附 G。累计三轮共破三条铁律
+（`types.ts` / `compile.ts` / `css-model.ts`），全部为**纯增量**，无既有字段语义变更。
