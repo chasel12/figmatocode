@@ -226,20 +226,124 @@ function fillLayerProps(f: FillLayer, g: { x: number; y: number; width: number; 
   return { fill: stops[0]?.color ?? '#000000' };
 }
 
-/** FR-18 画布描边 props：三对齐 Konva 无原生（居中近似）；四边独立取最大宽近似（LOG 已记） */
-function strokeLayerProps(style: StyleSchema): Record<string, unknown> {
+/**
+ * B1 装饰画布近似（`docs/decorations-rfc.md` §3.1）。
+ *
+ * 只画**背景层类**装饰（spotlight / vignette / mesh）：Konva 单形状只支持一个 radial 渐变，
+ * 椭圆与多点叠加都用圆 + 最强一点近似 —— 方向对、观感接近，但**不等于导出像素**。
+ * `DIAGONAL_CUT` / `DUOTONE` 画布不预览（右栏标「仅导出生效」）。
+ */
+function decorationOverlays(style: StyleSchema, g: { width: number; height: number }): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const rgba = (color: string, alpha: number): string => {
+    const [r, gg, b] = parseFillColor(color);
+    return `rgba(${r},${gg},${b},${alpha})`;
+  };
+  for (const d of style.decorations ?? []) {
+    if (d.visible === false) continue;
+    const k = Math.max(0, Math.min(1, d.intensity ?? 1));
+    const radial = (cx: number, cy: number, r: number, stops: (number | string)[]) => ({
+      fill: stops[1] as string,
+      fillPriority: 'radial-gradient',
+      fillRadialGradientStartPoint: { x: cx, y: cy },
+      fillRadialGradientEndPoint: { x: cx, y: cy },
+      fillRadialGradientStartRadius: 0,
+      fillRadialGradientEndRadius: Math.max(r, 1),
+      fillRadialGradientColorStops: stops,
+    });
+    if (d.kind === 'SPOTLIGHT') {
+      const at = d.at ?? { x: 50, y: -20 };
+      const to = d.stop?.to ?? 65;
+      out.push(
+        radial((at.x / 100) * g.width, (at.y / 100) * g.height, (Math.max(g.width, g.height) * to) / 100, [
+          0,
+          rgba(d.color ?? '#FFFFFF', k),
+          1,
+          rgba(d.color ?? '#FFFFFF', 0),
+        ]),
+      );
+    } else if (d.kind === 'VIGNETTE') {
+      const from = d.stop?.from ?? 45;
+      const to = d.stop?.to ?? 100;
+      out.push(
+        radial(g.width / 2, g.height / 2, (Math.max(g.width, g.height) * to) / 200, [
+          0,
+          rgba(d.color ?? '#000000', 0),
+          from / to,
+          rgba(d.color ?? '#000000', k * 0.55),
+          1,
+          rgba(d.color ?? '#000000', k * 0.55),
+        ]),
+      );
+    } else if (d.kind === 'MESH_GRADIENT') {
+      // 单点近似：取半径最大的一点（Konva 无法叠多层 gradient fill）
+      const pts = d.points ?? [];
+      if (!pts.length) continue;
+      const p = pts.reduce((a, b) => (b.radius > a.radius ? b : a));
+      out.push(
+        radial((p.x / 100) * g.width, (p.y / 100) * g.height, (Math.max(g.width, g.height) * p.radius) / 100, [
+          0,
+          rgba(p.color, k),
+          1,
+          rgba(p.color, 0),
+        ]),
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * FR-18 画布描边 props：三对齐 Konva 无原生（居中近似）；四边独立取最大宽近似（LOG 已记）。
+ * B1 渐变描边：`border.fill` 走 Konva 原生 `strokeLinearGradientColorStops`（画布**精确**，
+ * 与 CSS 侧 background-clip 叠层同角度口径：Figma 向量角 0=右，顺时针）。
+ */
+function strokeLayerProps(style: StyleSchema, size?: { width: number; height: number }): Record<string, unknown> {
   const b = style.border;
   if (!b) return {};
   const hasWidths = !!(b.widths && b.widths.some((w) => w > 0));
   if (!hasWidths && !(b.width > 0)) return {};
   const width = hasWidths ? Math.max(...(b.widths ?? [0])) : b.width;
   if (width <= 0) return {};
-  return {
+  const base = {
     stroke: b.color,
     strokeWidth: width,
     lineJoin: b.join === 'BEVEL' ? 'bevel' : b.join === 'ROUND' ? 'round' : 'miter',
     ...(b.join === 'MITER' && b.miterLimit ? { miterLimit: b.miterLimit } : {}),
     ...(b.dash && b.dash[0] > 0 ? { dash: [b.dash[0], b.dash[1]] } : {}),
+  };
+  const f = b.fill;
+  if (!f || f.type === 'SOLID' || hasWidths) return base;
+  const stops = f.stops && f.stops.length ? f.stops : [
+    { position: 0, color: '#000000' },
+    { position: 1, color: '#FFFFFF' },
+  ];
+  const colorStops: (number | string)[] = [];
+  for (const s of stops) {
+    const [r, g2, bl] = parseFillColor(s.color);
+    colorStops.push(s.position, `rgba(${r},${g2},${bl},${s.opacity ?? 1})`);
+  }
+  const w = size?.width ?? 100;
+  const h = size?.height ?? 100;
+  const rad = ((f.angle ?? 0) * Math.PI) / 180;
+  const len = (Math.abs(Math.cos(rad)) * w + Math.abs(Math.sin(rad)) * h) / 2;
+  const cx = w / 2;
+  const cy = h / 2;
+  if (f.type === 'GRADIENT_RADIAL') {
+    return {
+      ...base,
+      strokeRadialGradientStartPoint: { x: cx, y: cy },
+      strokeRadialGradientEndPoint: { x: cx, y: cy },
+      strokeRadialGradientStartRadius: 0,
+      strokeRadialGradientEndRadius: Math.max(w, h) / 2,
+      strokeRadialGradientColorStops: colorStops,
+    };
+  }
+  return {
+    ...base,
+    strokeLinearGradientStartPoint: { x: cx - Math.cos(rad) * len, y: cy - Math.sin(rad) * len },
+    strokeLinearGradientEndPoint: { x: cx + Math.cos(rad) * len, y: cy + Math.sin(rad) * len },
+    strokeLinearGradientColorStops: colorStops,
   };
 }
 
@@ -711,7 +815,7 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
     const arcN = arcData ? arcSpec(arcData.startingAngle, arcData.endingAngle) : null;
     const br = style.borderRadius;
     const cornerRadius = typeof br === 'number' ? br : br ? [br[0], br[1], br[2], br[3]] : 0;
-    const sp = strokeLayerProps(style);
+    const sp = strokeLayerProps(style, { width: geom.width, height: geom.height });
     const fillLayers = (style.fills ?? []).filter((f) => f.visible !== false);
     const listening = !isRoot && !node.locked;
     const ellipseGeo = {
@@ -804,6 +908,17 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
           </>
         );
       }
+    }
+    // B1 装饰预览（背景层类）：叠在形状之上，不参与命中测试
+    const decoProps = decorationOverlays(style, { width: geom.width, height: geom.height });
+    for (let i = 0; i < decoProps.length; i++) {
+      const dProps = { ...common, ...decoProps[i], listening: false };
+      shape = (
+        <>
+          {shape}
+          {renderOne(`deco-${i}`, dProps)}
+        </>
+      );
     }
   }
 

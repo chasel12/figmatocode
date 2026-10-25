@@ -8,7 +8,7 @@
  *
  * 违例一律**不抛错**：收集成 `AiViolation[]` 返回，由上层决定喂回自修环还是展示。
  */
-import type { ContainerNode, LayoutSchema, StyleSchema, UINode, UIPage, VectorNode } from '../../schema/types';
+import type { BorderSchema, ContainerNode, DecorationSpec, LayoutSchema, StyleSchema, UINode, UIPage, VectorNode } from '../../schema/types';
 import { createNode, createPage, nextId } from '../../schema/factory';
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStyleSpec, AiViolation } from './types';
@@ -79,11 +79,29 @@ export function buildStyle(spec: AiStyleSpec | undefined, pack: StylePack, path:
   if (spec.border) {
     const bc: { value?: string } = {};
     applyColor(bc, `${path}.border.color`, spec.border.color, pack, violations);
-    style.border = {
+    const border: BorderSchema = {
       width: Math.max(0, spec.border.width),
       color: bc.value ?? '#000000',
       style: spec.border.style ?? 'solid',
     };
+    if (spec.border.gradient) {
+      const g = spec.border.gradient;
+      const fc: { value?: string } = {};
+      const tc: { value?: string } = {};
+      applyColor(fc, `${path}.border.gradient.from`, g.from, pack, violations);
+      applyColor(tc, `${path}.border.gradient.to`, g.to, pack, violations);
+      if (fc.value && tc.value) {
+        border.fill = {
+          type: 'GRADIENT_LINEAR',
+          angle: g.angle ?? 90,
+          stops: [
+            { position: 0, color: fc.value },
+            { position: 1, color: tc.value },
+          ],
+        };
+      }
+    }
+    style.border = border;
   }
   if (spec.fontSize != null) style.fontSize = spec.fontSize;
   if (spec.fontWeight != null) style.fontWeight = spec.fontWeight;
@@ -97,6 +115,34 @@ export function buildStyle(spec: AiStyleSpec | undefined, pack: StylePack, path:
       applyColor(c, `${path}.effects.color`, e.color, pack, violations);
       return { ...e, color: c.value };
     });
+  }
+  if (spec.decorations?.length) {
+    const out: DecorationSpec[] = [];
+    spec.decorations.forEach((d, i) => {
+      const p = `${path}.decorations[${i}]`;
+      const item: DecorationSpec = { kind: d.kind };
+      if (d.intensity != null) item.intensity = Math.min(1, Math.max(0, d.intensity));
+      if (d.color) {
+        const c: { value?: string } = {};
+        applyColor(c, `${p}.color`, d.color, pack, violations);
+        if (c.value) item.color = c.value;
+      }
+      if (d.at) item.at = d.at;
+      if (d.stop) item.stop = d.stop;
+      if (d.cut != null) item.cut = d.cut;
+      if (d.points?.length) {
+        item.points = [];
+        d.points.forEach((pt, j) => {
+          const c: { value?: string } = {};
+          applyColor(c, `${p}.points[${j}].color`, pt.color, pack, violations);
+          if (c.value) item.points?.push({ x: pt.x, y: pt.y, radius: pt.radius, color: c.value });
+        });
+      }
+      // MESH_GRADIENT 无色斑等于没效果，直接丢弃（不静默留空壳）
+      if (d.kind === 'MESH_GRADIENT' && !item.points?.length) return;
+      out.push(item);
+    });
+    if (out.length) style.decorations = out;
   }
   return style;
 }

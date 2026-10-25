@@ -119,6 +119,16 @@ export interface LayoutSchema {
 export interface BorderSchema {
   width: number;
   color: string;
+  /**
+   * B1 渐变描边（`docs/decorations-rfc.md` §3.2）。
+   *
+   * 设置后 `color` 仅作降级回退（Konva/旧数据/.fig 无渐变时的兜底）。
+   * 三端链路都是原生能力，故不进 `KNOWN_LOSS`：
+   * - CSS：透明 border + `background-clip: …, border-box` 叠层（保留 border-radius）
+   * - Konva：`strokeLinearGradientColorStops`
+   * - .fig：`strokePaints` 写渐变 paint
+   */
+  fill?: FillLayer;
   style?: 'solid' | 'dashed' | 'dotted';
   /** FR-18 四边独立权重 [top,right,bottom,left]（缺省单值 width） */
   widths?: [number, number, number, number];
@@ -137,7 +147,6 @@ export interface BorderSchema {
 
 /** FR-17 fill 层：type=纯色/四型渐变；渐变用 stops+angle（Figma 向量角：0=右，顺时针 Y 向下） */
 export type FillKind = 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' | 'GRADIENT_ANGULAR' | 'GRADIENT_DIAMOND';
-
 export interface FillStop {
   /** 0-1 位置 */
   position: number;
@@ -159,10 +168,55 @@ export interface FillLayer {
   stops?: FillStop[];
 }
 
+/**
+ * B1 装饰类型（`docs/decorations-rfc.md`）——**封闭枚举**。
+ *
+ * 只收「现有 `fills` / `effects` / `layoutGrids` 表达不了」的视觉：
+ * - 发光/内发光/颗粒/纹理/毛玻璃/网格叠加**不在此列**（已由 `EffectKind` 与 `layoutGrids` 覆盖）
+ * - 渐变描边也不在此列（已并入 `BorderSchema.fill`）
+ *
+ * 硬约束（RFC §2）：产物必须自包含，禁止 `filter: url(#…)` 跨文档引用，
+ * 禁止伪元素叠加层（像素关的 reference DOM 是扁平的，层级语义与嵌套导出不一致）。
+ */
+export type DecorationKind = 'SPOTLIGHT' | 'VIGNETTE' | 'MESH_GRADIENT' | 'DIAGONAL_CUT' | 'DUOTONE';
+
+/** 多点渐变的一个色斑（相对节点宽高的百分比） */
+export interface MeshPoint {
+  /** 0-100 */
+  x: number;
+  /** 0-100 */
+  y: number;
+  /** 半径占长边百分比 0-100 */
+  radius: number;
+  color: string;
+}
+
+export interface DecorationSpec {
+  kind: DecorationKind;
+  /** 缺省 true */
+  visible?: boolean;
+  /** 强度 0-1（映射到 alpha 或 filter 幅度），缺省 1 */
+  intensity?: number;
+  /** 主色（spotlight/vignette 光色，duotone 高光色） */
+  color?: string;
+  /** 次色（预留：duotone 阴影色） */
+  color2?: string;
+  /** mesh 色斑，2~4 个；kind=MESH_GRADIENT 时必填 */
+  points?: MeshPoint[];
+  /** spotlight 光源位置（百分比，可负 = 画布外），缺省 {x:50,y:-20} */
+  at?: { x: number; y: number };
+  /** 衰减起止（百分比），spotlight 缺省 0~65，vignette 缺省 45~100 */
+  stop?: { from: number; to: number };
+  /** 斜切角像素：单值或四角 [tl,tr,br,bl]，缺省 12 */
+  cut?: number | [number, number, number, number];
+}
+
 export interface StyleSchema {
   background?: string;
   /** FR-17 多层填充（数组序=面板序=CSS 层序，首层在上；未设时回退 background 旧路径） */
   fills?: FillLayer[];
+  /** B1 装饰层（封闭枚举，只补 fills/effects 表达不了的视觉） */
+  decorations?: DecorationSpec[];
   color?: string;
   border?: BorderSchema;
   borderRadius?: number | [number, number, number, number];

@@ -168,7 +168,11 @@ export function fillsToStyle(paints: FigPaint[] | undefined): Partial<StyleSchem
   return out;
 }
 
-/** 描边 paint 数组 → AST border（取首层；AST 只有单色描边） */
+/**
+ * 描边 paint 数组 → AST border（取首层）。
+ * B1：首层是渐变时落 `border.fill`，`color` 取首停靠色作为降级回退
+ * （CSS 四边独立 / CENTER / OUTSIDE / 虚线、以及 Konva 的旧路径都只用 color）。
+ */
 export function strokesToStyle(
   paints: FigPaint[] | undefined,
   weight: number | undefined,
@@ -177,13 +181,30 @@ export function strokesToStyle(
   join?: string,
   cap?: string,
 ): Partial<StyleSchema> {
-  const first = (paints ?? []).find((p) => p.visible !== false && p.type === 'SOLID');
+  // 取首层**可转换**的可见 paint：IMAGE/PATTERN 这类 AST 描边表达不了的跳过，继续找下一层
+  // （不能直接取首个可见 paint —— 首层是 IMAGE 时会把后面的 SOLID 一起丢掉）
+  let fill: FillLayer | null = null;
+  let first: FigPaint | undefined;
+  for (const p of paints ?? []) {
+    if (p.visible === false) continue;
+    const f = paintToFill(p);
+    if (f) {
+      fill = f;
+      first = p;
+      break;
+    }
+  }
   const width = weight ?? 0;
-  if (!first || width <= 0) return {};
+  if (!fill || !first || width <= 0) return {};
+  const fallbackColor =
+    fill.type === 'SOLID'
+      ? (fill.color ?? colorToHex(first.color))
+      : (fill.stops?.[0]?.color ?? colorToHex(first.color));
   return {
     border: {
       width,
-      color: colorToHex(first.color),
+      color: fallbackColor,
+      ...(fill.type !== 'SOLID' ? { fill } : {}),
       style: dashPattern && dashPattern.length > 0 ? 'dashed' : 'solid',
       // AST 的缺省对齐是 INSIDE，所以只有 CENTER/OUTSIDE 需要显式写
       ...(align === 'CENTER' || align === 'OUTSIDE' ? { align } : {}),
@@ -241,33 +262,37 @@ export function effectsToStyle(effects: FigEffect[] | undefined): Effect[] {
 }
 
 /** AST 填充 → Figma paint 数组（导出用） */
+/**
+ * AST FillLayer → Figma paint（填充与描边共用：`border.fill` 走同一条转换）。
+ * `fallbackBg` 供 SOLID 层缺 color 时兜底。
+ */
+export function fillToPaint(f: FillLayer, fallbackBg?: string): FigPaint {
+  if (f.type === 'SOLID') {
+    return {
+      type: 'SOLID',
+      color: cssColorToFigColor(f.color ?? fallbackBg, '#ffffff'),
+      opacity: f.opacity ?? 1,
+      visible: true,
+      blendMode: 'NORMAL',
+    };
+  }
+  return {
+    type: f.type,
+    opacity: f.opacity ?? 1,
+    visible: true,
+    blendMode: 'NORMAL',
+    stops: (f.stops ?? []).map((s) => ({
+      color: hexToColor(s.color, s.opacity ?? 1),
+      position: s.position,
+    })),
+    transform: angleToTransform(f.angle ?? 0),
+  };
+}
+
 export function styleToPaints(style: StyleSchema | undefined): FigPaint[] {
   if (!style) return [];
   if (style.fills && style.fills.length > 0) {
-    return style.fills
-      .filter((f) => f.visible !== false)
-      .map((f) => {
-        if (f.type === 'SOLID') {
-          return {
-            type: 'SOLID',
-            color: cssColorToFigColor(f.color ?? style.background, '#ffffff'),
-            opacity: f.opacity ?? 1,
-            visible: true,
-            blendMode: 'NORMAL',
-          } satisfies FigPaint;
-        }
-        return {
-          type: f.type,
-          opacity: f.opacity ?? 1,
-          visible: true,
-          blendMode: 'NORMAL',
-          stops: (f.stops ?? []).map((s) => ({
-            color: hexToColor(s.color, s.opacity ?? 1),
-            position: s.position,
-          })),
-          transform: angleToTransform(f.angle ?? 0),
-        } satisfies FigPaint;
-      });
+    return style.fills.filter((f) => f.visible !== false).map((f) => fillToPaint(f, style.background));
   }
   if (style.background) {
     return [{ type: 'SOLID', color: cssColorToFigColor(style.background, '#ffffff'), opacity: 1, visible: true, blendMode: 'NORMAL' }];

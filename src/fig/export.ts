@@ -12,7 +12,7 @@
  */
 import { zipSync, strToU8 } from 'fflate';
 import type { ContainerNode, FillLayer, UINode, UIPage } from '../schema/types';
-import { angleToTransform, cssColorToFigColor, styleToEffects, styleToPaints, type FigEffect, type FigMatrix, type FigPaint } from './paint';
+import { angleToTransform, cssColorToFigColor, fillToPaint, styleToEffects, styleToPaints, type FigEffect, type FigMatrix, type FigPaint } from './paint';
 
 /** 导出用的节点变更（字段与 `.fig` 的 NodeChange 对齐，只写我们表达的） */
 export interface OutNodeChange {
@@ -452,7 +452,11 @@ function buildNode(
   if (fills.length > 0) change.fillPaints = fills;
 
   if (style.border && style.border.width > 0) {
-    change.strokePaints = [{ type: 'SOLID', color: cssColorToFigColor(style.border.color, '#000000'), opacity: 1, visible: true, blendMode: 'NORMAL' }];
+    // B1 渐变描边：Figma 的 strokePaints 原生支持渐变，直接写渐变 paint（往返精确）
+    change.strokePaints =
+      style.border.fill && style.border.fill.type !== 'SOLID'
+        ? [fillToPaint(style.border.fill, style.border.color)]
+        : [{ type: 'SOLID', color: cssColorToFigColor(style.border.color, '#000000'), opacity: 1, visible: true, blendMode: 'NORMAL' }];
     change.strokeWeight = style.border.width;
     // AST 的缺省对齐是 INSIDE（见 BorderSchema 注释），Figma 的缺省是 CENTER —— 必须按 AST 语义写
     change.strokeAlign = style.border.align ?? 'INSIDE';

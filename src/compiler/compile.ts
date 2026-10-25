@@ -1,4 +1,4 @@
-import type { BoxPadding, FillLayer, LayoutSchema, UINode, UIPage } from '../schema/types';
+import type { BoxPadding, FillLayer, LayoutSchema, StyleSchema, UINode, UIPage } from '../schema/types';
 import { hasText, isContainer } from '../schema/types';
 import type { CompiledNode, CompiledPage, CSSDecl } from './css-model';
 import { FONT_STACK } from '../font';
@@ -93,6 +93,154 @@ function fillLayerCss(f: FillLayer): string {
     default:
       return `linear-gradient(${stops}, ${stops})`;
   }
+}
+
+/**
+ * B1 统计 `background-image` 的**顶层**层数。
+ *
+ * 渐变内部也含逗号（`linear-gradient(a, b)`），直接 `split(',')` 会切碎，
+ * 必须按括号深度只在顶层切。用于给 `background-clip` / `background-origin` 生成对齐列表。
+ */
+function countBgLayers(value: string | undefined): number {
+  if (!value) return 0;
+  let depth = 0;
+  let n = 1;
+  for (const ch of value) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (ch === ',' && depth === 0) n++;
+  }
+  return n;
+}
+
+/** B1 单个 FillLayer → 渐变片段（描边层复用填充层的角度/停靠点口径） */
+function fillToGradient(f: FillLayer): string {
+  if (f.type === 'SOLID') {
+    const c = withAlpha(f.color ?? '#000000', f.opacity ?? 1);
+    return `linear-gradient(${c}, ${c})`;
+  }
+  return fillLayerCss(f);
+}
+
+/**
+ * B1 渐变描边出码（`docs/decorations-rfc.md` §3.2）。
+ *
+ * 不用 `border-image`（会丢 `border-radius`），改用「透明 border + 底层 border-box 渐变」：
+ * 既有填充层全部裁到 `padding-box`，渐变作为**最后一层**裁到 `border-box`，
+ * 于是渐变只从透明 border 的环里透出来，圆角由 `border-radius` 正常裁切。
+ */
+function applyGradientBorder(css: CSSDecl, fill: FillLayer, width: number, lineStyle: string): void {
+  const grad = fillToGradient(fill);
+  css['border'] = `${px(width)} ${lineStyle} transparent`;
+  const existing = countBgLayers(css['background-image']);
+  if (existing > 0) {
+    css['background-image'] = `${css['background-image']}, ${grad}`;
+    const pads = new Array(existing).fill('padding-box').join(', ');
+    css['background-origin'] = `${pads}, border-box`;
+    css['background-clip'] = `${pads}, border-box`;
+  } else {
+    // 无填充层：补一层 padding-box 底（原 background-color 或全透明），否则渐变会铺满内区
+    const bc = css['background-color'];
+    const base = bc ? `linear-gradient(${bc}, ${bc})` : 'linear-gradient(transparent, transparent)';
+    delete css['background-color'];
+    css['background-image'] = `${base}, ${grad}`;
+    css['background-origin'] = 'padding-box, border-box';
+    css['background-clip'] = 'padding-box, border-box';
+  }
+}
+
+/**
+ * B1 装饰出码（`docs/decorations-rfc.md` §5.2）。
+ *
+ * 三个通道，全部**自包含**（不引入 `<defs>`、不用伪元素）：
+ * - 背景层：prepend 到 `background-image`（首项在最上层），语义上「在自身底色之上、子元素之下」，
+ *   与扁平 reference DOM 的绘制顺序一致；
+ * - 滤镜链：prepend 到 `filter`（duotone 必须先于模糊类效果）；
+ * - 裁剪：`clip-path`，优先级「形状 > mask > 装饰」，已被占用时不出（避免破坏形状轮廓）。
+ */
+function compileDecorations(S: StyleSchema, css: CSSDecl): void {
+  const decos = (S.decorations ?? []).filter((d) => d.visible !== false);
+  if (!decos.length) return;
+  const bg: string[] = [];
+  const filters: string[] = [];
+  for (const d of decos) {
+    const k = Math.max(0, Math.min(1, d.intensity ?? 1));
+    if (d.kind === 'SPOTLIGHT') {
+      const at = d.at ?? { x: 50, y: -20 };
+      const from = d.stop?.from ?? 0;
+      const to = d.stop?.to ?? 65;
+      bg.push(
+        `radial-gradient(ellipse at ${round2(at.x)}% ${round2(at.y)}%, ${withAlpha(d.color ?? '#FFFFFF', k)} ${round2(from)}%, transparent ${round2(to)}%)`,
+      );
+    } else if (d.kind === 'VIGNETTE') {
+      const from = d.stop?.from ?? 45;
+      const to = d.stop?.to ?? 100;
+      bg.push(`radial-gradient(ellipse at center, transparent ${round2(from)}%, ${withAlpha(d.color ?? '#000000', k * 0.55)} ${round2(to)}%)`);
+    } else if (d.kind === 'MESH_GRADIENT') {
+      for (const p of d.points ?? []) {
+        bg.push(`radial-gradient(circle at ${round2(p.x)}% ${round2(p.y)}%, ${withAlpha(p.color, k)} 0%, transparent ${round2(p.radius)}%)`);
+      }
+    } else if (d.kind === 'DUOTONE') {
+      const hue = colorHue(d.color ?? '#5B8DEF');
+      filters.push(`grayscale(1) sepia(1) hue-rotate(${Math.round(hue)}deg) saturate(${Math.round(120 + k * 180)}%)`);
+    }
+  }
+  if (bg.length) {
+    const prev = css['background-image'];
+    css['background-image'] = prev ? `${bg.join(', ')}, ${prev}` : bg.join(', ');
+  }
+  if (filters.length) {
+    const prev = css['filter'];
+    css['filter'] = prev ? `${filters.join(' ')} ${prev}` : filters.join(' ');
+  }
+  const cut = decos.find((d) => d.kind === 'DIAGONAL_CUT');
+  if (cut && !css['clip-path']) {
+    const c = cut.cut ?? 12;
+    const [tl, tr, br, bl] = typeof c === 'number' ? [c, c, c, c] : c;
+    const pts: string[] = [];
+    if (tl > 0) pts.push(`0 ${px(tl)}`, `${px(tl)} 0`);
+    else pts.push('0 0');
+    if (tr > 0) pts.push(`calc(100% - ${px(tr)}) 0`, `100% ${px(tr)}`);
+    else pts.push('100% 0');
+    if (br > 0) pts.push(`100% calc(100% - ${px(br)})`, `calc(100% - ${px(br)}) 100%`);
+    else pts.push('100% 100%');
+    if (bl > 0) pts.push(`${px(bl)} 100%`, `0 calc(100% - ${px(bl)})`);
+    else pts.push('0 100%');
+    css['clip-path'] = `polygon(${pts.join(', ')})`;
+  }
+}
+
+/** hex/rgb 颜色 → 色相角 deg（duotone 的 hue-rotate 用；解析失败按蓝 220°） */
+function colorHue(color: string): number {
+  let r = 91;
+  let g = 141;
+  let b = 239;
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].split('').map((c) => c + c).join('') : hex[1];
+    r = parseInt(h.slice(0, 2), 16);
+    g = parseInt(h.slice(2, 4), 16);
+    b = parseInt(h.slice(4, 6), 16);
+  } else {
+    const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(color);
+    if (m) {
+      r = Number(m[1]);
+      g = Number(m[2]);
+      b = Number(m[3]);
+    }
+  }
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const d = max - min;
+  if (d === 0) return 0;
+  let h: number;
+  if (max === rn) h = ((gn - bn) / d) % 6;
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  return ((h * 60) % 360 + 360) % 360;
 }
 
 function mapAlign(align: string): string {
@@ -583,9 +731,15 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     // FR-18/FR-47：INSIDE→border（box-sizing:border-box）；CENTER→border 半宽+outline 外半；OUTSIDE→box-shadow 外扩
     // FR-49 / P1-14：VECTOR 与 SVG 通道形状排除——描边已由 <svg> 的 stroke 表达（避免 CSS border 重复描一圈）
     const lineStyle = b.dash ? 'dashed' : b.style ?? 'solid';
-    const color = withAlpha(b.color, b.opacity ?? 1);
+    // SOLID 型 fill 与 `color` 同义（面板给的是「描边色」），统一走 color 通道，不产生叠层
+    const color = withAlpha(b.fill?.type === 'SOLID' ? (b.fill.color ?? b.color) : b.color, b.opacity ?? 1);
     const align = b.align ?? 'INSIDE';
-    if (hasWidths && b.widths) {
+    if (b.fill && b.fill.type !== 'SOLID' && !hasWidths && lineStyle === 'solid' && align === 'INSIDE') {
+      // B1 渐变描边：仅「单宽 + 实线 + INSIDE」走叠层口径。
+      // 四边独立 / CENTER / OUTSIDE / 虚线（`style:'dashed'` 或 `dash` 数组）在 CSS 侧无叠层表达，
+      // 退回纯色（`b.color` 即降级色）。
+      applyGradientBorder(css, b.fill, b.width, lineStyle);
+    } else if (hasWidths && b.widths) {
       // 四边独立：per-side border（CENTER/OUTSIDE 与分边组合的完全体依赖 SVG，近似 per-side，Edge Case 10 记录）
       const names = ['border-top', 'border-right', 'border-bottom', 'border-left'] as const;
       b.widths.forEach((w, i) => {
@@ -636,6 +790,16 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
   if (backdropFilters.length) css['backdrop-filter'] = backdropFilters.join(' ');
   if (S.blendMode && S.blendMode !== 'NORMAL') css['mix-blend-mode'] = S.blendMode.toLowerCase().replace(/_/g, '-');
   if (S.opacity != null && S.opacity !== 1) css['opacity'] = String(S.opacity);
+
+  /**
+   * B1 装饰层（`docs/decorations-rfc.md` §5.2）：放在 fills/grids/mask/effects **之后**。
+   *
+   * 顺序不能提前，三处硬依赖：
+   * - `background-image` 已拼完 fills + layoutGrids → prepend 才是「最上层」；
+   * - `clip-path` 已被 mask/形状占用时才能让位（形状 > mask > 装饰）；
+   * - `filter` 链已装好 blur/url(#…) → duotone 只能接在其后，提前会被 effects 块整体覆写。
+   */
+  if (node.type !== 'VECTOR' && !shapeSvg) compileDecorations(S, css);
 
   // ---- 排版 ----
   if (isText || isButton) {

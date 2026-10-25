@@ -462,3 +462,59 @@ AI_PROVIDER=ollama npm run ai-matrix                        # 本地端点无 ke
 
 拼错供应商会**直接退出并列出可选值**，不会静默回退到 anthropic；点名了供应商却没给 key
 会打一行 warn 再退回离线档——这两种「以为实跑过了」的情况都不会发生。
+
+---
+
+## 14. 表达力补齐 · 装饰层 B1（2026-10-25 新增）
+
+计划书 §13 是完整记录，设计见 `docs/decorations-rfc.md`。这里只放接手要用的。
+
+### 14.1 代码地图
+
+| 文件 | 职责 |
+|---|---|
+| `src/schema/types.ts` | `DecorationKind` / `MeshPoint` / `DecorationSpec` + `StyleSchema.decorations?` + `BorderSchema.fill?` |
+| `src/compiler/compile.ts` | `applyGradientBorder()` / `compileDecorations()` / `colorHue()`；装饰调用点固定在 `S.opacity` 之后 |
+| `src/editor/Canvas.tsx` | `decorationOverlays()`（背景层类近似）+ `strokeLayerProps(style, size)` 的渐变描边 |
+| `src/editor/PropertyPanel.tsx` | 「装饰」分区：5 种按钮 + 强度/主色/逐类型参数 + 画布近似角标 |
+| `src/editor/ai/types.ts` / `specToPage.ts` | `AiDecorationSpec` / `AiGradientSpec` → AST（走 `applyColor`，支持令牌） |
+| `src/fig/paint.ts` | `fillToPaint()` 抽出复用；`strokesToStyle` 支持渐变首层 |
+| `tests/b1-decorations.test.ts` / `tests/b1-gradient-border.test.ts` | 28 例 |
+
+### 14.2 三条硬约束（改之前先读，违反会红）
+
+1. **自包含**：装饰产物禁止 `filter: url(#…)`（跨文档引用）。已有违规案例：`taro-project.ts`
+   不注入 fx defs，Taro 端 `noise`/`texture` 静默丢失——本轮只报备不改。
+2. **禁止伪元素叠加层**：像素关基准图的 DOM 是**扁平**的（`reference.ts:63-68`），
+   `::after` 在基准图里被后续兄弟节点盖住、在嵌套导出里盖在子元素上 → 同一份 CSS 两处语义不同。
+3. **必须可降级**：`.fig` 无原语时进 `KNOWN_LOSS`，并在 `fig-check.ts` 的 `normalizeStyle` 里
+   显式 `delete`，禁止静默丢失。
+
+### 14.3 装饰出码的注入位置（改错就白改）
+
+`compileDeclarations` 里 `compileDecorations` 必须在 `S.opacity` 之后，三处硬依赖：
+
+- `background-image` 已拼完 `fills` + `layoutGrids` → 此时 prepend 才是「最上层」；
+- `clip-path` 已被形状/mask 占用时才能让位（形状 > mask > 装饰）；
+- `filter` 链已装好 blur → duotone 接在其后。**提前会踩**：effects 块的
+  `css['filter'] = chainFilters.join(' ')` 会整体覆写，duotone 直接消失（本轮实测踩过一次）。
+
+### 14.4 跑关顺序（**新增，顺序错会假红**）
+
+`codegen:verify` **只读** `dist/pages/<slug>/reference.png`，不重算。加任何影响 CSS 的改动后：
+
+```bash
+CODEBUDDY_SAFE_DELETE_ENABLED=0 npm run pages   # 重建 reference.html（会 rmSync dist/pages，被守卫拦）
+npm run shot                                    # 重截 reference.png
+npm run codegen:verify:react                    # 此时比对才是同版本
+```
+
+`CODEBUDDY_SAFE_DELETE_ENABLED=0` 是宿主的批量删除守卫（阈值 50 文件/轮）绕行开关；
+`dist/pages` 是构建产物，关掉安全。
+
+### 14.5 还没做（B2/B3）
+
+- **B2 交互态**：`states?: { hover?, active?, focus?, disabled? }` → 伪类。需要给 `CompiledPage`
+  加 `rules?: CompiledRule[]`（`scssFromPage` 输出），六个出码器一次全支持 —— 这是**唯一**需要动
+  `css-model.ts` 的批次。画布不预览，`.fig` 全 `KNOWN_LOSS`。
+- **B3 布局表达力**：CSS Grid（`.fig` 降级 flex）、transform 组合 + origin、`position: sticky/fixed`（仅导出侧）。

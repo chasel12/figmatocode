@@ -46,10 +46,50 @@ export interface AiEffectSpec {
   color?: string;
 }
 
+/** B1 渐变（描边用；from/to 走 applyColor，故支持令牌引用） */
+export interface AiGradientSpec {
+  /** 起点色：hex 或令牌引用 */
+  from: string;
+  /** 终点色：hex 或令牌引用 */
+  to: string;
+  /** Figma 向量角 deg（0=向右、顺时针）；缺省 90 = 自上而下 */
+  angle?: number;
+}
+
 export interface AiBorderSpec {
   width: number;
   color: string;
   style?: 'solid' | 'dashed' | 'dotted';
+  /** 设置即走渐变描边（三端原生支持），此时 color 仅作降级回退 */
+  gradient?: AiGradientSpec;
+}
+
+/** B1 装饰：与 `schema/types.ts` 的 `DecorationSpec` 同枚举，但收窄到 AI 该管的字段 */
+export interface AiMeshPoint {
+  /** 0-100 */
+  x: number;
+  /** 0-100 */
+  y: number;
+  /** 半径占长边百分比 0-100 */
+  radius: number;
+  /** hex 或令牌引用 */
+  color: string;
+}
+
+export interface AiDecorationSpec {
+  kind: 'SPOTLIGHT' | 'VIGNETTE' | 'MESH_GRADIENT' | 'DIAGONAL_CUT' | 'DUOTONE';
+  /** 强度 0-1，缺省 1 */
+  intensity?: number;
+  /** 主色：hex 或令牌引用 */
+  color?: string;
+  /** MESH_GRADIENT 的色斑（2~4 个） */
+  points?: AiMeshPoint[];
+  /** SPOTLIGHT 光源位置（百分比，可负） */
+  at?: { x: number; y: number };
+  /** 衰减起止（百分比） */
+  stop?: { from: number; to: number };
+  /** DIAGONAL_CUT 切角像素（四角同值） */
+  cut?: number;
 }
 
 export interface AiStyleSpec {
@@ -59,6 +99,8 @@ export interface AiStyleSpec {
   color?: string;
   borderRadius?: number;
   border?: AiBorderSpec;
+  /** B1 装饰层（只补 fills/effects 表达不了的视觉） */
+  decorations?: AiDecorationSpec[];
   fontSize?: number;
   fontWeight?: number;
   lineHeight?: number;

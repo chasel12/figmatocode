@@ -6,6 +6,10 @@
         "color": {
           "type": "string"
         },
+        "gradient": {
+          "$ref": "#/definitions/AiGradientSpec",
+          "description": "设置即走渐变描边（三端原生支持），此时 color 仅作降级回退"
+        },
         "style": {
           "enum": [
             "solid",
@@ -21,6 +25,78 @@
       "required": [
         "width",
         "color"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiDecorationSpec": {
+      "properties": {
+        "at": {
+          "description": "SPOTLIGHT 光源位置（百分比，可负）",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "color": {
+          "description": "主色：hex 或令牌引用",
+          "type": "string"
+        },
+        "cut": {
+          "description": "DIAGONAL_CUT 切角像素（四角同值）",
+          "type": "number"
+        },
+        "intensity": {
+          "description": "强度 0-1，缺省 1",
+          "type": "number"
+        },
+        "kind": {
+          "enum": [
+            "SPOTLIGHT",
+            "VIGNETTE",
+            "MESH_GRADIENT",
+            "DIAGONAL_CUT",
+            "DUOTONE"
+          ],
+          "type": "string"
+        },
+        "points": {
+          "description": "MESH_GRADIENT 的色斑（2~4 个）",
+          "items": {
+            "$ref": "#/definitions/AiMeshPoint"
+          },
+          "type": "array"
+        },
+        "stop": {
+          "description": "衰减起止（百分比）",
+          "properties": {
+            "from": {
+              "type": "number"
+            },
+            "to": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "kind"
       ],
       "type": "object",
       "additionalProperties": false
@@ -57,6 +133,29 @@
       },
       "required": [
         "kind"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AiGradientSpec": {
+      "description": "B1 渐变（描边用；from/to 走 applyColor，故支持令牌引用）",
+      "properties": {
+        "angle": {
+          "description": "Figma 向量角 deg（0=向右、顺时针）；缺省 90 = 自上而下",
+          "type": "number"
+        },
+        "from": {
+          "description": "起点色：hex 或令牌引用",
+          "type": "string"
+        },
+        "to": {
+          "description": "终点色：hex 或令牌引用",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
       ],
       "type": "object",
       "additionalProperties": false
@@ -137,6 +236,35 @@
       "type": "object",
       "additionalProperties": false
     },
+    "AiMeshPoint": {
+      "description": "B1 装饰：与 `schema/types.ts` 的 `DecorationSpec` 同枚举，但收窄到 AI 该管的字段",
+      "properties": {
+        "color": {
+          "description": "hex 或令牌引用",
+          "type": "string"
+        },
+        "radius": {
+          "description": "半径占长边百分比 0-100",
+          "type": "number"
+        },
+        "x": {
+          "description": "0-100",
+          "type": "number"
+        },
+        "y": {
+          "description": "0-100",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "radius",
+        "color"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
     "AiNodeKind": {
       "description": "模型可创建的节点类型（PAGE/SECTION/SLICE/STAR/POLYGON 不在 AI 表达范围）",
       "enum": [
@@ -210,6 +338,13 @@
         "color": {
           "description": "文本/图标色：hex 或",
           "type": "string"
+        },
+        "decorations": {
+          "description": "B1 装饰层（只补 fills/effects 表达不了的视觉）",
+          "items": {
+            "$ref": "#/definitions/AiDecorationSpec"
+          },
+          "type": "array"
         },
         "effects": {
           "items": {

@@ -371,3 +371,36 @@ CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
 | 38 | 叶子节点的 `layout.mode` 不往返 | 叶子 `mode` 往返后回落到工厂默认值 | Figma 不存「叶子自身布局模式」（叶子不参与父容器的 stack 方向）；而 `compile.ts:224` 会把 `mode==='ABSOLUTE'` 当绝对定位 | **接受（有损但必要）**：导出不写叶子 mode，导入回落默认值。写成 ABSOLUTE 会让整页元素全部脱流（CSS 关曾出现 `position:absolute` + `width:max-content`） | 主线 / 2026-10-23 |
 | 39 | 计划外缺口：`.fig` 只能被门禁调用，编辑器无入口 | 文件菜单里「导入 Figma 文件」长期是 `disabled` 的占位项；`src/fig/` 只被 `scripts/fig-check.ts` 引用 | M5/M6 的验收口径是「格式映射正确」，未包含产品入口 | **✅ 已补齐（2026-10-24）**：文件菜单改为「打开…（含 .fig）」+「导入 Figma 文件（.fig）…」+「另存为 Figma 文件（.fig）」；新增 `src/fig/project.ts` 入口层，动态 import 不进首屏。Playwright 真跑 **3/3**（导入 slots.fig → 2 页 · 另存 29,947 B） | 主线 / 2026-10-24 |
 | 40 | 计划外缺口：只能接 Anthropic 协议的模型 | 供应商表两家（Anthropic / DeepSeek）都走 Messages 协议，OpenAI 协议的端点一个都接不了 | plan §7 只列了 Anthropic + DeepSeek 两家，未要求协议通用 | **✅ 已补齐（2026-10-24）**：按**协议**分层（`Protocol = anthropic \| openai`）+ 统一工厂 `createLlmClient()`；新增手写 `createOpenAiCompatClient`（零新增依赖），供应商扩到 6 家（OpenAI / Gemini / Ollama / 自定义端点）。兼容层差异按能力探测降级；未知模型价格显示「未计价」不回退。单测 17 例含真实 HTTP 往返 | 主线 / 2026-10-24 |
+| 41 | 计划外缺口：装饰层表达力（B0/B1） | 现代 UI 的「多点渐变 / 聚光 / 暗角 / 渐变描边 / 斜切角 / 双色调」全部做不出来：`GRADIENT_RADIAL` 圆心锁死 50%/50%、`BorderSchema.color` 是单值、`clip-path` 已被 mask/形状占用 | 属性闭包 vs 代码闭包（`docs/expression-gap-plan.md` §0）：AST 上界 = Figma 属性集的笛卡尔积 | **✅ 已补齐（2026-10-25，B1）**：`BorderSchema.fill` 渐变描边（CSS/Konva/`.fig` 三端**精确**）+ `StyleSchema.decorations` 5 种封闭枚举。详见附 F | 主线 / 2026-10-25 |
+| 42 | 装饰的画布预览不完整 | `MESH_GRADIENT` 画布只画最强一点；`DIAGONAL_CUT` / `DUOTONE` 画布完全不预览 | Konva 单形状只支持一个 gradient fill，无 filter 链原生、无 inset shadow | **接受（已标注）**：右栏逐项标注「近似」/「仅导出生效」，不假装支持。像素关不受影响（基准图与出码同源，装饰进 `compiled` 后两边同时变）。见附 F | 主线 / 2026-10-25 |
+| 43 | Taro 端 `noise` / `texture` 静默丢失（**既有缺陷**） | `NOISE`/`TEXTURE` 出码成 `filter: url(#fx-noise-<id>)`，`<filter>` 定义由 `collectFxDefs()` 注入；`html/react/vue/reference` 都注入了，**`taro-project.ts` 没注入** | 跨文档引用（`url(#…)`）不是自包含产物，每接一个新出码器都要重接一次 | **接受（本轮只报备不改）**：改实现会动已过像素关的 html 路径，风险 > 收益。已写入 `docs/decorations-rfc.md` §2.1 作为「装饰必须自包含」的反面案例；自包含版本（`background-image` 平铺 data-URI tile）列为 B1 可选项 | 主线 / 2026-10-25 |
+
+---
+
+## 附 F：表达力补齐对照（B1 装饰层，2026-10-25）
+
+> 设计见 `docs/decorations-rfc.md`；实施记录见 `docs/multi-target-codegen-plan.md` §13。
+> 判据：`tests/b1-decorations.test.ts` + `tests/b1-gradient-border.test.ts`（28 例）。
+
+**B0 的减法**：原计划列 10~12 种装饰，逐条 grep 后 6 种**已由 `effects` / `layoutGrids` 覆盖**
+（glow=DROP_SHADOW offset 0、inner-glow=INNER_SHADOW、noise、texture、glass、grid-overlay），
+真缺口 5 种 + 1 种应并入 `border`。
+
+| # | 能力 | CSS 出码 | Konva 画布 | `.fig` 往返 | 判定 |
+|---|---|---|---|---|---|
+| F1 | 渐变描边 `border.fill` | 透明 border + 填充层裁 `padding-box`、渐变层裁 `border-box`（保住圆角） | `strokeLinearGradientColorStops` | `strokePaints` 渐变 | ✅ 三端精确 |
+| F2 | 聚光 `SPOTLIGHT` | `radial-gradient(ellipse at x% y%, …)` 叠 `background-image` 首位 | 单 radial 近似（椭圆→圆） | 无圆心原语 | ⚠ 近似 |
+| F3 | 暗角 `VIGNETTE` | 中心透明 → 边缘压暗 | 单 radial 近似 | 无原语 | ⚠ 画布近似 / `.fig` `KNOWN_LOSS` |
+| F4 | 多点渐变 `MESH_GRADIENT` | N 条 `radial-gradient(circle at …)` | **只画最强一点**（已标注） | 无原语 | ⚠ 画布近似 / `.fig` `KNOWN_LOSS` |
+| F5 | 斜切角 `DIAGONAL_CUT` | `clip-path: polygon(…)`（形状 > mask > 装饰） | 不预览（已标注） | 无原语 | ⚠ 仅导出 / `KNOWN_LOSS` |
+| F6 | 双色调 `DUOTONE` | `filter: grayscale sepia hue-rotate saturate`（接在 blur 后） | 不预览（已标注） | 无原语 | ⚠ 仅导出 / `KNOWN_LOSS` |
+
+**三条硬约束**（`docs/decorations-rfc.md` §2，违反任一条必红）：
+
+1. **自包含**：禁止 `filter: url(#…)`（跨文档引用，见差异 #43）；
+2. **禁止伪元素叠加层**：像素关基准图 DOM 是**扁平**的（`reference.ts:63-68`），
+   `::after` 在两处层级语义不同；
+3. **必须可降级**：`.fig` 无原语时进 `KNOWN_LOSS`，`fig-check.ts` 里显式 `delete` 并注明原因。
+
+**AI 契约同步**（最容易「做完等于没做」）：`AiBorderSpec.gradient` + `AiStyleSpec.decorations`，
+`kind` 是**枚举**、`additionalProperties: false`；`npm run ai:schema` 对象数 7→11 / 13→17。

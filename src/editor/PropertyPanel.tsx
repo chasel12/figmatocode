@@ -5,6 +5,7 @@ import type {
   Effect,
   EffectKind,
   FillKind,
+  DecorationSpec,
   FillLayer,
   HorizontalConstraint,
   ImageAdjustments,
@@ -1383,6 +1384,239 @@ export function PropertyPanel() {
                 + 添加效果
               </button>
               {!S.effects && S.boxShadow && <div className="props-note">旧阴影字段生效中（添加效果后自动迁移）</div>}
+            </>
+          );
+        })()}
+      </div>
+
+      {/* B1 装饰（封闭枚举，只补 fills/effects/layoutGrids 表达不了的视觉；RFC §3.1） */}
+      <div className="prop-section">
+        <div className="prop-heading">装饰</div>
+        {(() => {
+          const decos: DecorationSpec[] = S.decorations ?? [];
+          const commitDecos = (next: DecorationSpec[]) => {
+            setStyle({ decorations: next.length ? next : undefined }, true);
+            commit();
+          };
+          const patch = (i: number, p: Partial<DecorationSpec>) => commitDecos(decos.map((d, j) => (j === i ? { ...d, ...p } : d)));
+          const DECO_LABEL: Record<DecorationSpec['kind'], string> = {
+            SPOTLIGHT: '聚光',
+            VIGNETTE: '暗角',
+            MESH_GRADIENT: '多点渐变',
+            DIAGONAL_CUT: '斜切角',
+            DUOTONE: '双色调',
+          };
+          // 画布近似边界（RFC §4.2：能近似的必须标「近似」，不能预览的必须标「仅导出」）
+          const CANVAS_NOTE: Partial<Record<DecorationSpec['kind'], string>> = {
+            MESH_GRADIENT: '画布只画最强一点（近似），导出为完整多点叠加',
+            DIAGONAL_CUT: '画布不预览（clip-path 仅导出生效）',
+            DUOTONE: '画布不预览（滤镜链仅导出生效）',
+          };
+          const seed = (kind: DecorationSpec['kind']): DecorationSpec =>
+            kind === 'MESH_GRADIENT'
+              ? {
+                  kind,
+                  points: [
+                    { x: 20, y: 20, radius: 70, color: '#7C3AED' },
+                    { x: 80, y: 80, radius: 70, color: '#06B6D4' },
+                  ],
+                }
+              : { kind };
+          return (
+            <>
+              {decos.map((d, i) => (
+                <div className="fill-layer" key={`deco-${i}`}>
+                  <div className="fill-layer-head">
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      title={d.visible === false ? '显示' : '隐藏'}
+                      onClick={() => patch(i, { visible: d.visible === false ? undefined : false })}
+                    >
+                      {d.visible === false ? '隐' : '显'}
+                    </button>
+                    <span>{DECO_LABEL[d.kind]}</span>
+                    <button type="button" className="mini-btn" title="删除" onClick={() => commitDecos(decos.filter((_, j) => j !== i))}>
+                      删
+                    </button>
+                  </div>
+                  <label className="eff-field">
+                    <span>强度</span>
+                    <NumField
+                      value={Math.round((d.intensity ?? 1) * 100)}
+                      min={0}
+                      max={100}
+                      suffix="%"
+                      onInput={(v) => patch(i, { intensity: v / 100 })}
+                      onCommit={commit}
+                    />
+                  </label>
+                  <Row label="主色">
+                    <ColorField
+                      value={d.color ?? (d.kind === 'VIGNETTE' ? '#000000' : '#FFFFFF')}
+                      onInput={(v) => patch(i, { color: v })}
+                      onCommit={commit}
+                    />
+                  </Row>
+                  {d.kind === 'SPOTLIGHT' && (
+                    <>
+                      <label className="eff-field">
+                        <span>光源 X</span>
+                        <NumField
+                          value={d.at?.x ?? 50}
+                          min={-100}
+                          max={200}
+                          suffix="%"
+                          onInput={(v) => patch(i, { at: { x: v, y: d.at?.y ?? -20 } })}
+                          onCommit={commit}
+                        />
+                      </label>
+                      <label className="eff-field">
+                        <span>光源 Y</span>
+                        <NumField
+                          value={d.at?.y ?? -20}
+                          min={-100}
+                          max={200}
+                          suffix="%"
+                          onInput={(v) => patch(i, { at: { x: d.at?.x ?? 50, y: v } })}
+                          onCommit={commit}
+                        />
+                      </label>
+                      <label className="eff-field">
+                        <span>衰减</span>
+                        <NumField
+                          value={d.stop?.to ?? 65}
+                          min={5}
+                          max={200}
+                          suffix="%"
+                          onInput={(v) => patch(i, { stop: { from: d.stop?.from ?? 0, to: v } })}
+                          onCommit={commit}
+                        />
+                      </label>
+                    </>
+                  )}
+                  {d.kind === 'VIGNETTE' && (
+                    <>
+                      <label className="eff-field">
+                        <span>起始</span>
+                        <NumField
+                          value={d.stop?.from ?? 45}
+                          min={0}
+                          max={100}
+                          suffix="%"
+                          onInput={(v) => patch(i, { stop: { from: v, to: d.stop?.to ?? 100 } })}
+                          onCommit={commit}
+                        />
+                      </label>
+                      <label className="eff-field">
+                        <span>结束</span>
+                        <NumField
+                          value={d.stop?.to ?? 100}
+                          min={1}
+                          max={200}
+                          suffix="%"
+                          onInput={(v) => patch(i, { stop: { from: d.stop?.from ?? 45, to: v } })}
+                          onCommit={commit}
+                        />
+                      </label>
+                    </>
+                  )}
+                  {d.kind === 'DIAGONAL_CUT' && (
+                    <label className="eff-field">
+                      <span>切角</span>
+                      <NumField
+                        value={typeof d.cut === 'number' ? d.cut : Math.max(...(d.cut ?? [12]))}
+                        min={0}
+                        max={200}
+                        onInput={(v) => patch(i, { cut: v })}
+                        onCommit={commit}
+                      />
+                    </label>
+                  )}
+                  {d.kind === 'MESH_GRADIENT' &&
+                    (d.points ?? []).map((p, j) => (
+                      <div className="fill-layer" key={`mesh-${i}-${j}`}>
+                        <div className="fill-layer-head">
+                          <span>色斑 {j + 1}</span>
+                          <button
+                            type="button"
+                            className="mini-btn"
+                            title="删除色斑"
+                            onClick={() => patch(i, { points: (d.points ?? []).filter((_, k) => k !== j) })}
+                          >
+                            删
+                          </button>
+                        </div>
+                        <Row label="位置">
+                          <NumField
+                            value={p.x}
+                            min={-50}
+                            max={150}
+                            suffix="%"
+                            onInput={(v) => patch(i, { points: (d.points ?? []).map((q, k) => (k === j ? { ...q, x: v } : q)) })}
+                            onCommit={commit}
+                          />
+                          <NumField
+                            value={p.y}
+                            min={-50}
+                            max={150}
+                            suffix="%"
+                            onInput={(v) => patch(i, { points: (d.points ?? []).map((q, k) => (k === j ? { ...q, y: v } : q)) })}
+                            onCommit={commit}
+                          />
+                        </Row>
+                        <label className="eff-field">
+                          <span>半径</span>
+                          <NumField
+                            value={p.radius}
+                            min={1}
+                            max={200}
+                            suffix="%"
+                            onInput={(v) => patch(i, { points: (d.points ?? []).map((q, k) => (k === j ? { ...q, radius: v } : q)) })}
+                            onCommit={commit}
+                          />
+                        </label>
+                        <Row label="颜色">
+                          <ColorField
+                            value={p.color}
+                            onInput={(v) => patch(i, { points: (d.points ?? []).map((q, k) => (k === j ? { ...q, color: v } : q)) })}
+                            onCommit={commit}
+                          />
+                        </Row>
+                      </div>
+                    ))}
+                  {d.kind === 'MESH_GRADIENT' && (d.points ?? []).length < 4 && (
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      onClick={() =>
+                        patch(i, {
+                          points: [...(d.points ?? []), { x: 50, y: 50, radius: 60, color: '#FFFFFF' }],
+                        })
+                      }
+                    >
+                      + 色斑
+                    </button>
+                  )}
+                  {CANVAS_NOTE[d.kind] && <div className="props-note">{CANVAS_NOTE[d.kind]}</div>}
+                </div>
+              ))}
+              <div className="row-inline">
+                {(['SPOTLIGHT', 'VIGNETTE', 'MESH_GRADIENT', 'DIAGONAL_CUT', 'DUOTONE'] as const).map((k) => (
+                  <button
+                    type="button"
+                    className="mini-btn"
+                    key={k}
+                    title={`添加${DECO_LABEL[k]}`}
+                    onClick={() => commitDecos([...decos, seed(k)])}
+                  >
+                    + {DECO_LABEL[k]}
+                  </button>
+                ))}
+              </div>
+              {!decos.length && (
+                <div className="props-note">发光/内发光/噪点/纹理/毛玻璃/网格叠加在「效果」与「布局网格」里，不在此重复。</div>
+              )}
             </>
           );
         })()}

@@ -99,6 +99,13 @@ function normalize(node: UINode): unknown {
  */
 function normalizeStyle(style: UINode['style']): Record<string, unknown> {
   const out = { ...(lowerHex(style ?? {}) as Record<string, unknown>) };
+  /**
+   * B1 装饰层（SPOTLIGHT/VIGNETTE/MESH_GRADIENT/DIAGONAL_CUT/DUOTONE）**整体降级**：
+   * `.fig` 的 `Effect` 只有 type/color/offset/radius/spread/blendMode，且 kiwi 无 `pluginData`，
+   * 5 种装饰在 Figma 里都没有可逆原语 —— 导出丢弃、导入不还原，属已报备的 `KNOWN_LOSS`。
+   * 比对前抹掉，避免「必然丢失」被记成往返失败。
+   */
+  delete out.decorations;
   const fills = out.fills as { type?: string; color?: string }[] | undefined;
   if (Array.isArray(fills)) {
     if (fills.length === 1 && fills[0].type === 'SOLID' && (fills[0].color ?? '').toLowerCase() === String(out.background ?? '').toLowerCase()) {
