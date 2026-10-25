@@ -259,10 +259,20 @@
 | A7 | 编辑指令干跑无违例 | PASS |
 | A8 | 风格包 3 套 + 图标库（1545 个）齐备 | PASS |
 | A9 | 单页成本落在 §7 量级（¥0.3–1.5） | ≈¥0.73 ✅ |
-| B0 | 实跑档（需 `ANTHROPIC_API_KEY`） | 跳过（无 key，非失败） |
+| B0 | 实跑档（任一供应商 key，或 `AI_PROVIDER=ollama` 无 key 本地跑） | 跳过（无 key，非失败） |
 
 **诚实边界：** D1/D2 是 M7 的唯一未闭合项，依赖真实模型调用，**不能用离线项替代或推断**。
-PM 配 key 后执行 `ANTHROPIC_API_KEY=… npm run ai-matrix`，报告会写入 `dist/ai-matrix/report.json` 的 `mode=live` 段，
+已测端点只有 DeepSeek（见上表），**Anthropic 官方端点仍未实测**，判定不外推。
+2026-10-24 起评测轨已接到统一工厂（plan §12.6），任何供应商都能跑：
+
+```bash
+AI_PROVIDER=anthropic ANTHROPIC_API_KEY=… npm run ai-matrix   # 补 D1/D2 的官方端点实测
+AI_PROVIDER=deepseek  DEEPSEEK_API_KEY=…  npm run ai-matrix   # 复跑已测端点
+OPENAI_API_KEY=…                          npm run ai-matrix   # OpenAI 协议端点
+AI_PROVIDER=ollama                        npm run ai-matrix   # 本地端点，无需 key
+```
+
+报告写入 `dist/ai-matrix/report.json` 的 `mode=live` 段（`provider` 字段自证这轮跑在哪家），
 届时回填本表 D1/D2 与计划书 §11.1 的 W6 行。
 
 ## 附 E：`.fig` 导入导出对照（M5/M6，2026-10-23）

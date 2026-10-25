@@ -548,14 +548,33 @@ UI 真跑    PASS 3/3（Playwright）
 3. **`.fig` 不能静态 import 进 Toolbar**：会把 import/export/paint 全拖进首屏。
    改为动态 import 后主包只涨了 OpenAI client 的 6.7 kB。
 
-### 12.6 仍然不做
+### 12.6 收尾：评测轨与走查都跟上协议层
+
+协议层加完后，有两处「还在按单供应商写」的地方，一并补齐——否则能力是通的，验收路径还是旧的：
+
+| 位置 | 原来的问题 | 现在 |
+|---|---|---|
+| `scripts/ai-matrix.ts` 实跑档 | 硬编码 `createAnthropicClient`，只认 `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | 改用统一工厂 `createLlmClient`；供应商解析 `AI_PROVIDER` 显式 > 按 key 自动挑（anthropic → deepseek → openai → gemini）> 跳过；`AI_PROVIDER=ollama` 可**无 key 实跑**（`keyOptional`） |
+| `scripts/walkthrough.mjs` | `.fig` 入口只用手写的一次性探针验过（`.tmp/fig-ui-probe.mjs`），不进任何门禁 | 走查末尾加三步：文件菜单两项可点 → 导入 `slots.fig` 得 2 页/图层 → 另存出非空 `.fig`；每次 `npm run walkthrough` 都验 |
+
+`jsonSchema` 能力判定也按协议分开：OpenAI 协议看供应商表声明的 `jsonSchema`，
+Anthropic 协议沿用按端点推断（DeepSeek 兼容层不认 `json_schema`）。
+
+两条「以为实跑过了」的防线（都在 CLI 侧，不靠人记）：
+- `AI_PROVIDER` 拼错 → **直接退出 1** 并列出可选值（`providerDef` 对未知 id 的兜底是给 UI 用的，CLI 不能静默变成 anthropic）；
+- 点名了供应商但没给 key → 打一行 warn 再退回离线档，报告里 `mode` 仍是 `offline`。
+
+实跑：离线档 **10/10**；拼错供应商 `REAL_EXIT=1`；`AI_PROVIDER=openai` 无 key 时 warn + 退回离线档。
+走查 **14/14**（新增三步全过）。
+
+### 12.7 仍然不做
 
 - 浏览器直连仍受 CORS 限制：OpenAI 官方端点允许浏览器直连（SDK 侧已 `dangerouslyAllowBrowser`），
   但部分网关会拦；拦了就填「自定义端点」走自己的代理（`VITE_AI_PROXY_BASE` 亦可）。
 - 组件 / Variables / Prototype / 矢量几何语义（与 §7、§11.6 一致）。
 - 没有后端：key 只在本机 localStorage，生成时只有提示词与选中节点结构出网。
 
-### 12.7 门禁根因修正：`--target all` 的父进程不能加载 playwright
+### 12.8 门禁根因修正：`--target all` 的父进程不能加载 playwright
 
 `all` 模式下 taro 构建**必卡**（两次 240s 超时、CPU 归零、0 html），单跑 34~68s 正常。
 此前两次归因都不对：
@@ -585,3 +604,20 @@ UI 真跑    PASS 3/3（Playwright）
 - 失败自动**重试一次**，`attempts` 写进 `report.json` 并打日志（不静默重试）；
 - 超时杀**整棵进程树**（`taskkill /T /F`）——`child.kill()` 只杀 shell，npm/taro 作为孙进程
   会继续持有 stdout 管道，导致 `close` 永不触发，「超时」形同虚设（实测超时后又被拖 4 分钟）。
+
+### 12.9 门禁入口：按端跑是主路径（2026-10-25）
+
+`--target all` 是便利入口，但**不能当唯一入口**：同一版代码里，`all` 下 taro 构建仍偶发卡死
+（300s 超时 ×2、日志 279 字节、CPU 归零），而 `--target taro` 单跑一次过（构建 128.2s）。
+卡点与「父进程里有什么」相关，属环境层，未彻底定位；**产物本身没问题**。
+
+因此补了三条按端脚本，作为门禁主路径：
+
+```bash
+npm run codegen:verify:react   # 语法 39 / 类型 0 错 / 构建 11.1s 19 html / 像素 99.52% 19/19
+npm run codegen:verify:vue     # 语法 19 / 类型 0 错 / 构建 9.9s  19 html / 像素 99.52% 19/19
+npm run codegen:verify:taro    # 语法 42 / 类型 0 错 / 构建 128.2s 1 html / 像素 99.38% 18/19（豁免 1）
+```
+
+判定口径不变：taro 的 06 页（97.68%）是 `taro-button-core` 文本基线差 8px，属已知豁免，需显式
+`--allow-miss taro:1` 才通过——不豁免时仍然会红，避免「默认容忍」。

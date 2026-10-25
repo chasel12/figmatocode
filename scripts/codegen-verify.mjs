@@ -14,7 +14,7 @@
  * 这样门禁在无网环境也能跑——「能不能构建」是代码问题，「能不能下载」是网络问题，不该混。
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -238,30 +238,45 @@ function hasLocalDeps(dir) {
  *    同一条命令 `> file` 重定向或不经门禁直接 spawn，34~44s 就完成。
  *    这是**最难查的一个**——代码看起来完全正确，只是「构建期有大输出」才复发。
  *
- * 现在的做法：`stdout/stderr` 用 pipe，但**全程不碰文件**——只在内存里累积，
- * 子进程结束后（或超时被杀时）一次性 `writeFileSync` 落盘。判据不依赖 shim 的流/写实现。
+ * 4. **`data` 事件里累积内存 + 退出时一次性 `writeFileSync`**：看着最干净，实测**仍会卡**——
+ *    2026-10-24 晚复现两次：`taro` 构建在门禁里 240s 超时 ×2（日志 279 字节、CPU 6s 归零），
+ *    而**同一条命令在 bash 里 `> file` 43s 就完成**。差别只在「子进程的 stdout 是不是管道」。
+ *
+ * 现在（第 5 版，也是目前唯一稳定通过的）：**把日志文件的 fd 直接交给子进程**
+ * （`stdio: ['ignore', fd, fd]`），父进程既不读管道也不写文件——等价于 shell 里的 `> file`。
+ * 父进程只等退出码，结束后读文件尾部做诊断。日志实时可读，且不存在「无人消费」的可能。
  */
 function run(cmd, cwd, timeout = 900_000, extraEnv) {
   const started = Date.now();
   const logFile = join(cwd, '.codegen-cmd.log');
   if (process.env.CODEGEN_DEBUG) console.log(`[run] ${cmd}  (cwd=${cwd})`);
   return new Promise((resolve) => {
+    // fd 拿不到（shim 不支持 openSync）才退回管道 + 内存；正常路径下父进程完全不碰 I/O
+    let fd = null;
+    try {
+      writeFileSync(logFile, '');
+      fd = openSync(logFile, 'w');
+    } catch {
+      fd = null;
+    }
     const child = spawn(cmd, {
       cwd,
       shell: true,
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: fd === null ? ['ignore', 'pipe', 'pipe'] : ['ignore', fd, fd],
       env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     });
-    if (process.env.CODEGEN_DEBUG) console.log(`[run] pid=${child.pid}`);
+    if (process.env.CODEGEN_DEBUG) console.log(`[run] pid=${child.pid} fd=${fd}`);
 
     let memory = '';
     const MAX_MEMORY = 4_000_000;
     const onData = (buf) => {
       if (memory.length < MAX_MEMORY) memory += buf.toString('utf8');
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
+    if (fd === null) {
+      child.stdout.on('data', onData);
+      child.stderr.on('data', onData);
+    }
 
     let timer = null;
     let done = false;
@@ -269,17 +284,32 @@ function run(cmd, cwd, timeout = 900_000, extraEnv) {
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
-      // 一次性落盘：跑的过程中不写文件（见上面第 3 条）
-      try {
-        writeFileSync(logFile, memory);
-      } catch {
-        /* 日志写不了不影响判定 */
+      if (fd !== null) {
+        try {
+          closeSync(fd);
+        } catch {
+          /* 已关闭 */
+        }
+      } else {
+        try {
+          writeFileSync(logFile, memory);
+        } catch {
+          /* 日志写不了不影响判定 */
+        }
+      }
+      let tail = memory;
+      if (fd !== null) {
+        try {
+          tail = readFileSync(logFile, 'utf8');
+        } catch {
+          tail = '';
+        }
       }
       resolve({
         ok: exitCode === 0 && !error,
         exitCode,
         durationMs: Date.now() - started,
-        output: String(memory).trim().slice(-4000),
+        output: String(tail).trim().slice(-4000),
         ...(error ? { error } : {}),
       });
     };
@@ -332,7 +362,12 @@ function cleanBuildDir() {
  * 构建关的超时：正常 react/vue 6~8s、taro 40~46s。给到 180/240s 是为了让「卡死」尽快
  * 暴露出来并重试——原先 900s 的超时意味着一次抖动要等 15 分钟，重试就没有意义了。
  */
-const BUILD_TIMEOUT = (target) => (target === 'taro' ? 240_000 : 180_000);
+/**
+ * 超时：够长到「真卡死」能被判出来，又不能让环境慢一点就误杀。
+ * taro h5 实测 33.8s（缓存热）~ 128.2s（机器忙时），取 300s 留 2.3 倍余量；
+ * react/vue 稳定 6~8s，180s 足够。
+ */
+const BUILD_TIMEOUT = (target) => (target === 'taro' ? 300_000 : 180_000);
 
 async function checkBuild(target) {
   const dir = join(CODEGEN, target);

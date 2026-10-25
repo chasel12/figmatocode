@@ -276,17 +276,20 @@ vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒
    `rmSync` 递归删会撞沙箱批量删除守卫（>50 文件即拒）。改成**默认覆盖写**，
    页面路径由 `pagePathOf` 确定性推导、同输入同路径，覆盖即一致；要真清跑 `--clean`。
 
-6. **门禁跑子进程的四条死路（都表现为「假死」，不报错）**
+6. **门禁跑子进程的五条死路（都表现为「假死」，不报错）**
    | 写法 | 现象 |
    |---|---|
    | `execSync` + `stdio:'pipe'` | webpack 的 assets 清单塞满管道 → ENOBUFS / 卡到超时 |
    | `execSync`/`spawnSync` + `stdio:'ignore'` | Windows 下子进程拿 NUL 句柄，Taro 的 webpack 链卡在 emit（180s 超时，日志只有一行 punycode 警告） |
    | `createWriteStream(log, 'w')` | 宿主 fs shim 把第二参数当 **encoding** 解析 → `ERR_INVALID_ARG_VALUE: Received 'w'` |
-   | **`child.stdout.pipe(createWriteStream(...))`** / **`data` 事件里 `appendFileSync`** | **最隐蔽的一个**：只要「跑的过程中写文件」，宿主 fs shim 的写调用就迟迟不返回 → 管道无人消费 → 子进程永久阻塞在 write。日志恰好停在 279 字节（npm banner + punycode 警告），CPU 6~25s 后归零；同一条命令 `> file` 重定向 **34~44s** 就完成。代码看起来完全正确，只有「构建期有大输出」才复发 |
+   | **`child.stdout.pipe(createWriteStream(...))`** / **`data` 事件里 `appendFileSync`** | 只要「跑的过程中写文件」，宿主 fs shim 的写调用就迟迟不返回 → 管道无人消费 → 子进程永久阻塞在 write。日志恰好停在 279 字节（npm banner + punycode 警告），CPU 6~25s 后归零；同一条命令 `> file` 重定向 **34~44s** 就完成 |
+   | **`data` 事件里累积内存、退出时一次性落盘**（看起来最干净） | **仍然卡**：2026-10-24 晚复现两次 240s 超时 ×2、日志 279 字节、CPU 6s 归零；而同一命令 bash 里 `> file` 43s 完成。差别只剩「子进程 stdout 是不是管道」 |
 
-   现在的写法：**异步 `spawn` + `stdio:['ignore','pipe','pipe']`，全程不碰文件**——
-   只在内存里累积，子进程退出（或超时被杀）时一次性 `writeFileSync` 落盘。
-   别把它「优化」成流式 pipe 或增量 append：那两条都是第 4 条死路。
+   **现在的写法（第 5 版，目前唯一稳定通过的）**：把日志文件的 **fd 直接交给子进程**
+   —— `openSync(logFile,'w')` 后 `stdio: ['ignore', fd, fd]`，等价于 shell 的 `> file`。
+   父进程既不读管道也不写文件，只等退出码，结束后 `readFileSync` 取尾部做诊断。
+   实测：taro 一次成功 **128.2s**（机器忙）/ 43s（空闲），日志 15KB 完整。
+   **别把它「优化」成 pipe 或流式对接**：前四条都是这么死的。
 
 7. **压缩器 worker 池会死锁（Taro 专属）**
    Terser / CssMinimizer 默认按 CPU 核数开 worker（本机 12 个），worker 由
@@ -307,6 +310,19 @@ vite 的 SSR transform 要把中间模块写到临时目录，沙箱 fs shim 拒
    一句话记法：**父进程要轻**。谁不需要浏览器，就别在顶层 import 它。
    （`spawnSync` 那段仍然保留：它确实会把父进程事件循环堵死、把 taro 从 40s 拖成 6 分钟，
    只是不是本次卡死的根因。）
+
+   **2026-10-25 补充：`all` 模式仍会偶发卡，单跑稳定。** 同一版代码（playwright 已按需加载），
+   `--target all` 里 taro 仍出现过 240s/300s 超时 ×2（日志 279 字节、CPU 归零），
+   而 `--target taro` 单跑一次过（构建 **128.2s**，日志 15KB 完整）。
+   结论：**门禁按端跑，别用 all 当唯一入口**。为此加了三条脚本：
+
+   ```bash
+   npm run codegen:verify:react   # 99.52% 19/19
+   npm run codegen:verify:vue     # 99.52% 19/19
+   npm run codegen:verify:taro    # 99.38% 18/19（豁免 1）
+   ```
+
+   `all` 保留作「一把跑完」的便利入口，但它失败时先按端复跑再判断是不是产物问题。
 
 ### 11.3 复跑
 
@@ -425,11 +441,24 @@ Git LFS 需走 `media.githubusercontent.com/media/...`）。
 
 ```bash
 npx vitest run tests/ai-providers.test.ts tests/fig-project.test.ts   # 23 例
-npm run build && node .tmp/fig-ui-probe.mjs                          # UI 真跑（一次性探针）
+npm run build && npm run walkthrough                                 # 走查（含 .fig 导入/另存三步）
 ```
 
-UI 探针验三件事：菜单两项可点 → 导入 `slots.fig` 后 2 页/图层/画布/无弹窗 → 另存出非空 `.fig`。
-最近一次：**3/3 PASS**，另存 29,947 B。
+UI 验证已从「一次性探针」升级为**常驻走查**：`scripts/walkthrough.mjs` 末尾三步
+（文件菜单两项可点 → 导入 `slots.fig` 得 2 页/图层 → 另存出非空 `.fig`），
+每次跑 `npm run walkthrough` 都验，不再依赖手写脚本。
 
 **没有真 key 时怎么验模型**：`tests/ai-providers.test.ts` 里有一条本地 http server 的
 真实往返（分块 SSE + 跨块半包），验路径、鉴权头、正文拼接、用量映射——比 mock fetch 更接近真实。
+
+**有 key 时怎么跑质量线**：`npm run ai-matrix` 的实跑档已接到统一工厂，供应商解析顺序
+`AI_PROVIDER` 显式 > 按 key 自动挑（anthropic → deepseek → openai → gemini）> 跳过：
+
+```bash
+AI_PROVIDER=deepseek DEEPSEEK_API_KEY=… npm run ai-matrix   # 记录 D1/D2（一次通过率/自修后通过率）
+OPENAI_API_KEY=… npm run ai-matrix                          # OpenAI 协议端点同样跑得动
+AI_PROVIDER=ollama npm run ai-matrix                        # 本地端点无 key（keyOptional）
+```
+
+拼错供应商会**直接退出并列出可选值**，不会静默回退到 anthropic；点名了供应商却没给 key
+会打一行 warn 再退回离线档——这两种「以为实跑过了」的情况都不会发生。

@@ -41,6 +41,9 @@
     "codegen:taro": "vite-node scripts/codegen.ts --target taro",
     "codegen:all": "vite-node scripts/codegen.ts --target all",
     "codegen:verify": "node scripts/codegen-verify.mjs --target all",
+    "codegen:verify:react": "node scripts/codegen-verify.mjs --target react",
+    "codegen:verify:vue": "node scripts/codegen-verify.mjs --target vue",
+    "codegen:verify:taro": "node scripts/codegen-verify.mjs --target taro --allow-miss taro:1",
     "fig:check": "vite-node scripts/fig-check.ts"
   },
   "dependencies": {

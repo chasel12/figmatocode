@@ -5,10 +5,11 @@
  *  - **离线档（默认）**：不需要 key。跑确定性指标——契约同步、19 页语料通过率、
  *    令牌引用可解析率、提示词预算、生成产物可出码、编辑干跑、资产完整性。
  *    这些指标回归时最有价值（不受模型随机性影响）。
- *  - **实跑档（设置 ANTHROPIC_API_KEY 或 DEEPSEEK_API_KEY 后）**：跑 10 个 golden prompt 的真实生成，
+ *  - **实跑档（检测到任一供应商 key，或显式 `AI_PROVIDER=ollama`）**：跑 10 个 golden prompt 的真实生成，
  *    记录 §6 的一次通过率 / 自修后通过率 / 风格符合度 / 单页成本。
- *    第三方兼容端点用 `AI_BASE_URL` 指定；设了 `DEEPSEEK_API_KEY` 且未设 `AI_BASE_URL` 时
- *    自动指向 `https://api.deepseek.com/anthropic`，模型默认 `deepseek-flash`（`AI_MODEL` 可覆盖）。
+ *    供应商解析顺序：`AI_PROVIDER` 显式指定 > 按 key 自动挑（anthropic → deepseek → openai → gemini）> 跳过。
+ *    协议由供应商表决定（`createLlmClient` 分派），所以 OpenAI 兼容端点（GPT / Gemini / Ollama / 自建网关）
+ *    与 Anthropic 兼容端点走同一条评测轨。`AI_BASE_URL` 覆盖端点、`AI_MODEL` 覆盖模型名。
  *
  * 产物：dist/ai-matrix/report.json（rows 结构与其他矩阵脚本一致：id/name/ok/note）
  * 用法：npm run ai-matrix
@@ -24,7 +25,7 @@ import { buildPrompt, pickFewShots, type FewShotEntry } from '../src/editor/ai/p
 import { validateAiOutput, summarizeViolations } from '../src/editor/ai/contract';
 import { applyEditOps } from '../src/editor/ai/aiActions';
 import { runPageGeneration } from '../src/editor/ai/generate';
-import { createAnthropicClient, DEFAULT_MODEL, estimateCostCny, supportsJsonSchema } from '../src/editor/ai/client';
+import { createLlmClient, DEFAULT_MODEL, estimateCostCny, providerDef, PROVIDERS, supportsJsonSchema, type ProviderId } from '../src/editor/ai/client';
 import { getPack, PACKS, packTokens } from '../src/tokens/packs';
 import { LUCIDE_ICONS } from '../src/assets/icons/lucide';
 import { createPage } from '../src/schema/factory';
@@ -187,15 +188,57 @@ const GOLDEN = [
 }
 
 /* ---------------- 10. 实跑档（可选） ---------------- */
-// 端点/模型解析：显式 AI_BASE_URL > 设了 DEEPSEEK_API_KEY 时自动用其 Anthropic 兼容端点 > 官方
-const dsKey = process.env.DEEPSEEK_API_KEY;
-const apiKey = process.env.ANTHROPIC_API_KEY || dsKey;
-const baseURL = process.env.AI_BASE_URL || (dsKey && !process.env.ANTHROPIC_API_KEY ? 'https://api.deepseek.com/anthropic' : undefined);
-const liveModel = process.env.AI_MODEL || process.env.ANTHROPIC_MODEL || (baseURL && /deepseek/i.test(baseURL) ? 'deepseek-flash' : DEFAULT_MODEL);
-const jsonSchemaSupported = supportsJsonSchema(baseURL);
+/**
+ * 供应商解析：**协议由供应商表决定**（`createLlmClient` 分派），这里只管「用哪家 / 哪个 key / 哪个模型」。
+ *
+ * 优先级：`AI_PROVIDER` 显式指定 > 按已配置的 key 自动挑（顺序即优先级）> 跳过实跑档。
+ * 本地端点（Ollama 等）`keyOptional`，允许无 key 实跑——这是「没有官方 key 也能验链路」的入口。
+ */
+const KEY_ENV: Record<string, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+};
 
-if (apiKey) {
-  const client = await createAnthropicClient({ apiKey, model: liveModel, baseURL });
+function resolveLive(): { provider: ProviderId; apiKey?: string } | null {
+  const explicit = process.env.AI_PROVIDER as ProviderId | undefined;
+  if (explicit) {
+    // 拼错不能静默回退到 anthropic（providerDef 的兜底是给 UI 用的）：CLI 里宁可直接报错
+    if (!PROVIDERS.some((p) => p.id === explicit)) {
+      console.error(`AI_PROVIDER=${explicit} 不是已知供应商，可选：${PROVIDERS.map((p) => p.id).join(' / ')}`);
+      process.exit(1);
+    }
+    const def = providerDef(explicit);
+    const apiKey = KEY_ENV[explicit] ? process.env[KEY_ENV[explicit]] : undefined;
+    if (!apiKey && !def.keyOptional) {
+      // 显式点名了供应商却没给 key：不能静默退回离线档，否则会以为「实跑过了」
+      console.warn(`[ai-matrix] AI_PROVIDER=${explicit} 但没有设置 ${KEY_ENV[explicit] ?? '对应的 key'}，实跑档跳过`);
+      return null;
+    }
+    return { provider: explicit, apiKey };
+  }
+  for (const p of Object.keys(KEY_ENV) as ProviderId[]) {
+    const key = process.env[KEY_ENV[p]];
+    if (key) return { provider: p, apiKey: key };
+  }
+  return null;
+}
+
+const live = resolveLive();
+const liveDef = live ? providerDef(live.provider) : undefined;
+// 端点：显式 AI_BASE_URL 覆盖 > 供应商表默认端点（官方 anthropic 为 undefined，SDK 自己取）
+const baseURL = process.env.AI_BASE_URL || liveDef?.baseURL;
+const liveModel = process.env.AI_MODEL || process.env.ANTHROPIC_MODEL || liveDef?.defaultModel || DEFAULT_MODEL;
+// 结构化输出能力：OpenAI 协议看表里声明的能力；Anthropic 协议沿用按端点推断（DeepSeek 兼容层不认 json_schema）
+const jsonSchemaSupported = liveDef
+  ? liveDef.protocol === 'openai'
+    ? liveDef.jsonSchema === true
+    : supportsJsonSchema(baseURL)
+  : false;
+
+if (live) {
+  const client = await createLlmClient({ provider: live.provider, apiKey: live.apiKey, model: liveModel, baseURL });
   const icons = Object.fromEntries(Object.entries(LUCIDE_ICONS).map(([k, v]) => [k, v.d]));
   let firstPass = 0;
   let repairedPass = 0;
@@ -285,7 +328,12 @@ if (apiKey) {
     );
   }
 } else {
-  add('B0', '实跑档（需要 ANTHROPIC_API_KEY 或 DEEPSEEK_API_KEY）', true, '未设置 key，跳过；离线档指标已覆盖确定性部分');
+  add(
+    'B0',
+    '实跑档（需要任一供应商 key，或 AI_PROVIDER=ollama 走本地端点）',
+    true,
+    '未检测到 key，跳过；离线档指标已覆盖确定性部分。要实跑：AI_PROVIDER=deepseek DEEPSEEK_API_KEY=… 或 OPENAI_API_KEY=… 等（见 HANDOFF §13.4）',
+  );
 }
 
 /* ---------------- 输出 ---------------- */
@@ -293,18 +341,18 @@ fs.mkdirSync(OUT, { recursive: true });
 const passed = rows.filter((r) => r.ok).length;
 const report = {
   generatedAt: new Date().toISOString(),
-  mode: apiKey ? 'live' : 'offline',
+  mode: live ? 'live' : 'offline',
   pack: pack.id,
-  model: apiKey ? liveModel : DEFAULT_MODEL,
+  model: live ? liveModel : DEFAULT_MODEL,
   // 端点与能力（不记录 key）：便于报告自证「这轮是在哪个供应商上跑的」
-  provider: apiKey ? (baseURL ? new URL(baseURL).host : 'api.anthropic.com') : null,
-  jsonSchema: apiKey ? jsonSchemaSupported : null,
+  provider: live ? (baseURL && /^https?:\/\//.test(baseURL) ? new URL(baseURL).host : 'api.anthropic.com') : null,
+  jsonSchema: live ? jsonSchemaSupported : null,
   summary: { total: rows.length, pass: passed, fail: rows.length - passed },
   rows,
 };
 fs.writeFileSync(path.join(OUT, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 // 按模型另存一份：多档横评时 report.json 会被后一次覆盖，留档才能对比
-if (apiKey) {
+if (live) {
   fs.writeFileSync(path.join(OUT, `report-${liveModel}.json`), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 }
 

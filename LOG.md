@@ -2384,3 +2384,69 @@ taro 99.38% 18/19（**33.8s，一次成功**）。
 
 **文档**：plan §12（延伸交付完整记录）、HANDOFF §13（代码地图 + 加一家三步 + 三个坑 + 怎么验）、
 checklist 差异 39/40 + 结果汇总新增「AI 供应商接入」行、walkthrough 文案「供应商 2 选」→「≥2 选（现 6 家）」。
+
+## 2026-10-24（续）· 收尾：评测轨接上协议层 + `.fig` 走查转常驻
+
+上一轮加了 6 家供应商 / 2 种协议，但有两处还在按「单供应商」写——能力通了，验收路径还是旧的。
+这次补掉，都属于「同一件事做了一半」的收尾。
+
+### 一、`scripts/ai-matrix.ts` 实跑档改走统一工厂
+
+原来硬编码 `createAnthropicClient`，只认 `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`。
+现在 `createLlmClient` 按供应商表分派，供应商解析顺序：
+
+```
+AI_PROVIDER 显式指定  >  按已配置的 key 自动挑（anthropic → deepseek → openai → gemini）  >  跳过
+```
+
+`AI_PROVIDER=ollama` 可**无 key 实跑**（`keyOptional`）——这是「手上没有官方 key 也能验链路」的入口。
+`jsonSchema` 能力判定也按协议分开：OpenAI 协议看表里声明的 `jsonSchema`，Anthropic 协议沿用按端点推断。
+
+两条「以为实跑过了」的防线：
+- `AI_PROVIDER` 拼错 → **退出 1** 并列出可选值（`providerDef` 对未知 id 兜底成 anthropic 是给 UI 用的，CLI 不能这样）；
+- 点名了供应商但没给 key → 打一行 warn 再退回离线档（报告 `mode` 仍是 `offline`）。
+
+实测：离线档 **10/10**；`AI_PROVIDER=opnai` → `REAL_EXIT=1`；`AI_PROVIDER=openai` 无 key → warn + 离线档。
+
+### 二、`.fig` 入口从一次性探针转成常驻走查
+
+此前 `.fig` 的 UI 入口只用 `.tmp/fig-ui-probe.mjs` 手写探针验过一次，**不进任何门禁**——
+这种「验过一次就没人再跑」的验证等于没有。加进 `scripts/walkthrough.mjs` 末尾三步：
+
+```
+OK  文件菜单含 .fig 导入/另存两项且可点      -- 导入=可点 另存=可点
+OK  导入 slots.fig：页/图层/画布都有内容     -- 页面 1 → 2 · 图层 7
+OK  另存为 .fig：下载到非空文件              -- slots.fig 29,947 B
+walkthrough: 14/14 pass
+```
+
+放最后并先 `page.goto` 重载：① 导入 `.fig` 会整体替换工程，前面基于 demo 工程的步骤必须先跑完；
+② 重载顺便清掉上一步的代码 Modal。踩了两个小坑：切 tab 会把菜单关掉（读菜单和点菜单项要各自重开一次）；
+`页面`/`图层` 是同一块区域的两个 tab（不切到「页面」tab，`.page-row` 数量恒为 0）。
+
+### 回归
+
+```
+tsc --noEmit   0 错
+vitest         726/726（54 文件）
+ai-matrix      离线 10/10
+walkthrough    14/14（新增 3 步全过）
+三端四关       react/vue/taro 全 PASS（见下方明细）
+```
+
+文档：plan §12.6（收尾）+ §12.7/§12.8 编号理顺、HANDOFF §13.4（实跑档命令与两条防线）、
+checklist 附 A B0 行与诚实边界段（评测轨已支持任意供应商）。
+
+### 三端四关（按端跑，2026-10-25 实跑）
+
+| target | 语法 | 类型 | 构建 | 像素 |
+|---|---|---|---|---|
+| react | PASS 39 文件 | PASS 0 错 | PASS 19 html / 11.1s | **99.52%** 19/19 |
+| vue | PASS 19 文件 | PASS 0 错 | PASS 19 html / 9.9s | **99.52%** 19/19 |
+| taro | PASS 42 文件 | PASS 0 错 | PASS 1 html / 128.2s | **99.38%** 18/19（豁免 1，06 页 97.68%） |
+
+**门禁第五个「假死」坑**：`--target all` 下 taro 仍会偶发卡死（300s 超时 ×2、日志 279 字节、
+CPU 归零），单跑一次过。这次把 run() 的日志接法从「pipe + 内存累积」改成
+**把日志文件 fd 直接交给子进程**（`stdio: ['ignore', fd, fd]`，等价 shell `> file`）——
+父进程既不读管道也不写文件。改完后单跑稳定（128.2s / 日志 15KB 完整）。
+`all` 仍不可靠，故新增三条按端脚本 `codegen:verify:{react,vue,taro}` 作为主路径。

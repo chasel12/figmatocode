@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // 痛点①演示：把「人工走查」用 Playwright 实际跑一遍并截图
@@ -193,6 +193,64 @@ try {
   log.codeSnippet = ((await page.locator('.code-modal .code-view').innerText()) || '').slice(0, 400);
   await page.screenshot({ path: join(OUT, '08-生成代码.png') });
   step('打开生成代码 Modal', log.codeSnippet.length > 0, `${log.codeSnippet.length} 字符`);
+
+  /* --- `.fig` 产品入口（M5/M6 收尾）：把一次性探针变成常驻走查 ---
+     放在最后并**先重载页面**：① 导入 `.fig` 会整体替换工程，前面基于 demo 工程的步骤必须先跑完；
+     ② 重载顺便清掉上一步的代码 Modal，避免遮挡菜单。 */
+  await page.goto('http://localhost:4173/');
+  await page.waitForSelector('.editor', { timeout: 10000 });
+  await sleep(400);
+  await page.click('.menu-btn:has-text("文件")');
+  await page.waitForSelector('.menu-dropdown', { timeout: 3000 });
+  const figItems = await page
+    .locator('.menu-dropdown .menu-item')
+    .evaluateAll((els) => els.map((e) => ({ text: (e.textContent || '').trim(), disabled: /disabled/.test(e.className) })));
+  const figImport = figItems.find((i) => i.text.includes('导入 Figma 文件'));
+  const figExport = figItems.find((i) => i.text.includes('另存为 Figma 文件'));
+  await page.screenshot({ path: join(OUT, '09-文件菜单-fig入口.png') });
+  step(
+    '文件菜单含 .fig 导入/另存两项且可点',
+    Boolean(figImport && !figImport.disabled && figExport && !figExport.disabled),
+    `导入=${figImport ? (figImport.disabled ? '置灰' : '可点') : '缺失'} 另存=${figExport ? (figExport.disabled ? '置灰' : '可点') : '缺失'}`,
+  );
+
+  // 切 tab 会把菜单关掉，所以「读菜单」和「点菜单项」要各自重新打开一次
+  await page.keyboard.press('Escape');
+  await page.click('.side-tab:has-text("页面")');
+  await sleep(250);
+  const pagesBefore = await page.locator('.page-row').count();
+  const figChooser = page.waitForEvent('filechooser');
+  await page.click('.menu-btn:has-text("文件")');
+  await page.waitForSelector('.menu-dropdown', { timeout: 3000 });
+  await page.click('.menu-dropdown .menu-item:has-text("导入 Figma 文件")');
+  await (await figChooser).setFiles(join(process.cwd(), 'tests', 'fixtures', 'fig', 'slots.fig'));
+  await sleep(2500);
+  // 页面面板与图层面板是同一块区域的两个 tab，分开点：页面数从「页面」看，图层数从「图层」看
+  await page.click('.side-tab:has-text("页面")');
+  await sleep(300);
+  const pagesAfter = await page.locator('.page-row').count();
+  const figPageNames = await page.locator('.page-row').allInnerTexts();
+  await page.screenshot({ path: join(OUT, '10-导入fig后-页面.png') });
+  await page.click('.side-tab:has-text("图层")');
+  await sleep(300);
+  const figLayers = await page.locator('.layer-row').count();
+  await page.screenshot({ path: join(OUT, '10-导入fig后-图层.png') });
+  step(
+    '导入 slots.fig：页/图层/画布都有内容',
+    pagesAfter >= 2 && figLayers > 0,
+    `页面 ${pagesBefore} → ${pagesAfter}（${figPageNames.map((t) => t.trim().split('\n')[0]).join(' / ')}）图层 ${figLayers}`,
+  );
+
+  // 另存回 `.fig`：走真实下载链路（blob → download），验产物非空
+  const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+  await page.click('.menu-btn:has-text("文件")');
+  await page.click('.menu-dropdown .menu-item:has-text("另存为 Figma 文件")');
+  const download = await downloadPromise;
+  const savedName = download.suggestedFilename();
+  const savedPath = join(OUT, savedName);
+  await download.saveAs(savedPath);
+  const savedSize = statSync(savedPath).size;
+  step('另存为 .fig：下载到非空文件', /\.fig$/i.test(savedName) && savedSize > 1000, `${savedName} ${savedSize} B`);
 } catch (e) {
   step('走查中断', false, e instanceof Error ? e.message : String(e));
   await page.screenshot({ path: join(OUT, '99-异常现场.png') }).catch(() => {});
