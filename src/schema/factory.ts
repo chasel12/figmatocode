@@ -265,6 +265,34 @@ export function createPage(name = '未命名页面', width = 375, height = 812):
   return { id: 'page', name, viewport: { width, height }, root };
 }
 
+/**
+ * 编辑器「空白画布」页：根 `mode: 'ABSOLUTE'`，子项按 x/y 自由落位。
+ *
+ * 为什么不直接改 `createPage`：那是 **demo 页面 / AI spec / 测试** 共用的 Auto Layout
+ * 基线（根 VERTICAL → 子项进 flex 流），改它会连带把 266 页像素基准与既有页面结构
+ * 全部推翻。而编辑器要的是相反的交互默认——**拖到哪就放哪**，不排流。
+ *
+ * 两个入口都走这里，保证「新建页面」与「首次打开编辑器」行为一致：
+ *  - `Editor.tsx` 初始 state
+ *  - `store.ts` 的 `NEW_PAGE` / 新建页 action
+ */
+export function createBlankPage(
+  id = 'page',
+  name = '未命名页面',
+  width = 375,
+  height = 812,
+): UIPage {
+  const root = createNode('PAGE', { id, name }) as ContainerNode;
+  root.layout.width = width;
+  root.layout.height = height;
+  /**
+   * 根 ABSOLUTE 的连带效果：`layout.ts` 走 `PAGE && mode==='ABSOLUTE'` 分支（子项按
+   * 自身 x/y 相对内容区落位、不参与 hug），`compile.ts` 出 `position: relative` 当包含块。
+   */
+  root.layout.mode = 'ABSOLUTE';
+  return { id, name, viewport: { width, height }, root };
+}
+
 export function walk(node: UINode, visit: (node: UINode, parent: ContainerNode | null) => void, parent: ContainerNode | null = null): void {
   visit(node, parent);
   if (isContainer(node)) {

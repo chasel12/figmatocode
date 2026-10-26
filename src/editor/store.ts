@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { NodeKind, UINode, UIPage, UIProject, LayoutSchema, StyleSchema, ContainerNode, ExportSetting, PrototypeInteraction, ImageAdjustments, ComponentDef, StyleToken, LayoutGridSchema } from '../schema/types';
 import type { StyleTokenKind } from '../schema/types';
 import { isContainer } from '../schema/types';
-import { clonePage, createNode, findById, nextId, walk } from '../schema/factory';
+import { clonePage, createBlankPage, createNode, findById, nextId, walk } from '../schema/factory';
 import { findVariant, variantGroupOf, variantsInGroup } from './variants';
 import { BOOLEAN_OP_NAME, booleanPathOf, pathBounds, splitSubpaths, type BooleanOp } from '../compiler/boolean';
 import { isBooleanConvertible, shapePathData, translatePathD } from '../compiler/shapePath';
@@ -352,6 +352,14 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
         height: action.height,
         widthMode: 'FIXED',
         heightMode: 'FIXED',
+        /**
+         * 跟随父容器：父是自由画布（ABSOLUTE）→ 新 Frame 也绝对定位，落在拖画处
+         * （真实 x/y 由 Canvas 的 `action.patch` 覆盖掉这里的占位 0）。
+         *
+         * 父是显式流式容器（用户自己切的 Auto Layout）→ 新 Frame 进流，保持 auto layout 有效。
+         * 编辑器新建页面的根已经是 ABSOLUTE（见 `createNewPage`），所以「拖到哪就放哪」
+         * 在默认路径上成立，不依赖这里写死 ABSOLUTE。
+         */
         ...(parent.layout.mode === 'ABSOLUTE' ? { mode: 'ABSOLUTE' as const, x: 0, y: 0 } : {}),
         ...(action.patch ?? {}),
       };
@@ -459,6 +467,18 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const target = findById(nextPage.root, parentId);
       if (!target || !isContainer(target.node)) return state;
       const node = createNode(action.kind);
+      /**
+       * 面板点选添加（Palette）：落在自由画布容器里就**绝对定位**并级联错开，
+       * 不再挤进父的 flex 流（否则新建的组件位置由排版决定，不是你能摆的）。
+       *
+       * 父是显式流式容器（用户自己切了 VERTICAL/HORIZONTAL）时仍进流——那是
+       * Auto Layout 的本意，硬塞绝对定位会让 auto layout 失效。
+       */
+      if (target.node.layout.mode === 'ABSOLUTE') {
+        const sameKind = target.node.children.filter((c) => c.type === node.type).length;
+        const step = 16;
+        node.layout = { ...node.layout, mode: 'ABSOLUTE' as const, x: sameKind * step, y: sameKind * step };
+      }
       const index = action.index ?? target.node.children.length;
       target.node.children.splice(index, 0, node);
       const next = pushHistory(state, nextPage);
@@ -1384,14 +1404,8 @@ function cloneCopy(node: UINode): UINode {
 function createNewPage(): UIPage {
   // FR-39：**必须分配唯一 id**——早先硬编码 id:'page' 会让多页共用同一 id，
   // 导致 pages/currentPageId 无法区分页面（findIndex 恒命中首页）。
-  const id = nextId('page');
-  const page = createNode('PAGE', { id, name: '未命名页面' }) as UINode as import('../schema/types').ContainerNode;
-  return {
-    id,
-    name: '未命名页面',
-    viewport: { width: 375, height: 812 },
-    root: page,
-  };
+  // 根 ABSOLUTE（自由画布）的来由见 factory.ts `createBlankPage` 注释。
+  return createBlankPage(nextId('page'), '未命名页面', 375, 812);
 }
 
 export interface EditorContextValue {

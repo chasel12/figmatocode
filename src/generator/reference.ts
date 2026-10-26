@@ -26,6 +26,14 @@ export function buildReferenceDom(
     const decls = Object.entries(node.css)
       .filter(
         ([prop]) =>
+          /**
+           * `position` 必须滤掉：基准图是**扁平 + 强制 absolute** 模型（见 renderFlat 注释），
+           * 每个节点自己那段 `position: absolute` 在 geo 里已经写死了。若把编译产物的
+           * `position: relative/sticky/fixed` 原样追加，CSS 后者胜 → 基准图会从 absolute
+           * 退化成 relative，left/top 变成相对偏移，整张基准图错位。
+           * （B3 的 sticky/fixed 本就声明「仅出码侧生效，画布不预览」，这里一并兜住。）
+           */
+          prop !== 'position' &&
           prop !== 'width' &&
           prop !== 'height' &&
           prop !== 'min-height' &&

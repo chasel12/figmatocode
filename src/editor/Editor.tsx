@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { createPage, findById } from '../schema/factory';
+import { createBlankPage, findById } from '../schema/factory';
 import { createCanvasMeasure, resolveLayout } from '../compiler';
 import { EditorContext, editorReducer, initialState, type Tool } from './store';
 import { parseProject, serializeProject, stateFromProject } from './project';
@@ -76,7 +76,9 @@ export function Editor() {
   const restored = useMemo(() => loadAutosave(), []);
   const [state, dispatch] = useReducer(
     editorReducer,
-    restored ?? initialState(createPage('未命名页面'), '未命名项目'),
+    // 空白画布页（根 ABSOLUTE）：首次打开即可自由摆放，不排进 flex 流。
+    // demo/AI 页面仍走 `createPage`（根 VERTICAL）——两者职责不同，见 factory.ts 注释。
+    restored ?? initialState(createBlankPage(), '未命名项目'),
   );
   const [leftTab, setLeftTab] = useState<'pages' | 'layers' | 'assets' | 'ai'>('layers');
   const [rightTab, setRightTab] = useState<'design' | 'prototype'>('design');

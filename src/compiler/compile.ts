@@ -490,6 +490,19 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
   // ---- 容器布局 ----
   if (isContainer(node) && node.type !== 'RECTANGLE') {
     /**
+     * 包含块（containing block）：任何容器都要建立定位上下文。
+     *
+     * 绝对定位子项（`mode: 'ABSOLUTE'` 的子项，含「流式父内脱流子项」）的
+     * `left/top` 是**相对父内容区**写的（见 layout.ts:45）。若父是 flex 容器却不带
+     * `position`，浏览器会一路往上找到更外层的定位祖先 → 坐标整体漂移。
+     *
+     * 只加 `position: relative` 且不给任何 top/left/right/bottom 偏移，
+     * 对 flex/grid 布局与静态渲染**零影响**（不建立新的层叠上下文，z-index:auto）。
+     * 后面 `absChild` 段的 `position: absolute` 与 B3 的 sticky/fixed 会按需覆盖它。
+     */
+    css['position'] = 'relative';
+
+    /**
      * B3 CSS Grid：设置 `style.grid` 即接管布局（`flex-direction` 不再生效）。
      *
      * 只改容器自身的声明 —— 子项的 FILL/FIXED 尺寸照旧出（FILL 子项在网格里表现为
@@ -509,8 +522,6 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
     } else if (L.mode === 'HORIZONTAL') {
       css['display'] = 'flex';
       css['flex-direction'] = 'row';
-    } else {
-      css['position'] = 'relative';
     }
 
     // B3 滚动定位：仅出码侧（画布无滚动概念）；与 ABSOLUTE 互斥，ABS 已出 position: absolute

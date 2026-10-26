@@ -378,8 +378,20 @@ async function checkBuild(target) {
     ? `npm run ${script}`
     : `node "${join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js')}" build`;
   cleanBuildDir();
-  // Taro 关掉压缩器：压缩器的 worker 池在带 fs 拦截的宿主里会死锁（见 taro-project.ts 注释）
-  const env = target === 'taro' ? { TARO_NO_MINIMIZE: '1' } : undefined;
+  /**
+   * Taro 构建环境变量：**默认不设 TARO_NO_MINIMIZE**。
+   *
+   * 历史：早先为绕开「压缩器 worker 池在带 fs 拦截的宿主里死锁」而关压缩器
+   * （`TARO_NO_MINIMIZE=1`）。2026-10-26 实测该变量在当前宿主上反而更糟——
+   * webpack 编译能跑完并写出 `dist/index.html`，但**进程永不退出**，
+   * 每次构建都被 BUILD_TIMEOUT 300s 杀掉判 FAIL（report.json 里两次 attempt
+   * 都是 300374ms / 300468ms 且 html 已产出）。去掉后同一命令 73s 正常结束并退出，
+   * 产物完整（仅 entrypoint 体积 warning，非错误）。
+   *
+   * 若某天压缩器 worker 又死锁，用 `TARO_NO_MINIMIZE=1` 单独跑一次即可定位，
+   * 但不要默认打开——它会让门禁恒红。
+   */
+  const env = undefined;
   const outDir = join(dir, 'dist');
 
   /**
