@@ -12,6 +12,7 @@ import {
   aiAvailable,
   createLlmClient,
   createOpenAiCompatClient,
+  describeAiError,
   estimateCostCny,
   getApiKey,
   getBaseURL,
@@ -130,6 +131,23 @@ describe('可用性与计价', () => {
   });
 });
 
+describe('错误翻译', () => {
+  /**
+   * 「端点没收到 key」和「key 无效」必须分开说。
+   * 前者是客户端没把 Authorization 发出去（草稿没保存 / 存错供应商槽位），
+   * 后者才是 key 本身不对——混成一句会让人一直去换 key。
+   */
+  it('「没收到 key」与「key 无效」给出不同指引', () => {
+    expect(describeAiError({ status: 400, message: 'No API-key provided.' })).toContain('没有收到 API key');
+    expect(describeAiError({ status: 400, message: 'Missing API key' })).toContain('没有收到 API key');
+    expect(describeAiError({ status: 401, message: 'Incorrect API key provided' })).toContain('key 无效');
+  });
+
+  it('普通业务错误原样透出，不被 key 规则误伤', () => {
+    expect(describeAiError({ status: 400, message: 'model not found' })).toBe('model not found');
+  });
+});
+
 describe('OpenAI 兼容协议 client', () => {
   const sse = (chunks: string[], usage?: Record<string, unknown>): string =>
     [
@@ -192,6 +210,42 @@ describe('OpenAI 兼容协议 client', () => {
     expect(String((bodies[1].messages as { content: string }[])[1].content)).toContain('只输出一个 JSON 对象');
   });
 
+  /**
+   * 百炼（qwen）实测结论固化成测试：
+   *  - `json_schema` → 400 `This response_format type is unavailable now`，只能退 json_object
+   *  - 思考默认开，reasoning token 按输出价计费却被我们丢弃（54/60），必须显式关
+   */
+  it('百炼（qwen）：发 json_object 而非 json_schema，并显式关思考', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return new Response(sse(['{}']), { status: 200 });
+    });
+
+    const q = await createOpenAiCompatClient({ provider: 'qwen', apiKey: 'k' });
+    await q.run({ kind: 'page', system: 's', user: 'u' });
+
+    expect(bodies[0].response_format).toEqual({ type: 'json_object' });
+    expect(bodies[0].enable_thinking).toBe(false);
+    // 无字段约束 → 提示词里的强约束仍要带
+    expect(String((bodies[0].messages as { content: string }[])[1].content)).toContain('只输出一个 JSON 对象');
+  });
+
+  it('方言字段不外溢：不认识 enable_thinking 的端点收不到它', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return new Response(sse(['{}']), { status: 200 });
+    });
+
+    const o = await createOpenAiCompatClient({ provider: 'openai', apiKey: 'k', model: 'gpt-5.1' });
+    await o.run({ kind: 'page', system: 's', user: 'u' });
+
+    expect(bodies[0].enable_thinking).toBeUndefined();
+    // openai 标了 jsonSchema:true → 仍走 json_schema，不被 json_object 抢走
+    expect((bodies[0].response_format as { type: string }).type).toBe('json_schema');
+  });
+
   it('HTTP 错误带上 status（供面板翻成可操作提示）', async () => {
     vi.stubGlobal('fetch', async () =>
       new Response(JSON.stringify({ error: { message: 'Incorrect API key provided' } }), { status: 401 }),
@@ -206,6 +260,38 @@ describe('OpenAI 兼容协议 client', () => {
   it('本地端点缺 baseURL 时给出可操作报错，而不是静默打空请求', async () => {
     // custom 没有默认端点；测试里不写 baseURL
     await expect(createOpenAiCompatClient({ provider: 'custom', model: 'm' })).rejects.toThrow(/端点地址/);
+  });
+
+  /**
+   * 回归：`keyOptional` 只表示「这家**可以**不要 key」，不表示「任何地址都可以不带」。
+   * 早先公网地址 + 空 key 会照发无鉴权请求，端点回 `No API-key provided.`，
+   * 用户看到的是「key 无效」，实际是 key 根本没发出去（2026-10-26 实测踩过）。
+   */
+  it('公网端点空 key：发请求前拦下，不产生一次注定失败的无鉴权请求', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    await expect(
+      createOpenAiCompatClient({
+        provider: 'custom',
+        baseURL: 'https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1',
+        model: 'deepseek-v4.1-flash',
+      }),
+    ).rejects.toThrow(/未配置 API key/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('本地/内网端点仍然免 key（keyOptional 的本意不被公网校验误伤）', async () => {
+    const seen: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      seen.push(url);
+      return new Response(sse(['{}']), { status: 200 });
+    });
+    // 127.0.0.1 / 192.168.x 属于内网：不填 key 也应能走通
+    for (const base of ['http://127.0.0.1:8000/v1', 'http://192.168.1.9:8000/v1']) {
+      const c = await createOpenAiCompatClient({ provider: 'custom', baseURL: base, model: 'm' });
+      await c.run({ kind: 'page', system: 's', user: 'u' });
+    }
+    expect(seen).toHaveLength(2);
   });
 
   it('工厂按协议分派（anthropic 协议走 Anthropic client，不会发 /chat/completions）', async () => {

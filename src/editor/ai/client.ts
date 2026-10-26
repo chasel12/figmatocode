@@ -16,7 +16,7 @@ import editSchema from './contract.edit.schema.json';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const MODEL_OPTIONS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
 
-export type ProviderId = 'anthropic' | 'deepseek' | 'openai' | 'gemini' | 'ollama' | 'custom';
+export type ProviderId = 'anthropic' | 'deepseek' | 'qwen' | 'openai' | 'gemini' | 'ollama' | 'custom';
 
 /** 线路协议：决定用哪个 client 实现（与「哪家公司」解耦，一家可能提供多种协议） */
 export type Protocol = 'anthropic' | 'openai';
@@ -39,6 +39,22 @@ export interface ProviderDef {
   modelEditable?: boolean;
   /** 端点是否支持 `response_format = json_schema`（关掉时靠契约+闸门+自修环兜） */
   jsonSchema?: boolean;
+  /**
+   * 端点只支持 `response_format = json_object`：保证是**合法 JSON**，但不约束字段。
+   * 比「什么都不发」强一档（解析失败率低），比 `json_schema` 弱（字段全靠 prompt 契约）。
+   * 阿里云百炼的 DeepSeek 属此列——实测 `json_schema` 直接回
+   * `This response_format type is unavailable now`，`json_object` 正常。
+   */
+  jsonObject?: boolean;
+  /**
+   * 端点的思考模式**默认开着**，必须显式关（`enable_thinking: false`）。
+   *
+   * 为什么值得单独一个开关：思考 token 按**输出价**计费，而本项目只取 `delta.content`，
+   * reasoning 全丢。实测百炼 deepseek-v4.1-flash 一次「只输出 {"ok":1}」的请求，
+   * `completion_tokens: 60` 里 `reasoning_tokens: 54`、`text_tokens: 5` —— 关掉后
+   * 输出直接降到 5 token，单次输出成本约 1/12。生成整页时差距只会更大。
+   */
+  disableThinking?: boolean;
   /** 端点地址由用户填写（custom） */
   baseURLEditable?: boolean;
 }
@@ -72,6 +88,24 @@ export const PROVIDERS: readonly ProviderDef[] = [
     keyPlaceholder: 'sk-…',
     note: 'Anthropic 兼容端点：忽略 output_config，靠契约+闸门+自修环兜住',
     jsonSchema: false,
+  },
+  {
+    id: 'qwen',
+    label: '千问/百炼',
+    protocol: 'openai',
+    /**
+     * 阿里云百炼的 OpenAI 兼容端点（qianwenai.com 的模型页给的就是这个地址）。
+     * 实测：CORS 允许浏览器直连（回显 Origin + allow-headers: authorization），
+     * 不需要代理；`stream` / `stream_options.include_usage` / `system` role 均正常。
+     */
+    baseURL: 'https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1',
+    models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'qwen3-coder'],
+    defaultModel: 'deepseek-v4.1-flash',
+    keyPlaceholder: 'sk-…（百炼控制台 API-KEY）',
+    note: '百炼 OpenAI 兼容端点：仅支持 json_object（json_schema 不可用），默认关思考以省输出 token',
+    modelEditable: true,
+    jsonObject: true,
+    disableThinking: true,
   },
   {
     id: 'openai',
@@ -269,6 +303,8 @@ const MODEL_PRICES: Record<string, { input: number; output: number; cacheRead: n
   'deepseek-flash': { input: 0.278, output: 1.111, cacheRead: 0.006 },
   // ¥9 / ¥27 / ¥0.30 per MTok（高峰）→ USD
   'deepseek-v4-pro': { input: 1.25, output: 3.75, cacheRead: 0.042 },
+  // 百炼定价 ¥1 / ¥4 / ¥0.1 per MTok（忙时；东八区 22:00–次日 8:00 错峰更低）→ USD
+  'deepseek-v4.1-flash': { input: 0.139, output: 0.556, cacheRead: 0.014 },
 };
 
 const USD_CNY = 7.2;
@@ -312,6 +348,14 @@ export function describeAiError(err: unknown): string {
       break;
   }
   const msg = e?.message ?? '未知错误';
+  /**
+   * 「端点没收到 key」——和「key 无效」是两件事，必须分开说。
+   * 常见于：key 只填在输入框没点「保存 key」、或切换供应商后填到了上一家的槽位。
+   * 端点原文形如 `No API-key provided.` / `Missing API key` / `api key is required`。
+   */
+  if (/no\s+api[-_ ]?key|missing\s+(the\s+)?api[-_ ]?key|api[-_ ]?key\s+(is\s+)?(missing|required|not\s+provided)/i.test(msg)) {
+    return '端点没有收到 API key：请确认已点「保存 key」，且填 key 时选的供应商与当前一致';
+  }
   if (/Failed to fetch|NetworkError|CORS/i.test(msg)) {
     return '网络/跨域失败：浏览器直连被拦截，可改用本地代理（VITE_AI_PROXY_BASE）';
   }
@@ -465,6 +509,29 @@ function messageOf(raw: string): string {
 }
 
 /**
+ * 本地/内网端点：允许不带 key（Ollama、LM Studio、vLLM、公司内网网关）。
+ *
+ * 存在的理由：`keyOptional` 这个标志位只说「这家供应商**可以**不要 key」，
+ * 但没说「所有地址都可以不要」。早先把两者当成一回事，于是填了公网地址又没填 key 时，
+ * 请求会**照发**，只是少了 Authorization 头 —— 服务端回 `No API-key provided`，
+ * 用户看到的是「key 无效」，实际是「key 根本没发出去」（实测踩过）。
+ */
+function isLocalEndpoint(baseURL: string): boolean {
+  try {
+    const host = new URL(baseURL).hostname;
+    if (host === 'localhost' || host === '::1' || host === '0.0.0.0' || host === '[::1]') return true;
+    if (/^127\./.test(host)) return true;
+    if (/^10\./.test(host)) return true;
+    if (/^192\.168\./.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+    return false;
+  } catch {
+    // 地址不是合法 URL（例如填了相对路径的代理前缀）：交给后面的 fetch 报错，这里不猜
+    return false;
+  }
+}
+
+/**
  * OpenAI 兼容端点客户端（`POST {baseURL}/chat/completions`，SSE 流式）。
  *
  * 为什么手写而不引 SDK：`openai` 包会与 `@anthropic-ai/sdk` 的 fetch/stream 依赖叠加，
@@ -487,10 +554,20 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
   // 用 `??` 会把空串当成有效值，导致默认端点永远不生效（实测踩过）。
   const baseURL = (options.baseURL || env.AI_BASE_URL || getBaseURL(providerId) || def.baseURL || '').replace(/\/+$/, '');
   const jsonSchema = options.structuredOutput ?? def.jsonSchema ?? false;
+  // json_schema 优先；不支持时才退到 json_object（有约束总比没有强，但两者不叠加）
+  const jsonObject = !jsonSchema && (def.jsonObject ?? false);
 
   if (!apiKey && !def.keyOptional) throw new Error('未配置 API key');
   if (!baseURL) throw new Error('未配置端点地址（请在供应商旁填写 baseURL）');
   if (!model) throw new Error('未填写模型名');
+  /**
+   * 空 key + 公网端点 = 必然失败。**必须在发请求前拦下**，否则报的是服务端的
+   * 「No API-key provided」，会把人引到「key 填错了」的错误方向。
+   * 本地/内网端点保持免 key（那是 keyOptional 的本意）。
+   */
+  if (!apiKey && !isLocalEndpoint(baseURL)) {
+    throw new Error(`未配置 API key：请在面板填写 ${def.label} 的 key 并点「保存 key」`);
+  }
 
   const post = async (body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> => {
     const res = await fetch(`${baseURL}/chat/completions`, {
@@ -531,7 +608,16 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
                 json_schema: { name: req.kind === 'page' ? 'page' : 'edit', schema: schema as Record<string, unknown>, strict: false },
               },
             }
-          : {}),
+          : jsonObject
+            ? { response_format: { type: 'json_object' } }
+            : {}),
+        /**
+         * 关思考：这类端点的 reasoning token 按输出价计费，而我们只取 `delta.content`，
+         * 思考部分等于白花钱（实测 54/60 的输出 token 是 reasoning）。
+         * 用 `enable_thinking` 而非 `thinking` 是百炼/DashScope 的方言；只有标了
+         * `disableThinking` 的供应商才会发，避免把方言字段甩给不认识的端点。
+         */
+        ...(def.disableThinking ? { enable_thinking: false } : {}),
       };
       // 输出上限：显式给了才发，避免不同端点的默认上限/字段名差异把请求打 400
       const withLimit = req.maxTokens

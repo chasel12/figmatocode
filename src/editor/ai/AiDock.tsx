@@ -145,6 +145,17 @@ export function AiDock() {
   };
 
   const run = async () => {
+    /**
+     * 防呆：key 输入框是**草稿**语义（`keyDraft`），显式点「保存 key」才落 localStorage。
+     * 这里把非空草稿先提交，避免「改了 key 但忘了点保存 → 用旧 key 发请求」。
+     * （注意：`canRun` 里的 `hasKey` 是渲染时的快照，所以提交必须放在它之前，
+     *  且只对「已有 key 又改了 key」这类可点按钮的情形生效。）
+     */
+    if (keyDraft.trim()) {
+      setApiKey(keyDraft.trim(), provider);
+      setKeyDraft('');
+      setHasKey(true);
+    }
     if (!canRun) return;
     reset();
     setRunning(true);
@@ -301,7 +312,7 @@ export function AiDock() {
         </div>
       )}
 
-      {!hasKey && (
+      {!hasKey && !prov.keyOptional && (
         <div className="ai-setup">
           <div className="ai-setup-note">
             未配置 {prov.label} API key：AI 功能整体置灰。key 只存本机 localStorage，<b>不进仓库、不进日志</b>；
@@ -348,6 +359,11 @@ export function AiDock() {
             disabled={!keyDraft.trim()}
             onClick={() => {
               setApiKey(keyDraft.trim(), provider);
+              /**
+               * 必须同步 `hasKey`：`canRun` 依赖它，不同步的话保存了 key 但「生成」按钮
+               * 仍是灰的，用户会以为 key 没生效（早先只有必填区同步，可选区漏了）。
+               */
+              setHasKey(true);
               setKeyDraft('');
               pushLog(`已保存 ${prov.label} key（${maskKey(keyDraft.trim())}）`);
             }}
@@ -359,6 +375,7 @@ export function AiDock() {
               className="mini-btn"
               onClick={() => {
                 setApiKey('', provider);
+                setHasKey(false);
                 pushLog(`已清除 ${prov.label} key`);
               }}
             >
