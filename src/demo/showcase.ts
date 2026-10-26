@@ -193,7 +193,7 @@ function matrixPage(): UIPage {
       { mode: 'HORIZONTAL', widthMode: 'FILL', heightMode: 'HUG', wrap: 'WRAP', gap: 8, gapCross: 8, align: 'CENTER' },
     ),
 
-    // 约束 5 档（绝对定位父内子项，约束生效前提）
+    // 约束 5 档（父级留在 flow，子项 ABSOLUTE 才按 x/y 摆放；父级自己也 ABSOLUTE 会脱流压住兄弟）
     frame(
       '约束档位',
       [
@@ -203,7 +203,7 @@ function matrixPage(): UIPage {
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 44, height: 28, mode: 'ABSOLUTE', x: 8, y: 80, constraints: { horizontal: 'LEFT', vertical: 'BOTTOM' } }, { background: '#8B5CF6', borderRadius: 4 }, 'Left/Bottom'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 44, height: 28, mode: 'ABSOLUTE', x: 148, y: 80, constraints: { horizontal: 'SCALE', vertical: 'SCALE' } }, { background: '#EF4444', borderRadius: 4 }, 'Scale'),
       ],
-      { mode: 'ABSOLUTE', widthMode: 'FILL', heightMode: 'FIXED', height: 116 },
+      { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'FIXED', height: 116 },
       { background: '#F8FAFC', borderRadius: 8 },
     ),
 
@@ -235,7 +235,8 @@ function matrixPage(): UIPage {
       { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'HUG', gap: 8, align: 'START' },
     ),
 
-    // blend 抽样：叠放必须用**绝对定位**（flow 兄弟重叠违反 viewport-check 的 no-overlap 不变量）
+    // blend 抽样：叠放靠**子项**绝对定位（父级留在 flow，否则父级脱流会压住兄弟；
+    // flow 兄弟直接重叠则违反 viewport-check 的 no-overlap 不变量）
     frame(
       '混合抽样',
       [
@@ -244,7 +245,7 @@ function matrixPage(): UIPage {
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 56, height: 40, mode: 'ABSOLUTE', x: 52, y: 0 }, { background: '#22C55E', borderRadius: 6, blendMode: 'SCREEN' }, 'screen'),
         rect({ widthMode: 'FIXED', heightMode: 'FIXED', width: 108, height: 40, mode: 'ABSOLUTE', x: 108, y: 0 }, { background: 'transparent' }, 'spacer'),
       ],
-      { mode: 'ABSOLUTE', widthMode: 'FILL', heightMode: 'FIXED', height: 40 },
+      { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'FIXED', height: 40 },
     ),
   ];
 

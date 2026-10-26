@@ -169,6 +169,17 @@ export interface AiNodeSpec {
   icon?: string;
   /** VECTOR 自定义路径（SVG path d，24×24 坐标系） */
   vectorD?: string;
+  /**
+   * Tailwind class 字符串——**模型熟悉的表达通道**，替代手写 layout/style 枚举。
+   *
+   * 动因：`widthMode: FILL` / `padding:[上,右,下,左]` 这类字段模型从未见过，
+   * 只能盲写；而 `flex items-center gap-3 px-4` 它见过几百万次。所以给一个
+   * 「用 class 描述布局」的入口，由确定性映射器转回 layout/style（见 `tailwind.ts`）。
+   *
+   * 优先级：显式 `layout` / `style` 字段**覆盖** className 解析结果（精确控制优先）。
+   * 只支持可无损映射的受控子集；映射器不认识的 class 会进违例清单，不静默丢弃。
+   */
+  className?: string;
   layout?: AiLayoutSpec;
   style?: AiStyleSpec;
   children?: AiNodeSpec[];

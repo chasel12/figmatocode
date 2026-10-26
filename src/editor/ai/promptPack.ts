@@ -59,16 +59,32 @@ const CONTRACT_BLOCK = `## 输出契约（只输出一个 JSON 对象，不要 m
 节点（AiNodeSpec）可用字段：
 kind: FRAME|TEXT|BUTTON|RECTANGLE|IMAGE|OVAL|LINE|VECTOR（必填）
 name?: string  text?: TEXT/BUTTON 必填  src?: IMAGE 可选  icon?: VECTOR 图标名  vectorD?: VECTOR 路径
+className?: Tailwind 类名——**描述布局优先用它**，比手写 layout 更不容易出错。支持：
+  方向 flex / flex-col；对齐 items-center|start|end|stretch、justify-center|between|end
+  间距 gap-4 px-4 py-2 pt-3 pl-5（1 单位 = 4px，也接受 gap-[12px]）
+  尺寸 w-full h-full w-24 h-14 w-auto、flex-1
+  文字 text-sm|base|lg|xl|2xl、font-medium|semibold|bold、text-center|left|right
+  外观 rounded-lg|xl|full、bg-primary|card|background、border border-2 border-border、opacity-60
+  裁切 overflow-hidden
+  颜色只写令牌名（bg-primary）或 hex（bg-[#1677FF]）；不要写 blue-500 这类默认色板
+  不支持 md:/hover: 等变体前缀、grid、gap-x/gap-y、单角圆角——出现即被判违例
 layout?: {mode:VERTICAL|HORIZONTAL（默认 VERTICAL；排版只用这两个）, widthMode:FIXED|FILL|HUG, heightMode:FIXED|FILL|HUG,
           width?:number, height?:number, padding?:[上,右,下,左], gap?:number,
           align?:START|CENTER|END|STRETCH, justify?:START|CENTER|END|SPACE_BETWEEN}
 叠层专用：mode:ABSOLUTE 必须给**每个子项** x/y；子项都没 x/y 时会被自动改回 VERTICAL
+（layout / style 的显式字段会**覆盖** className 的同名字段，用于精确控制）
 style?: {background?:颜色, color?:颜色, borderRadius?:number,
          border?:{width:number,color:颜色,style?:solid|dashed|dotted},
          fontSize?:number, fontWeight?:number, lineHeight?:number, letterSpacing?:number,
          textAlign?:left|center|right|justify, opacity?:number,
          effects?:[{kind:DROP_SHADOW|INNER_SHADOW|LAYER_BLUR, x?,y?,blur?,spread?,radius?,color?}]}
 children?: 节点数组（仅 FRAME/RECTANGLE 可有）
+
+className 写法示例（**推荐照这个风格写**，比 layout 手写更可靠）：
+{"kind":"FRAME","name":"顶部导航","className":"flex items-center justify-between px-4 h-14 w-full bg-card","children":[
+  {"kind":"TEXT","text":"附近商家","className":"text-lg font-semibold text-foreground"},
+  {"kind":"FRAME","name":"搜索框","className":"flex items-center gap-2 px-3 h-9 rounded-full bg-background","children":[
+    {"kind":"VECTOR","icon":"search","className":"w-4 h-4 text-muted-foreground"}]}]}
 
 颜色写法：必须是 @color.<令牌名> 或风格包内的 hex。禁止自造色值。
 禁止输出 id、交互、原型、组件、变体、动画——这些不在契约内，出现即被校验拒绝。
@@ -87,9 +103,9 @@ const RULES_BLOCK = `## 硬规则（违反会被 schema 闸门拦下并返工）
 3. 层级对比度：页面主标题 fontSize ≥ 20 且 fontWeight ≥ 600；正文 13–16；辅助文字用 muted 令牌。
    暗色包上文字必须用 @color.foreground 系；亮色包同理。禁止同色叠同色。
 4. 移动端单列：页面宽 375；内容左右 padding 16–24；横向排列只用于导航行/图标+文案/按钮组。
-5. 结构自洽：FRAME 必带 layout；TEXT 必带 text；FILL 只在父容器为 VERTICAL/HORIZONTAL 时使用。
-   **排版用 VERTICAL/HORIZONTAL**：页面结构一律靠嵌套 + gap + padding 表达，不要用 ABSOLUTE
-   摆位置（绝对定位只用于叠层，且每个子项都必须给 x/y，否则会全部叠在左上角）。
+5. 结构自洽：FRAME 必带 layout 或 className；TEXT 必带 text；FILL 只在父容器为 VERTICAL/HORIZONTAL 时使用。
+   **排版用 VERTICAL/HORIZONTAL**：页面结构一律靠嵌套 + gap + padding 表达（优先写 className），
+   不要用 ABSOLUTE 摆位置（绝对定位只用于叠层，且每个子项都必须给 x/y，否则会全部叠在左上角）。
 6. 规模：节点 ≤ 80，嵌套 ≤ 6 层；重复卡片用同样的子结构复制，不要为每个卡片另造一套层级。
 7. 表达边界（诚实边界）：不做 hover/focus 运行时态、不做滚动吸顶、不做真实交互；只画静态视觉。
 8. 命名：name 用简短中文语义（"顶部导航"/"商品卡"），便于后续人工定位。`;

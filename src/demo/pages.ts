@@ -444,6 +444,15 @@ function tabPage(): UIPage {
 
 /* ---------- 13 Navbar + 绝对定位 ---------- */
 function absolutePage(): UIPage {
+  /**
+   * `mode` 一字段两义：既表示「自己怎么排子项」，也表示「自己在父级里是否脱流」。
+   * 于是「按坐标摆在自己位置上、同时内部竖排」的盒子（下面的「文案」）**只有**在
+   * 父级是 ABSOLUTE 时才表达得出来：父级 ABSOLUTE 负责按 x/y 放置它，它自己的
+   * mode 负责内部排版。所以这一页的 root 必须是 ABSOLUTE，两个区块各给明确 y。
+   *
+   * 曾经 root 是 VERTICAL、海报是 ABSOLUTE → 海报脱流不占高度，「内容」从 y=0 开始
+   * 把正文压在海报下面（肉眼可见的重叠）。
+   */
   return makePage(
     '13 绝对定位页',
     [
@@ -464,14 +473,17 @@ function absolutePage(): UIPage {
           txt('限时\n折扣', { fontSize: 14, fontWeight: 700, color: '#7A4E00', textAlign: 'center', lineHeight: 18 }, { widthMode: 'FIXED', heightMode: 'HUG', x: 279, y: 82 }),
           button('立即抢购', { mode: 'HORIZONTAL', widthMode: 'FIXED', heightMode: 'FIXED', width: 327, height: 50, x: 24, y: 340, align: 'CENTER', justify: 'CENTER' }, { background: '#FFFFFF', color: C.primary, fontSize: 16, fontWeight: 700, borderRadius: 25, textAlign: 'center' }),
         ],
-        { mode: 'ABSOLUTE', widthMode: 'FILL', heightMode: 'FIXED', height: 420, padding: [0, 0, 0, 0] },
+        { mode: 'ABSOLUTE', widthMode: 'FILL', heightMode: 'FIXED', height: 420, padding: [0, 0, 0, 0], x: 0, y: 0 },
       ),
-      body([
-        txt('活动说明', { fontSize: 16, fontWeight: 700, color: C.text }),
-        txt('1. 活动时间：10 月 1 日 - 10 月 7 日；2. 每位用户限领 3 张优惠券；3. 优惠券不可叠加使用；4. 最终解释权归平台所有。', { fontSize: 13, color: C.dim, lineHeight: 21 }, { widthMode: 'FILL' }),
-      ]),
+      body(
+        [
+          txt('活动说明', { fontSize: 16, fontWeight: 700, color: C.text }),
+          txt('1. 活动时间：10 月 1 日 - 10 月 7 日；2. 每位用户限领 3 张优惠券；3. 优惠券不可叠加使用；4. 最终解释权归平台所有。', { fontSize: 13, color: C.dim, lineHeight: 21 }, { widthMode: 'FILL' }),
+        ],
+        { x: 0, y: 420 },
+      ),
     ],
-    { rootStyle: { background: C.bg } },
+    { rootStyle: { background: C.bg }, rootLayout: { mode: 'ABSOLUTE' } },
   );
 }
 

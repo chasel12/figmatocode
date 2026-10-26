@@ -26,6 +26,7 @@ import { createNode, createPage, nextId } from '../../schema/factory';
 import { isContainer } from '../../schema/types';
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiBorderSpec, AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStatesSpec, AiStyleSpec, AiViolation } from './types';
+import { parseClassNames } from './tailwind';
 
 export interface BuildContext {
   pack: StylePack;
@@ -55,6 +56,53 @@ export function resolveColorRef(raw: string | undefined, pack: StylePack): Color
   }
   // 非 hex 也非令牌：常见于 "white" / "transparent" 等关键字，放行（CSS 合法）
   return { value };
+}
+
+const CLASS_WHITELIST_HINT =
+  '（只接受受控子集：flex/flex-col、items-*/justify-*、p*/gap-*、w-*/h-*、text-*/font-*、rounded*、bg-*/border-*、opacity-*、overflow-hidden）';
+
+/** 未知 class 一律报出来（不静默丢弃），措辞统一，供自修环直接读 */
+function reportUnknownClasses(unknown: string[], path: string, violations: AiViolation[]): void {
+  if (!unknown.length) return;
+  violations.push({
+    path: `${path}.className`,
+    kind: 'schema',
+    message: `不支持的 class：${unknown.join(' ')}${CLASS_WHITELIST_HINT}`,
+  });
+}
+
+/**
+ * `className` 解析出的颜色走**与显式 style 完全相同的令牌解析路径**。
+ * `bg-primary` → `@color.primary` → 风格包 hex；`bg-[#1677FF]` 直接是字面量。
+ * 不走这一步就写进 style，编译期会当成非法色值。
+ */
+function resolveClassColors(
+  patch: Partial<StyleSchema>,
+  pack: StylePack,
+  path: string,
+  violations: AiViolation[],
+): void {
+  for (const key of ['background', 'color'] as const) {
+    const raw = patch[key];
+    if (typeof raw !== 'string' || !raw) continue;
+    const res = resolveColorRef(raw, pack);
+    if (res.unknown) {
+      violations.push({ path: `${path}.className`, kind: 'token', message: `风格包里没有颜色令牌 "${res.unknown}"` });
+      delete patch[key];
+    } else if (res.value) {
+      patch[key] = res.value;
+    }
+  }
+  const borderObj = patch.border;
+  if (borderObj?.color) {
+    const res = resolveColorRef(borderObj.color, pack);
+    if (res.unknown) {
+      violations.push({ path: `${path}.className`, kind: 'token', message: `风格包里没有颜色令牌 "${res.unknown}"` });
+      delete (borderObj as { color?: string }).color;
+    } else if (res.value) {
+      borderObj.color = res.value;
+    }
+  }
 }
 
 function applyColor(
@@ -256,8 +304,23 @@ export function buildNodeFromSpec(
   const node = createNode(spec.kind);
   if (spec.name) node.name = spec.name;
 
+  /**
+   * `className` 是模型熟悉的表达通道（Tailwind），先解析成 patch，
+   * 再由显式 `layout` / `style` 覆盖——「class 给默认，显式字段做精确控制」。
+   * 映射器不认识的 class 进违例清单，**不静默丢弃**（静默会让「AI 写的」和「画布上看到的」不一致）。
+   */
+  const fromClass = parseClassNames(spec.className);
+  reportUnknownClasses(fromClass.unknown, path, violations);
+  Object.assign(node.layout, fromClass.layout);
   Object.assign(node.layout, buildLayout(spec.layout, spec.kind));
-  node.style = { ...(node.style ?? {}), ...buildStyle(spec.style, ctx.pack, `${path}.style`, violations) };
+
+  const classStyle = fromClass.style;
+  resolveClassColors(classStyle, ctx.pack, path, violations);
+  node.style = {
+    ...(node.style ?? {}),
+    ...classStyle,
+    ...buildStyle(spec.style, ctx.pack, `${path}.style`, violations),
+  };
 
   if (node.type === 'TEXT' || node.type === 'BUTTON') {
     node.text = spec.text ?? (node.type === 'BUTTON' ? '按钮' : '文本');
@@ -274,9 +337,13 @@ export function buildNodeFromSpec(
       violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库中不存在 "${spec.icon}"` });
     }
     vectorNode.vector = { d: d ?? 'M 0 0', width: 24, height: 24 };
-    // 图标默认 24×24 定尺；描边来自 style.color（Lucide 是描边型图标）
-    if (spec.layout?.width == null) node.layout.width = 24;
-    if (spec.layout?.height == null) node.layout.height = 24;
+    /**
+     * 图标默认 24×24 定尺；描边来自 style.color（Lucide 是描边型图标）。
+     * 判空必须看 `node.layout`（class 已经合并进来）而不是 `spec.layout`：
+     * 契约示例教模型写 `w-4 h-4`，只看显式字段会把它静默改回 24×24。
+     */
+    if (node.layout.width == null) node.layout.width = 24;
+    if (node.layout.height == null) node.layout.height = 24;
     if (!node.layout.widthMode) node.layout.widthMode = 'FIXED';
     if (!node.layout.heightMode) node.layout.heightMode = 'FIXED';
     if (!vectorNode.style?.border) {
@@ -384,6 +451,14 @@ export function draftToPage(draft: AiPageDraft, ctx: BuildContext): DraftBuildRe
   const bg: { value?: string } = {};
   applyColor(bg, 'background', draft.background, ctx.pack, violations);
   if (bg.value) page.root.style = { ...(page.root.style ?? {}), background: bg.value };
+
+  // root 单独处理（不走 buildNodeFromSpec），className 通道要在这里补齐
+  const rootClass = parseClassNames(draft.root.className);
+  reportUnknownClasses(rootClass.unknown, 'root', violations);
+  Object.assign(page.root.layout, rootClass.layout);
+  const rootClassStyle = rootClass.style;
+  resolveClassColors(rootClassStyle, ctx.pack, 'root', violations);
+  page.root.style = { ...(page.root.style ?? {}), ...rootClassStyle };
 
   // root 视为页面内容根：layout 落到 PAGE 根，children 成为 PAGE 的直接子项
   const rootLayout = buildLayout(draft.root.layout, 'FRAME');

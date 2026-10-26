@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import pageSchema from '../src/editor/ai/contract.page.schema.json';
 import editSchema from '../src/editor/ai/contract.edit.schema.json';
 import { extractJson, readablePath, summarizeViolations, validateAiOutput } from '../src/editor/ai/contract';
+import { draftToPage } from '../src/editor/ai/specToPage';
 import { getPack, PACKS } from '../src/tokens/packs';
 import fewshots from '../src/editor/ai/fewshots.json';
 
@@ -36,6 +37,52 @@ describe('M7 W1 契约闸门 · schema 生成物自检', () => {
       const parsed = JSON.parse(entry.spec) as unknown;
       const res = validateAiOutput(parsed, { expect: 'page', pack });
       expect(res.ok, `${entry.id}: ${summarizeViolations(res.violations)}`).toBe(true);
+    }
+  });
+});
+
+/**
+ * few-shot 语料是模型的**模板**，不是文档。实测（2026-10-26）只改契约文字、
+ * 样例仍手写 layout 时，模型输出 className 使用率是 0%——它照抄样例，不读说明。
+ * 所以这两条是「表达通道真的被用上」的机械保证，不是风格偏好。
+ */
+describe('few-shot 语料本身必须用 className 写', () => {
+  interface CorpusNode {
+    className?: string;
+    layout?: unknown;
+    children?: CorpusNode[];
+  }
+  const walk = (n: CorpusNode, cb: (n: CorpusNode) => void): void => {
+    cb(n);
+    (n.children ?? []).forEach((c) => walk(c, cb));
+  };
+  const roots = (): CorpusNode[] => fewshots.map((e) => (JSON.parse(e.spec) as { root: CorpusNode }).root);
+
+  it('className 覆盖率 ≥ 90%（低于这个数，模型会按 layout 写）', () => {
+    let total = 0;
+    let withClass = 0;
+    for (const root of roots()) walk(root, (n) => { total += 1; if (n.className) withClass += 1; });
+    expect(total).toBeGreaterThan(100);
+    expect(withClass / total).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('保留的显式 layout 只出现在反向映射表达不了的地方（ABSOLUTE 坐标）', () => {
+    const allowed = new Set(['mode', 'x', 'y']);
+    for (const root of roots()) {
+      walk(root, (n) => {
+        if (!n.layout) return;
+        const keys = Object.keys(n.layout as object);
+        for (const k of keys) expect(allowed.has(k), `${k} in ${JSON.stringify(n.layout)}`).toBe(true);
+        const mode = (n.layout as { mode?: string }).mode;
+        if (mode) expect(mode).toBe('ABSOLUTE');
+      });
+    }
+  });
+
+  it('语料里的 className 全在受控子集内，转换零违例（否则等于在教模型写违例）', () => {
+    for (const entry of fewshots) {
+      const { violations } = draftToPage(JSON.parse(entry.spec) as never, { pack });
+      expect(violations, `${entry.id}: ${summarizeViolations(violations)}`).toEqual([]);
     }
   });
 });

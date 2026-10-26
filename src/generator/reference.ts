@@ -32,8 +32,19 @@ export function buildReferenceDom(
            * `position: relative/sticky/fixed` 原样追加，CSS 后者胜 → 基准图会从 absolute
            * 退化成 relative，left/top 变成相对偏移，整张基准图错位。
            * （B3 的 sticky/fixed 本就声明「仅出码侧生效，画布不预览」，这里一并兜住。）
+           *
+           * `left/top/right/bottom` 同理必须滤掉：扁平化后**包含块恒为页面根**，
+           * 而编译产物里的偏移是相对**真实父级**算的（`constraints` 的 `bottom: 8px`
+           * 之类）。留着会让基准图按整页高度解析，把节点甩到页面底部——
+           * 表现为「约束档位只剩一个色块」，且父级一改位置就整块错位。
+           * 基准图的坐标**只**来自 geometry，这是它作为「几何真值」的前提。
            */
           prop !== 'position' &&
+          prop !== 'left' &&
+          prop !== 'top' &&
+          prop !== 'right' &&
+          prop !== 'bottom' &&
+          prop !== 'inset' &&
           prop !== 'width' &&
           prop !== 'height' &&
           prop !== 'min-height' &&
