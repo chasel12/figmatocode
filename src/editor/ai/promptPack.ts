@@ -59,9 +59,10 @@ const CONTRACT_BLOCK = `## 输出契约（只输出一个 JSON 对象，不要 m
 节点（AiNodeSpec）可用字段：
 kind: FRAME|TEXT|BUTTON|RECTANGLE|IMAGE|OVAL|LINE|VECTOR（必填）
 name?: string  text?: TEXT/BUTTON 必填  src?: IMAGE 可选  icon?: VECTOR 图标名  vectorD?: VECTOR 路径
-layout?: {mode:VERTICAL|HORIZONTAL|ABSOLUTE, widthMode:FIXED|FILL|HUG, heightMode:FIXED|FILL|HUG,
+layout?: {mode:VERTICAL|HORIZONTAL（默认 VERTICAL；排版只用这两个）, widthMode:FIXED|FILL|HUG, heightMode:FIXED|FILL|HUG,
           width?:number, height?:number, padding?:[上,右,下,左], gap?:number,
-          align?:START|CENTER|END|STRETCH, justify?:START|CENTER|END|SPACE_BETWEEN, x?:number, y?:number}
+          align?:START|CENTER|END|STRETCH, justify?:START|CENTER|END|SPACE_BETWEEN}
+叠层专用：mode:ABSOLUTE 必须给**每个子项** x/y；子项都没 x/y 时会被自动改回 VERTICAL
 style?: {background?:颜色, color?:颜色, borderRadius?:number,
          border?:{width:number,color:颜色,style?:solid|dashed|dotted},
          fontSize?:number, fontWeight?:number, lineHeight?:number, letterSpacing?:number,
@@ -87,6 +88,8 @@ const RULES_BLOCK = `## 硬规则（违反会被 schema 闸门拦下并返工）
    暗色包上文字必须用 @color.foreground 系；亮色包同理。禁止同色叠同色。
 4. 移动端单列：页面宽 375；内容左右 padding 16–24；横向排列只用于导航行/图标+文案/按钮组。
 5. 结构自洽：FRAME 必带 layout；TEXT 必带 text；FILL 只在父容器为 VERTICAL/HORIZONTAL 时使用。
+   **排版用 VERTICAL/HORIZONTAL**：页面结构一律靠嵌套 + gap + padding 表达，不要用 ABSOLUTE
+   摆位置（绝对定位只用于叠层，且每个子项都必须给 x/y，否则会全部叠在左上角）。
 6. 规模：节点 ≤ 80，嵌套 ≤ 6 层；重复卡片用同样的子结构复制，不要为每个卡片另造一套层级。
 7. 表达边界（诚实边界）：不做 hover/focus 运行时态、不做滚动吸顶、不做真实交互；只画静态视觉。
 8. 命名：name 用简短中文语义（"顶部导航"/"商品卡"），便于后续人工定位。`;

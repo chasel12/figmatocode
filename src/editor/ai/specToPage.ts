@@ -23,6 +23,7 @@ import type {
   VectorNode,
 } from '../../schema/types';
 import { createNode, createPage, nextId } from '../../schema/factory';
+import { isContainer } from '../../schema/types';
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiBorderSpec, AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStatesSpec, AiStyleSpec, AiViolation } from './types';
 
@@ -298,6 +299,75 @@ export interface DraftBuildResult {
   violations: AiViolation[];
 }
 
+/**
+ * 绝对定位规范化（**转换层兜底，不靠提示词**）。
+ *
+ * 为什么必须有这一层：契约把 `mode: ABSOLUTE` 与 VERTICAL/HORIZONTAL 并列，
+ * 模型拿不准时会选它（听起来最「精确」）。而布局引擎对 ABSOLUTE 父级的处理是
+ * 「所有子项按自身 x/y 放置，缺省 0」（`layout.ts:286`）→ **全部叠在左上角**。
+ * 这就是「AI 生成的页面组件几乎全是绝对定位、全部重叠拥挤」的直接技术原因。
+ *
+ * 关键判断：**这类问题不该靠提示词加约束去治**——那是在限制模型发挥，而且模型每次
+ * 都可能再犯。约束应该落在转换层这种确定性代码里：模型随便写，这里保证产物合法。
+ *
+ * 两条判定，只有**真给了坐标**才放行：
+ *  1. 容器声明 ABSOLUTE，但没有任何子项带 x/y → 它没有坐标意图 → 降级 VERTICAL；
+ *  2. 节点声明 ABSOLUTE 却无 x/y，且父是流式 → 会被放到父左上角压住兄弟 → 降级为父的 mode。
+ */
+function normalizeAbsolute(root: UINode, violations: AiViolation[]): void {
+  const hasXY = (n: UINode): boolean => n.layout.x != null || n.layout.y != null;
+
+  const visit = (node: UINode, parentMode: LayoutSchema['mode'] | null, path: string): void => {
+    // 规则 2：自身声明 ABSOLUTE 却无坐标，且父不是 ABSOLUTE（流式父里脱流 → 压住兄弟）
+    if (
+      node.layout.mode === 'ABSOLUTE' &&
+      !hasXY(node) &&
+      parentMode != null &&
+      parentMode !== 'ABSOLUTE'
+    ) {
+      node.layout.mode = parentMode === 'HORIZONTAL' ? 'HORIZONTAL' : 'VERTICAL';
+      violations.push({
+        path: `${path}.layout.mode`,
+        kind: 'schema',
+        message: 'ABSOLUTE 缺少 x/y，已改为跟随父容器排版（否则会压在兄弟节点上）',
+      });
+    }
+
+    if (!isContainer(node)) return;
+    const kids = node.children;
+
+    /**
+     * 规则 1：容器声明 ABSOLUTE，但子项**没有有效坐标意图** → 按流式排。
+     *
+     * 两种「没有意图」都要判：
+     *  - 一个 x/y 都没给（缺省会全落 0）；
+     *  - 给了但**所有子项坐标完全一样**（模型常写一堆 `x:0,y:0` 交差），
+     *    效果与「没给」等价，同样是全部重叠。
+     *
+     * 误伤代价可接受：本该叠加的两层会被拆成上下排列——至少看得见，
+     * 比全部糊在左上角强。
+     */
+    const sameXY =
+      kids.length >= 2 &&
+      new Set(kids.map((c) => `${c.layout.x ?? 0},${c.layout.y ?? 0}`)).size === 1;
+    if (node.layout.mode === 'ABSOLUTE' && kids.length > 0 && (!kids.some(hasXY) || sameXY)) {
+      node.layout.mode = 'VERTICAL';
+      violations.push({
+        path: `${path}.layout.mode`,
+        kind: 'schema',
+        message: sameXY
+          ? 'ABSOLUTE 容器内所有子项坐标完全相同，已改为 VERTICAL（否则子项会全部重叠）'
+          : 'ABSOLUTE 容器内没有任何子项带 x/y，已改为 VERTICAL（否则子项会全部重叠在左上角）',
+      });
+    }
+
+    const mode = node.layout.mode;
+    kids.forEach((c, i) => visit(c, mode, `${path}.children[${i}]`));
+  };
+
+  visit(root, null, 'root');
+}
+
 /** AiPageDraft → 全新 UIPage（页面 id/root id 唯一，避免与既有页冲突） */
 export function draftToPage(draft: AiPageDraft, ctx: BuildContext): DraftBuildResult {
   const violations: AiViolation[] = [];
@@ -329,6 +399,8 @@ export function draftToPage(draft: AiPageDraft, ctx: BuildContext): DraftBuildRe
   page.root.children = (draft.root.children ?? []).map((child, i) =>
     buildNodeFromSpec(child, ctx, `root.children[${i}]`, violations),
   );
+  // 兜底规范化：必须在 children 建好之后（判定依赖子项是否带 x/y）
+  normalizeAbsolute(page.root, violations);
   return { page, violations };
 }
 

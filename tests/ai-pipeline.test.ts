@@ -116,6 +116,62 @@ describe('M7 W3 生成管线', () => {
   });
 });
 
+describe('绝对定位兜底（转换层，不靠提示词）', () => {
+  /**
+   * 回归：布局引擎对 ABSOLUTE 父级的处理是「子项按 x/y 放、缺省 0」（layout.ts:286），
+   * 所以模型一旦选了 ABSOLUTE 又不给坐标，整块内容会**全部叠在左上角**。
+   * 这是「AI 生成页面重叠拥挤」的机械原因，必须由转换层兜住，而不是靠提示词求模型别犯。
+   */
+  const absDraft = (): AiPageDraft => ({
+    kind: 'page',
+    name: '重叠页',
+    width: 375,
+    height: 812,
+    root: {
+      kind: 'FRAME',
+      name: '页面内容',
+      layout: { mode: 'ABSOLUTE', widthMode: 'FILL', heightMode: 'FILL' },
+      children: [
+        { kind: 'TEXT', text: '标题' },
+        { kind: 'TEXT', text: '副标题' },
+      ],
+    },
+  });
+
+  it('容器声明 ABSOLUTE 但子项全无 x/y → 降级 VERTICAL 并留违例', () => {
+    const { page, violations } = draftToPage(absDraft(), { pack });
+    expect(page.root.layout.mode).toBe('VERTICAL');
+    expect(violations.some((v) => /ABSOLUTE 容器/.test(v.message))).toBe(true);
+  });
+
+  it('子项有真实坐标时保留 ABSOLUTE（叠层场景不被误伤）', () => {
+    const d = absDraft();
+    d.root.children![0].layout = { x: 16, y: 24 };
+    d.root.children![1].layout = { x: 16, y: 80 };
+    const { page, violations } = draftToPage(d, { pack });
+    expect(page.root.layout.mode).toBe('ABSOLUTE');
+    expect(page.root.children[0].layout.x).toBe(16);
+    expect(violations.some((v) => /ABSOLUTE 容器/.test(v.message))).toBe(false);
+  });
+
+  it('子项坐标全写 0,0（假坐标）→ 同样判为无意图并降级', () => {
+    const d = absDraft();
+    d.root.children![0].layout = { x: 0, y: 0 };
+    d.root.children![1].layout = { x: 0, y: 0 };
+    const { page, violations } = draftToPage(d, { pack });
+    expect(page.root.layout.mode).toBe('VERTICAL');
+    expect(violations.some((v) => /坐标完全相同/.test(v.message))).toBe(true);
+  });
+
+  it('流式父里的脱流子项缺 x/y → 跟随父排版，不压住兄弟', () => {
+    const d = validDraft();
+    d.root.children!.push({ kind: 'TEXT', text: '漏了坐标', layout: { mode: 'ABSOLUTE' } });
+    const { page, violations } = draftToPage(d, { pack });
+    expect(page.root.children[3].layout.mode).toBe('VERTICAL');
+    expect(violations.some((v) => /缺少 x\/y/.test(v.message))).toBe(true);
+  });
+});
+
 describe('M7 W3 令牌解析', () => {
   it('@color.x / @x / hex / rgb() 四种写法', () => {
     expect(resolveColorRef('@color.primary', pack).value).toBe(pack.colors.primary);
