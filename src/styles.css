@@ -1083,6 +1083,50 @@ input[type='number'] {
   gap: 8px;
 }
 
+/* ---------- 未保存守卫（FR-60） ---------- */
+.unsaved-modal {
+  width: min(470px, 92vw);
+}
+
+.unsaved-body {
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.unsaved-body p {
+  margin: 0 0 10px;
+}
+
+.unsaved-body p:last-child {
+  margin-bottom: 0;
+}
+
+.unsaved-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.unsaved-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* 标题栏脏标记：项目名右侧小圆点 */
+.title-dirty-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
 .tabs {
   display: flex;
   gap: 4px;

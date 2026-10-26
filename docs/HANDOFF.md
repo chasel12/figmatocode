@@ -560,3 +560,71 @@ npm run codegen:verify:react                    # 此时比对才是同版本
 - **交互态画布不预览**：画布不模拟交互，假装支持会误导。右栏已标注。
 - **`transform` 自定义 origin 仅导出**：画布按元素中心近似。
 - **Grid 子项**：沿用原 FILL/FIXED 声明，未做 `grid-area` / `span` 的逐项定位。
+
+---
+
+## 16. 未保存守卫 FR-60（2026-10-26 新增）
+
+### 16.1 代码地图
+
+| 文件 | 职责 |
+|---|---|
+| `src/editor/unsaved.ts` | 脏标记（保存点 JSON 逐字节比对）、生命周期钩子、三按钮意图总线、回滚点 |
+| `src/editor/UnsavedDialog.tsx` | 三按钮弹窗（保存 / 不保存 / 取消） |
+| `src/editor/saveProject.ts` | `saveProjectJson` / `saveProjectFig` —— 菜单与弹窗共用**同一实现** |
+| `src/editor/Editor.tsx` | 接线：autosave 节奏、脏标记重算、弹窗渲染、`Ctrl+S` |
+| `src/editor/Toolbar.tsx` | 菜单保存/另存走 saveProject、新建/打开走 `guard()`、标题脏点 |
+| `tests/unsaved-guard.test.ts` | 19 例（脏标记 / 落盘 / 意图 / 生命周期） |
+| `scripts/fr60-guard-check.mjs` | 真实浏览器 9 步验收 |
+
+### 16.2 三条必须知道的
+
+1. **浏览器没有三按钮。** `beforeunload` 只有「离开 / 取消」两个键，文案不可改、按钮数不可改。
+   三按钮只在**应用内**破坏性操作（新建 / 打开）时出现。桌面壳的 `before-quit` 才能补上
+   「关窗口」那条 —— 见 `docs/desktop-shell-plan.md` D1.5。**这不是实现偷懒，是能力边界。**
+2. **落盘节奏被改过（修的是真 bug）。** 原 autosave 是纯防抖：每次 state 变更都 `clearTimeout`，
+   于是连续拖动 / 连续输入时 timer 永远被重置，**可以长时间一次都不落盘**，中途崩溃全丢。
+   现为「500ms 防抖 + **2s 强制上限**」。
+3. **脏 = 保存点 JSON 逐字节比对**，不是 undo 栈长度。撤销回到保存点会正确变干净，
+   用栈长度算不出这个。
+
+### 16.3 强制关闭的四道防线（按可靠性排序）
+
+进程被杀 / 断电 / 崩溃时，浏览器**不保证**给任何事件。所以「最大限度保存」的答案不是
+「在退出时努力保存」，而是**把保存从「退出时」前移到「编辑时」**，退出钩子只是补丁。
+
+| # | 防线 | 触发 | 状态 |
+|---|---|---|---|
+| 1 | 编辑即落盘（防抖 + 2s 上限） | 每次编辑 | ✅ 已实现 —— **唯一在事件没触发时也有效的一道** |
+| 2 | 页面隐藏时落盘 | `visibilitychange(hidden)` / `pagehide` | ✅ 已实现 |
+| 3 | 关闭前同步落盘 | `beforeunload` 先 flush 再弹确认 | ✅ 已实现 —— 把原生「离开」从丢数据变成安全离开 |
+| 4 | 崩溃后识别与恢复 | 会话标记 + 环形快照 + 恢复横幅 | ⬜ 未做，见 16.4 |
+
+**为什么第 3 道必须是 `localStorage` 而不是 IndexedDB**：`localStorage` 是**同步** API，
+调用返回即已写入；IndexedDB 是异步的，`beforeunload` 里发起的写有大概率被进程杀掉而丢失。
+这是硬约束，不是偏好。IndexedDB 只适合放「历史快照」这种不赶时间的数据。
+
+### 16.4 还没做（第 4 道防线）
+
+- **会话标记**：进入写 `{at, projectName}`，正常关闭清除；下次启动若标记还在 → 上次非正常退出
+  → 顶部横幅「检测到未正常关闭，已恢复 X 分钟前」+「打开回滚点」。
+- **环形快照**：每 60s 另存 `snapshot.<ts>`，保留最近 5 个（151 KB × 5 = 755 KB，配额够）。
+- **IndexedDB 冷存**：大工程与历史快照挪走，localStorage 只留最近一次。
+- **写失败可见**：`flushSnapshot` 已返回 boolean，但目前没人消费 —— 应做状态栏提示
+  「自动保存失败（配额满）」，现在只是静默。
+
+### 16.5 新坑：并发跑浏览器脚本会让像素关假红
+
+三个 Playwright 脚本（`walkthrough` / `fr60` / `codegen:verify` 的像素关）**不能并发**。
+实测并发时 `codegen:verify:react` 报：
+
+```
+pages/01  0.00%
+  page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot
+  - waiting for fonts to load
+```
+
+`0.00%` 这个数字本身就是信号：**完全不一致通常是截图没抓到（空白/超时），不是渲染变差**。
+真差异一般在 97~99.x% 区间。串行重跑即恢复 99.52% / 19 页。
+
+判断口诀：**看到 0.00% 先怀疑截图，看到 9x.xx% 再怀疑渲染。**

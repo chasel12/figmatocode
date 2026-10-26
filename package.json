@@ -16,6 +16,7 @@
     "precanvasdiff": "vite-node scripts/build-e2e-hook.ts",
     "canvasdiff": "node scripts/canvas-diff.mjs",
     "walkthrough": "node scripts/walkthrough.mjs",
+    "fr60": "node scripts/fr60-guard-check.mjs",
     "showcase": "node scripts/showcase.mjs",
     "perf-1000": "node scripts/perf-1000.mjs",
     "zip-assert": "vite-node scripts/zip-assert.mjs",

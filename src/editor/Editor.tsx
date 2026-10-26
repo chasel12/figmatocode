@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createPage, findById } from '../schema/factory';
 import { createCanvasMeasure, resolveLayout } from '../compiler';
 import { EditorContext, editorReducer, initialState, type Tool } from './store';
-import { parseProject, projectFromEditorState, serializeProject, stateFromProject } from './project';
+import { parseProject, serializeProject, stateFromProject } from './project';
 import type { UIProject } from '../schema/types';
 import { CanvasGeometryContext } from './canvasContext';
 import { canvasBus } from './canvasBus';
@@ -17,10 +17,29 @@ import { PrototypePanel } from './PrototypePanel';
 import { PresentOverlay, isPresenting } from './present/PresentOverlay';
 import { presentBus } from './present/presentBus';
 import { AiDock } from './ai/AiDock';
+import { UnsavedDialog } from './UnsavedDialog';
+import { saveProjectJson } from './saveProject';
+import {
+  AUTOSAVE_KEY,
+  autosaveEnvelope,
+  consumeCleanRequest,
+  flushSnapshot,
+  installLifecycleGuard,
+  markSaved,
+  recomputeDirty,
+  registerRevalidator,
+  registerSnapshotSource,
+  resolvePending,
+  subscribePending,
+  type PendingIntent,
+  type UnsavedChoice,
+} from './unsaved';
 
-const STORAGE_KEY = 'ui-compiler.autosave.v2';
 /** §1.3：v1 键只读不删（降级/双开无害）；命中 v1 即升级并回写 v2 */
 const STORAGE_KEY_V1 = 'ui-compiler.autosave.v1';
+/** FR-60：防抖窗口与强制上限。纯防抖在连续拖动时会被无限推迟，必须有上限 */
+const AUTOSAVE_DEBOUNCE = 500;
+const AUTOSAVE_MAX_WAIT = 2000;
 
 interface AutosaveEnvelope {
   version?: number;
@@ -32,7 +51,7 @@ interface AutosaveEnvelope {
 
 function loadAutosave(): ReturnType<typeof initialState> | null {
   try {
-    const raw2 = localStorage.getItem(STORAGE_KEY);
+    const raw2 = localStorage.getItem(AUTOSAVE_KEY);
     if (raw2) {
       const env = JSON.parse(raw2) as AutosaveEnvelope;
       return stateFromProject(parseProject(env).project, env.currentPageId);
@@ -41,7 +60,7 @@ function loadAutosave(): ReturnType<typeof initialState> | null {
     if (raw1) {
       const { project } = parseProject(raw1);
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeProject(project)));
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serializeProject(project)));
       } catch {
         /* 回写失败不阻塞恢复 */
       }
@@ -67,6 +86,8 @@ export function Editor() {
   // FR-44：Shift+Space 内联预览（画布内小窗运行，同一播放引擎的 inline 模式）
   const [previewing, setPreviewing] = useState(false);
   const [previewStartId, setPreviewStartId] = useState<string | null>(null);
+  // FR-60：被未保存守卫挂起的破坏性意图（新建/打开/关闭）；非 null 即弹三按钮弹窗
+  const [pendingIntent, setPendingIntent] = useState<PendingIntent | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -107,20 +128,64 @@ export function Editor() {
   }, [state.page, geometry]);
 
   // §1.3 autosave v2：pages 为权威整工程落盘（多页/组件/样式随编辑持久）；v1 键不再写
+  //
+  // FR-60 两处改造：
+  // ① 节奏改「500ms 防抖 + 2s 强制上限」。原实现是纯防抖 —— 每次 state 变更都 clear 掉上一个
+  //    timer，于是连续拖动 / 连续输入时**可以长时间一次都不落盘**，中途崩溃就全丢。
+  // ② 顺带做脏标记：拿「保存点 JSON」与当前 JSON 逐字节比（撤销回到保存点会正确变干净，
+  //    用 undo 栈长度算不出来这个）。
+  const lastFlushAtRef = useRef(0);
   useEffect(() => {
+    // 同步消费「下次变更即干净」请求（打开文件/新建后），避免被后续 timer 抢走
+    const cleanRequested = consumeCleanRequest();
+    const since = Date.now() - lastFlushAtRef.current;
+    const delay = since >= AUTOSAVE_MAX_WAIT ? 0 : AUTOSAVE_DEBOUNCE;
     const timer = setTimeout(() => {
+      let json: string;
       try {
-        const project = projectFromEditorState(state);
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ ...serializeProject(project), currentPageId: state.currentPageId }),
-        );
+        json = autosaveEnvelope(stateRef.current);
       } catch {
-        // 忽略存储配额错误
+        return; // 序列化失败（循环引用等）不该拖垮编辑
       }
-    }, 500);
+      lastFlushAtRef.current = Date.now();
+      flushSnapshot(json);
+      if (cleanRequested) markSaved(json);
+      else recomputeDirty(json);
+    }, delay);
     return () => clearTimeout(timer);
   }, [state.pages, state.currentPageId, state.projectName, state.components, state.tokens]);
+
+  // FR-60：把「当前工程 → JSON」与「重算脏标记」交给守卫模块；装 beforeunload / pagehide /
+  // visibilitychange 钩子（关闭时同步落盘，这是强制关闭场景里唯一保证完成的写）
+  useEffect(() => {
+    registerSnapshotSource(() => autosaveEnvelope(stateRef.current));
+    registerRevalidator(() => recomputeDirty(autosaveEnvelope(stateRef.current)));
+    const dispose = installLifecycleGuard();
+    return () => {
+      registerSnapshotSource(null);
+      registerRevalidator(null);
+      dispose();
+    };
+  }, []);
+
+  // FR-60：守卫挂起意图 → 本层渲染三按钮弹窗
+  useEffect(() => subscribePending(setPendingIntent), []);
+
+  const handleUnsavedChoice = (choice: UnsavedChoice) => {
+    if (choice === 'cancel') {
+      resolvePending('cancel');
+      return;
+    }
+    if (choice === 'save') {
+      // 与菜单「保存 JSON」同一实现（saveProject.ts），并立即把保存点前移
+      commitSave();
+      resolvePending('save');
+      return;
+    }
+    // 「不保存」：回滚点已由 resolvePending 存下；新状态算干净由意图自己声明
+    // （`requestCleanOnNextChange()` 放在 dispatch 前一行，避免读文件失败时把标记留到下一次编辑）
+    resolvePending('discard');
+  };
 
   // FR-44：Toolbar 经 presentBus 请求开始演示（起点由 Toolbar 依选中 Frame 的 flowStart 解析）
   useEffect(
@@ -131,6 +196,14 @@ export function Editor() {
       }),
     [],
   );
+
+  /** 保存并前移保存点：菜单 / Ctrl+S / 未保存弹窗「保存」三处共用 */
+  const commitSave = () => {
+    saveProjectJson(stateRef.current);
+    const json = autosaveEnvelope(stateRef.current);
+    markSaved(json);
+    flushSnapshot(json);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -155,6 +228,13 @@ export function Editor() {
       const typing =
         target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       const mod = e.ctrlKey || e.metaKey;
+
+      // FR-60：菜单里标着 Ctrl+S，就真接住它 —— 否则浏览器会弹自己的「保存网页」对话框
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        commitSave();
+        return;
+      }
 
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -363,6 +443,14 @@ export function Editor() {
           </div>
         </div>
       </CanvasGeometryContext.Provider>
+      {/* FR-60：未保存守卫三按钮弹窗（应用内破坏性操作；标签页关闭走浏览器原生两按钮） */}
+      {pendingIntent && (
+        <UnsavedDialog
+          label={pendingIntent.label}
+          projectName={state.projectName}
+          onChoose={handleUnsavedChoice}
+        />
+      )}
       {/* FR-44：Present 全屏遮罩（视图态，不进 store 历史）；pages 传入以支持演示中切页（FR-39） */}
       {presenting && (
         <PresentOverlay

@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditor, type Tool } from './store';
-import { parseProject, projectFromEditorState, serializeProject } from './project';
+import { parseProject } from './project';
 import { canvasBus } from './canvasBus';
 import { useCanvasGeometry } from './canvasContext';
 import { exportSelection } from './exporter';
 import { CodeModal } from './CodeModal';
 import { DiffModal } from './DiffModal';
 import { ShortcutsDialog } from './ShortcutsDialog';
-import { downloadBlob, downloadText } from '../utils/zip';
 import { findById } from '../schema/factory';
 import { isBooleanConvertible } from '../compiler/shapePath';
 import { presentBus } from './present/presentBus';
+import { saveProjectFig, saveProjectJson } from './saveProject';
+import { autosaveEnvelope, guard, isDirty, markSaved, requestCleanOnNextChange, subscribeDirty } from './unsaved';
 
 interface MenuDef {
   id: string;
@@ -55,8 +56,12 @@ export function Toolbar() {
     }
   });
   const [zoom, setZoom] = useState(1);
+  // FR-60：脏标记（项目名右侧小圆点）—— 与未保存守卫共用同一份判定
+  const [dirty, setDirty] = useState(() => isDirty());
   const fileRef = useRef<HTMLInputElement | null>(null);
   const menuBarRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => subscribeDirty(setDirty), []);
 
   // FR-22/23 菜单项可用性：布尔需 ≥2 个可布尔节点（VECTOR 或可自动矢量化的图形，P1-05）；蒙版需容器且子项 ≥2
   const selectedNodes = state.selectedIds
@@ -71,20 +76,27 @@ export function Toolbar() {
 
   const save = () => {
     // FR-39/59 §1.4：v2 工程文件（多页/组件/样式一体）
-    downloadText(
-      JSON.stringify(serializeProject(projectFromEditorState(state)), null, 2),
-      `${state.projectName || 'project'}.uicproj.json`,
-      'application/json',
-    );
+    saveProjectJson(state);
+    // FR-60：手动保存即把保存点前移，脏标记归零
+    markSaved(autosaveEnvelope(state));
   };
 
-  const open = async (file: File) => {
+  /** 打开/导入：先过未保存守卫（脏了才弹三按钮，干净直接执行） */
+  const open = (file: File) => {
+    guard('打开文件', () => {
+      // 标记在 dispatch 前一行：读文件失败时不会把标记留到下一次编辑
+      void doOpen(file);
+    });
+  };
+
+  const doOpen = async (file: File) => {
     try {
       // `.fig` 与自家 JSON 走同一个入口，按扩展名分派（用户不必记两种打开方式）
       if (/\.fig$/i.test(file.name)) {
         // 动态加载：`.fig` 是可选格式，主包不为它背体积（kiwi 运行时 623KB 同理）
         const { importFigFile } = await import('../fig/project');
         const { project, warnings, stats } = await importFigFile(file);
+        requestCleanOnNextChange();
         dispatch({ type: 'LOAD_PROJECT', project });
         if (warnings.length) {
           // 降级信息不弹窗打断（可能几十条），但要留在控制台可查
@@ -95,6 +107,7 @@ export function Toolbar() {
       }
       const text = await file.text();
       const { project } = parseProject(text); // v1 单页与 v2 工程双兼容（project.ts 单源）
+      requestCleanOnNextChange();
       dispatch({ type: 'LOAD_PROJECT', project });
     } catch (e) {
       alert(`打开失败：${e instanceof Error ? e.message : e}`);
@@ -104,10 +117,8 @@ export function Toolbar() {
   /** 另存为 `.fig`：多页一并写出（Figma 侧打开就是多 Canvas） */
   const saveFig = async () => {
     try {
-      const { exportFigBlob } = await import('../fig/project');
-      const project = projectFromEditorState(state);
-      const { blob, stats } = await exportFigBlob(project, state.projectName || 'project');
-      downloadBlob(blob, `${state.projectName || 'project'}.fig`);
+      const stats = await saveProjectFig(state);
+      markSaved(autosaveEnvelope(state));
       console.info(`[fig] 已导出 ${stats.pages} 页 / ${stats.nodes} 节点 / ${stats.images} 图片`);
     } catch (e) {
       alert(`导出 .fig 失败：${e instanceof Error ? e.message : e}`);
@@ -115,10 +126,11 @@ export function Toolbar() {
   };
 
   const newPage = () => {
-    if (state.past.length || state.pendingBaseline) {
-      if (!confirm('当前项目未导出，确定新建？')) return;
-    }
-    dispatch({ type: 'NEW_PAGE' });
+    // FR-60：原来只弹 `confirm`（两选项且文案不可定制），改成守卫的三按钮
+    guard('新建页面', () => {
+      requestCleanOnNextChange();
+      dispatch({ type: 'NEW_PAGE' });
+    });
   };
 
   // FR-24：主题覆盖全部面板（CSS 变量切换），默认白天（浅色）
@@ -434,6 +446,7 @@ export function Toolbar() {
           onChange={(e) => dispatch({ type: 'RENAME_PAGE', name: e.target.value })}
           title="项目名称"
         />
+        {dirty && <span className="title-dirty-dot" title="有未保存的改动（Ctrl+S 保存）" />}
         <div className="toolbar-spacer" />
         <div className="toolbar-group">
           <button className="btn" disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} title="Ctrl+Z">

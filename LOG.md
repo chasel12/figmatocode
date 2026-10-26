@@ -2585,3 +2585,73 @@ npm run build  PASS 13.73s
 
 plan §14.3 第 20~22 条；checklist 附 G。累计三轮共破三条铁律
 （`types.ts` / `compile.ts` / `css-model.ts`），全部为**纯增量**，无既有字段语义变更。
+
+## 2026-10-26（续）· FR-60 未保存守卫
+
+### 需求与实现边界
+
+要求是「关闭页面时若未保存 → 弹窗拦截，选项 保存 / 不保存 / 取消」。
+**浏览器给不了第三个按钮**：`beforeunload` 的原生弹窗只有「离开 / 取消」，文案与按钮数都不可改。
+所以拆成两条路，各自做到能做到的极限：
+
+| 场景 | 做法 | 能拿到的选项 |
+|---|---|---|
+| 应用内破坏性操作（新建 / 打开） | 自绘 `UnsavedDialog` | **保存 / 不保存 / 取消**（完整三选） |
+| 关闭标签页 / 刷新 | `beforeunload` + 先同步落盘再弹确认 | 离开 / 取消（原生两选，但「离开」不再丢数据） |
+
+桌面壳的 `before-quit` 才能补上「关窗口」那条三按钮 —— 已列入
+`docs/desktop-shell-plan.md` D1.5，现在的 `UnsavedDialog` + `guard()` 总线可直接复用。
+
+### 顺手修掉的一个真 bug
+
+原 autosave 是**纯防抖**：`useEffect(() => { const t = setTimeout(..., 500); return () => clearTimeout(t); })`。
+每次 state 变更都会 clear 掉上一个 timer，于是**连续拖动 / 连续输入时 timer 永远被重置，
+可以长时间一次都不落盘**，中途崩溃就全丢。
+现改为「500ms 防抖 + **2s 强制上限**」：距上次落盘超过 2s 时下一次变更立即写。
+
+### 脏标记的口径
+
+用「保存点 JSON 与当前 JSON 逐字节比对」，不是 undo 栈长度 —— 撤销回到保存点应当算干净，
+栈长度算不出这个。`isDirty()` 调用前会先跑 Editor 注册的 revalidator，避免 effect 滞后一帧。
+
+### 新增/改动
+
+| 文件 | 内容 |
+|---|---|
+| `src/editor/unsaved.ts`（新） | 脏标记 / 生命周期钩子 / 三按钮意图总线 / 回滚点 |
+| `src/editor/UnsavedDialog.tsx`（新） | 三按钮弹窗，默认焦点在「保存」 |
+| `src/editor/saveProject.ts`（新） | `saveProjectJson` / `saveProjectFig`，菜单与弹窗共用 |
+| `src/editor/Editor.tsx` | autosave 节奏、脏标记重算、弹窗渲染、`Ctrl+S` |
+| `src/editor/Toolbar.tsx` | 保存/另存走 saveProject、新建/打开走 `guard()`、标题脏点 |
+| `src/styles.css` | `.unsaved-*` 与 `.title-dirty-dot` |
+| `tests/unsaved-guard.test.ts`（新） | 19 例 |
+| `scripts/fr60-guard-check.mjs`（新） | 真实浏览器 9 步（`npm run fr60`） |
+
+顺带把菜单里标着 `Ctrl+S` 但一直没接的快捷键接上了（原来会弹浏览器的「保存网页」）。
+
+### 门禁
+
+```
+tsc           0 错
+vitest        798/798（59 文件，+19）
+fig 三关      PASS（导入 4/4 · 往返 18/19 已报备 1 · CSS 18/19）
+npm run build PASS 13.57s
+npm run fr60  9/9 pass
+npm run walkthrough 14/14 pass
+三端四关      react 99.52% 19/19 · vue 99.52% 19/19 · taro 99.38% 18/19（豁免 1）
+```
+
+像素与改动前逐页同值 —— 本轮只动编辑器壳层，编译器 / 出码器 / .fig 全未触碰。
+
+### 强制关闭的答案（写进 HANDOFF §16.3）
+
+进程被杀 / 断电时浏览器**不保证**给任何事件，所以答案不是「退出时更努力地保存」，
+而是**把保存从「退出时」前移到「编辑时」**。四道防线按可靠性排序：
+编辑即落盘（已做）→ 页面隐藏时落盘（已做）→ 关闭前同步落盘（已做）→ 崩溃后识别与恢复（未做）。
+硬约束：关闭时的兜底**必须用 localStorage**（同步 API，调用返回即已写），
+IndexedDB 是异步的，`beforeunload` 里发起的写有大概率被进程杀掉。
+
+**踩坑（新增）**：并发跑 `walkthrough` / `fr60` / `codegen:verify` 会让像素关假红 ——
+`pages/01 0.00%`，错误是 `Page.captureScreenshot: waiting for fonts to load`。
+三个 Chromium 抢资源导致字体加载超时，截图空白。串行重跑即恢复 99.52% / 19 页。
+判断口诀：**0.00% 先怀疑截图，9x.xx% 再怀疑渲染。**
