@@ -16,6 +16,7 @@
 import type { UINode } from '../schema/types';
 import { isContainer } from '../schema/types';
 import { svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { assetPathOf, semanticTag, type EmitContext } from './emit-context';
 
@@ -52,7 +53,7 @@ export function emitTsxBody(ctx: EmitContext, options: TsxEmitOptions = {}): str
   const startDepth = options.startDepth ?? 1;
   const imageAttr = options.imageAttr ?? defaultImageAttr;
   const buttonType = options.buttonType ?? true;
-  const placeholder = options.imagePlaceholderClass ?? 'ui-image-placeholder';
+  const placeholder = options.imagePlaceholderClass ?? IMAGE_PLACEHOLDER_CLASS;
   const classNames = new Map(ctx.compiled.nodes.map((n) => [n.id, n.className]));
 
   const renderNode = (node: UINode, depth: number): string => {

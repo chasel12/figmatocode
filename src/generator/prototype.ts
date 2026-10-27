@@ -14,6 +14,7 @@ import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { escapeHtml } from './html';
 import { svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { buildRuntimeJs, buildRuntimeCss, RUNTIME_FILE } from './runtime';
 
@@ -104,7 +105,7 @@ function renderNode(node: UINode, classNames: Map<string, string>, depth: number
     return `${indent}<button class="${cls}" type="button"${anchor}${inter}>${escapeHtml(node.text)}</button>`;
   if (node.type === 'IMAGE') {
     const src = node.src || '';
-    if (!src) return `${indent}<div class="${cls} ui-image-placeholder"${anchor}${inter}></div>`;
+    if (!src) return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"${anchor}${inter}></div>`;
     if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE')
       return `${indent}<div class="${cls}" style="background-image:url('${escapeHtml(src)}');background-repeat:repeat;"${anchor}${inter}></div>`;
     return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt=""${anchor}${inter} />`;
@@ -171,6 +172,8 @@ export function generatePrototypeProject(project: UIProject): PrototypeFile[] {
 
   const css = [
     ...compiledAll.map(({ compiled }) => scssFromPage(compiled)),
+    // 原型产物此前完全没有占位规则，空图片在预览里是一块透明区域——与 html/react/vue 对齐
+    IMAGE_PLACEHOLDER_CSS,
     needsRuntime ? buildRuntimeCss() : '',
   ]
     .filter(Boolean)

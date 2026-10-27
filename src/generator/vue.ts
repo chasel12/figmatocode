@@ -17,6 +17,7 @@ import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { collectFxDefs } from './html';
+import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
 import { svgOfVector } from './vector';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { assetBytes } from './zipKit';
@@ -65,7 +66,7 @@ export function emitVueTemplate(ctx: EmitContext): string {
         }
         return `${indent}<${tag}${idAttr} class="${cls}" src="${src}" alt="" />`;
       }
-      return `${indent}<div${idAttr} class="${cls} ui-image-placeholder"></div>`;
+      return `${indent}<div${idAttr} class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"></div>`;
     }
     if (node.type === 'SLICE') {
       return '';
@@ -313,7 +314,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 #root { display: contents; }
-.ui-image-placeholder { background: #e0e0e0; }
+${IMAGE_PLACEHOLDER_CSS}
 `;
 
   const readme = `# ${appName}

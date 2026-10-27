@@ -4,6 +4,7 @@ import type { CompiledPage } from '../compiler/css-model';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 
 export function escapeHtml(text: string): string {
@@ -38,7 +39,7 @@ function makeRenderer(classNames: Map<string, string>, indentUnit = '  ', startD
         }
         return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="" />`;
       }
-      return `${indent}<div class="${cls} ui-image-placeholder"></div>`;
+      return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"></div>`;
     }
     if (node.type === 'SLICE') {
       return ''; // FR-14：Slice 不生成出码 DOM（compileNode 同步跳过——classNames 缺失会出无样式 div）
@@ -143,7 +144,7 @@ export function generateHtml(page: UIPage, compiled: CompiledPage, options: { ti
 <style>
 html, body { margin: 0; padding: 0; }
 body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${minH === '100vh' ? '812px' : minH.replace('max(', '').replace(/, 100vh\)/, '')}; }
-.ui-image-placeholder { background: #e0e0e0; }
+${IMAGE_PLACEHOLDER_CSS}
 </style>
 <style>
 ${fontFaceCss(options.fontsBase ?? '/fonts')}

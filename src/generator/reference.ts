@@ -3,6 +3,7 @@ import type { CompiledPage } from '../compiler/css-model';
 import type { GeometryMap } from '../compiler/layout';
 import { escapeHtml, collectFxDefs, type DomParts } from './html';
 import { svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { fontFaceCss, FONT_STACK } from '../font';
 
@@ -105,7 +106,7 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
         } else {
           out.push(`${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="" />`);
         }
-      } else out.push(`${indent}<div class="${cls} ui-image-placeholder"></div>`);
+      } else out.push(`${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"></div>`);
       return;
     }
     if (node.type === 'SLICE') {
@@ -171,7 +172,7 @@ export function generateReferenceHtml(
 <style>
 html, body { margin: 0; padding: 0; }
 body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${pageH}px; width: ${pageW}px; }
-.ui-image-placeholder { background: #e0e0e0; }
+${IMAGE_PLACEHOLDER_CSS}
 </style>
 <style>
 ${fontFaceCss(options.fontsBase ?? '/fonts')}

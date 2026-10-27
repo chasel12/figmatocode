@@ -18,6 +18,7 @@ import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { collectFxDefs } from './html';
 import { assetBytes } from './zipKit';
+import { IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
 import {
   collectAssets,
   makeEmitContext,
@@ -300,7 +301,7 @@ body {
 /* #root 不生成盒子：让页面根节点成为 body 的直接子元素，
    与 HTML 出口（generator/html.ts）的盒子树等价 —— 像素关的前提 */
 #root { display: contents; }
-.ui-image-placeholder { background: #e0e0e0; }
+${IMAGE_PLACEHOLDER_CSS}
 `;
 
   const readme = `# ${appName}
