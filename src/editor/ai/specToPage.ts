@@ -27,6 +27,7 @@ import { isContainer } from '../../schema/types';
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiBorderSpec, AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStatesSpec, AiStyleSpec, AiViolation } from './types';
 import { parseClassNames } from './tailwind';
+import { resolveIconName } from './iconVocab';
 
 export interface BuildContext {
   pack: StylePack;
@@ -330,13 +331,55 @@ export function buildNodeFromSpec(
   }
   if (node.type === 'VECTOR') {
     const vectorNode = node as VectorNode;
-    const d = spec.vectorD ?? (spec.icon ? ctx.icons?.[spec.icon] : undefined);
+    /**
+     * 图标名走归一器（精确 → 别名 → 规范化 → 前缀/包含 → 标签）。
+     * 模型写 `home`/`cart`/`notification` 这类「它以为存在」的名字时，
+     * 直接映射到 house/shopping-cart/bell；只有真正无关的名字才报违例。
+     * 契约校验（contract.ts）用的是同一个函数，两处必须保持一致。
+     */
+    const hit = spec.icon && ctx.icons ? resolveIconName(spec.icon, ctx.icons) : { name: undefined, candidates: [] };
+    const d = spec.vectorD ?? (hit.name ? ctx.icons?.[hit.name] : undefined);
     if (spec.icon && !ctx.icons) {
       violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库未加载，无法解析 "${spec.icon}"` });
     } else if (spec.icon && !d) {
-      violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库中不存在 "${spec.icon}"` });
+      violations.push({
+        path: `${path}.icon`,
+        kind: 'limit',
+        message: `图标库中不存在 "${spec.icon}"，相近的有：${hit.candidates.join(' / ') || '（无）'}`,
+      });
     }
     vectorNode.vector = { d: d ?? 'M 0 0', width: 24, height: 24 };
+    /**
+     * 图标 ≠ 形状。VECTOR 的路径按 24×24 坐标系绘制，盒子被拉伸时路径会跟着放大
+     * （stroke 2 在 48px 盒子里看起来像 stroke 4，视觉上又粗又糊）。
+     *
+     * 实测模型会把「圆底 + 图标」塞进**同一个** VECTOR：`w-full h-12 rounded-full bg-muted`
+     * + icon，于是图标被撑成 48px 色块。这是建模错误，不是尺寸偏好。
+     * 真需要圆底就套一层 FRAME，让图标保持 24。报违例而非静默纠正：改了模型的结构，
+     * 就该让它知道，否则下一轮还会这么写。
+     */
+    if (spec.icon && (node.layout.widthMode === 'FILL' || node.layout.heightMode === 'FILL')) {
+      violations.push({
+        path: `${path}.layout`,
+        kind: 'schema',
+        message: 'VECTOR 图标不能用 FILL 尺寸（图标会被拉伸成色块）；用 w-4/w-5/w-6 定尺，需要圆底就套一层 FRAME',
+      });
+    }
+    /**
+     * 底色单独判、且只在**尺寸过大**时才判：`bg-*` 对图标是有正当用途的
+     * （实心星标/实心心形就靠它填充）。真正的错误信号是「又大又有底色」——
+     * 那说明模型把图标当成了形状容器。
+     */
+    const iconW = node.layout.width ?? 0;
+    const iconH = node.layout.height ?? 0;
+    const bg = vectorNode.style?.background;
+    if (spec.icon && typeof bg === 'string' && bg !== 'transparent' && Math.max(iconW, iconH) > 32) {
+      violations.push({
+        path: `${path}.style.background`,
+        kind: 'schema',
+        message: `VECTOR 图标 ${iconW}×${iconH} 过大且带底色，像是把图标当形状用了：图标保持 24，需要圆底请用 FRAME（w-12 h-12 rounded-full bg-muted）包住它`,
+      });
+    }
     /**
      * 图标默认 24×24 定尺；描边来自 style.color（Lucide 是描边型图标）。
      * 判空必须看 `node.layout`（class 已经合并进来）而不是 `spec.layout`：
@@ -352,11 +395,23 @@ export function buildNodeFromSpec(
     }
   }
 
-  if ('children' in node) {
+  /**
+   * 只有 FRAME 落子项。RECTANGLE 虽是 ContainerNode，但布局引擎与出码器都跳过它的
+   * 子项（`|| node.type === 'RECTANGLE'`），写进去等于静默丢弃——所以这里不写，
+   * 并报违例让模型改成 FRAME。
+   */
+  if (node.type === 'FRAME') {
     const kids = spec.children ?? [];
     (node as ContainerNode).children = kids.map((child, i) => buildNodeFromSpec(child, ctx, `${path}.children[${i}]`, violations));
   } else if (spec.children?.length) {
-    violations.push({ path: `${path}.children`, kind: 'schema', message: `${spec.kind} 是叶子节点，不能有 children` });
+    violations.push({
+      path: `${path}.children`,
+      kind: 'schema',
+      message:
+        node.type === 'RECTANGLE'
+          ? 'RECTANGLE 是纯形状，不能有 children（子项会被出码器丢弃）；需要「圆底 + 图标」请用 FRAME（className 带 rounded-full bg-muted）'
+          : `${spec.kind} 是叶子节点，不能有 children`,
+    });
   }
   return node;
 }

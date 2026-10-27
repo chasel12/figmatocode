@@ -10,6 +10,7 @@
  */
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiEditPlan, AiNodeSpec } from './types';
+import { iconVocabPrompt } from './iconVocab';
 
 export interface FewShotEntry {
   id: string;
@@ -59,6 +60,8 @@ const CONTRACT_BLOCK = `## 输出契约（只输出一个 JSON 对象，不要 m
 节点（AiNodeSpec）可用字段：
 kind: FRAME|TEXT|BUTTON|RECTANGLE|IMAGE|OVAL|LINE|VECTOR（必填）
 name?: string  text?: TEXT/BUTTON 必填  src?: IMAGE 可选  icon?: VECTOR 图标名  vectorD?: VECTOR 路径
+  IMAGE：缩略图/头像/商品图一律用它（src 留空即可，会渲染成占位块）。**不要用 RECTANGLE 假装图片**
+  VECTOR：功能图标/分类图标用它，icon 从下方「图标」清单里选
 className?: Tailwind 类名——**描述布局优先用它**，比手写 layout 更不容易出错。支持：
   方向 flex / flex-col；对齐 items-center|start|end|stretch、justify-center|between|end
   间距 gap-4 px-4 py-2 pt-3 pl-5（1 单位 = 4px，也接受 gap-[12px]）
@@ -78,13 +81,19 @@ style?: {background?:颜色, color?:颜色, borderRadius?:number,
          fontSize?:number, fontWeight?:number, lineHeight?:number, letterSpacing?:number,
          textAlign?:left|center|right|justify, opacity?:number,
          effects?:[{kind:DROP_SHADOW|INNER_SHADOW|LAYER_BLUR, x?,y?,blur?,spread?,radius?,color?}]}
-children?: 节点数组（仅 FRAME/RECTANGLE 可有）
+children?: 节点数组（**仅 FRAME 可有**；RECTANGLE/OVAL 是纯形状，放子项会被丢弃）
 
 className 写法示例（**推荐照这个风格写**，比 layout 手写更可靠）：
 {"kind":"FRAME","name":"顶部导航","className":"flex items-center justify-between px-4 h-14 w-full bg-card","children":[
   {"kind":"TEXT","text":"附近商家","className":"text-lg font-semibold text-foreground"},
   {"kind":"FRAME","name":"搜索框","className":"flex items-center gap-2 px-3 h-9 rounded-full bg-background","children":[
     {"kind":"VECTOR","icon":"search","className":"w-4 h-4 text-muted-foreground"}]}]}
+
+分类入口（图标 + 圆底 + 文字。**圆底必须用 FRAME**：RECTANGLE/OVAL 不能有子项，放进去会被丢弃）：
+{"kind":"FRAME","name":"分类入口","className":"flex flex-col items-center gap-2","children":[
+  {"kind":"FRAME","className":"flex items-center justify-center w-12 h-12 rounded-full bg-muted","children":[
+    {"kind":"VECTOR","icon":"utensils","className":"w-6 h-6 text-foreground"}]},
+  {"kind":"TEXT","text":"美食","className":"text-xs text-muted-foreground"}]}
 
 颜色写法：必须是 @color.<令牌名> 或风格包内的 hex。禁止自造色值。
 禁止输出 id、交互、原型、组件、变体、动画——这些不在契约内，出现即被校验拒绝。
@@ -106,9 +115,16 @@ const RULES_BLOCK = `## 硬规则（违反会被 schema 闸门拦下并返工）
 5. 结构自洽：FRAME 必带 layout 或 className；TEXT 必带 text；FILL 只在父容器为 VERTICAL/HORIZONTAL 时使用。
    **排版用 VERTICAL/HORIZONTAL**：页面结构一律靠嵌套 + gap + padding 表达（优先写 className），
    不要用 ABSOLUTE 摆位置（绝对定位只用于叠层，且每个子项都必须给 x/y，否则会全部叠在左上角）。
-6. 规模：节点 ≤ 80，嵌套 ≤ 6 层；重复卡片用同样的子结构复制，不要为每个卡片另造一套层级。
-7. 表达边界（诚实边界）：不做 hover/focus 运行时态、不做滚动吸顶、不做真实交互；只画静态视觉。
-8. 命名：name 用简短中文语义（"顶部导航"/"商品卡"），便于后续人工定位。`;
+6. 图标：功能图标（搜索/返回/铃铛/分类入口/底部标签栏/评分）必须画成 VECTOR + icon，
+   **不要留空圆或空方块当图标**——空占位等于没设计。
+   尺寸用 w-4 / w-5 / w-6（16/20/24px）。**图标上不要写 w-full、h-12、bg-* 或 rounded-full**
+   ——VECTOR 只画图标本体，被拉伸会糊。
+   要圆底就套一层 FRAME（RECTANGLE/OVAL 是纯形状、**不能有 children**，
+   圆底一律写成 className 为 flex items-center justify-center w-12 h-12 rounded-full bg-muted 的 FRAME），
+   图标放进去，下方再放 TEXT。
+7. 规模：节点 ≤ 80，嵌套 ≤ 6 层；重复卡片用同样的子结构复制，不要为每个卡片另造一套层级。
+8. 表达边界（诚实边界）：不做 hover/focus 运行时态、不做滚动吸顶、不做真实交互；只画静态视觉。
+9. 命名：name 用简短中文语义（"顶部导航"/"商品卡"），便于后续人工定位。`;
 
 /** 按用户提示词挑最贴近的 few-shot（关键词命中数 + 顺序稳定） */
 export function pickFewShots(entries: FewShotEntry[], userPrompt: string, limit = 2): FewShotEntry[] {
@@ -183,6 +199,12 @@ export function buildPrompt(opts: PromptBuildOptions): BuiltPrompt {
     '你的唯一任务是输出符合下述契约的 JSON。宁可结构简单也不要越界。',
     CONTRACT_BLOCK,
     RULES_BLOCK,
+    /**
+     * 图标词表必须进提示词。此前它从未出现过，模型只能猜名字；猜错=违例=返工，
+     * 于是它的理性策略是**干脆不写图标**，界面上就出现一排空灰圆。
+     * 清单放在稳定前缀里（缓存友好），一次约 300 token。
+     */
+    iconVocabPrompt(),
     '## 当前风格包',
     packTokenBlock(opts.pack),
     fewShotBlock,

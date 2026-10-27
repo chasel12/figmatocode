@@ -12,6 +12,7 @@ import Ajv, { type ErrorObject } from 'ajv';
 import pageSchema from './contract.page.schema.json';
 import editSchema from './contract.edit.schema.json';
 import type { AiEditPlan, AiNodeSpec, AiPageDraft, AiViolation } from './types';
+import { resolveIconName } from './iconVocab';
 import type { StylePack } from '../../tokens/packs/types';
 
 const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
@@ -125,14 +126,41 @@ function walkSpec(
   if (spec.kind === 'VECTOR' && !spec.icon && !spec.vectorD) {
     violations.push({ path: `${path}`, kind: 'schema', message: 'VECTOR 节点必须给 icon（图标名）或 vectorD（路径）' });
   }
-  if (spec.kind !== 'FRAME' && spec.kind !== 'RECTANGLE' && spec.children?.length) {
-    violations.push({ path: `${path}.children`, kind: 'schema', message: `${spec.kind} 是叶子节点，不能有 children` });
+  /**
+   * 只有 FRAME 能容纳子项。
+   *
+   * RECTANGLE 在 AST 里虽然是 ContainerNode（导入 Figma 时矩形确实可能挂子项），
+   * 但**布局引擎与出码器都显式跳过它的子项**（layout.ts / html.ts 里那两处
+   * `|| node.type === 'RECTANGLE'`）。AI 侧若放行，模型写的图标会被静默丢掉——
+   * 实测就是这么丢掉了一整排分类图标。所以这里收紧到只剩 FRAME。
+   */
+  if (spec.kind !== 'FRAME' && spec.children?.length) {
+    violations.push({
+      path: `${path}.children`,
+      kind: 'schema',
+      message:
+        spec.kind === 'RECTANGLE'
+          ? 'RECTANGLE 是纯形状，不能有 children（子项会被出码器丢弃）；需要「圆底 + 图标」请用 FRAME（className 带 rounded-full bg-muted）'
+          : `${spec.kind} 是叶子节点，不能有 children`,
+    });
   }
   if (spec.icon) {
     if (!icons) {
       violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库未加载，无法解析 "${spec.icon}"` });
-    } else if (!icons[spec.icon]) {
-      violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库中不存在 "${spec.icon}"` });
+    } else {
+      /**
+       * 与 specToPage 走同一个归一器：模型写 `home`/`cart`/`notification` 这类
+       * 「它以为存在」的名字时，别名表能兜住（house/shopping-cart/bell）。
+       * 两处必须共用，否则 schema 闸门先拒、转换层的宽容永远用不上。
+       */
+      const hit = resolveIconName(spec.icon, icons);
+      if (!hit.name) {
+        violations.push({
+          path: `${path}.icon`,
+          kind: 'limit',
+          message: `图标库中不存在 "${spec.icon}"，相近的有：${hit.candidates.join(' / ') || '（无）'}`,
+        });
+      }
     }
   }
   spec.children?.forEach((child, i) => walkSpec(child, pack, icons, `${path}.children[${i}]`, violations, counter, depth + 1));
