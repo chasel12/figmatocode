@@ -191,6 +191,9 @@
         },
         {
           "properties": {
+            "className": {
+              "type": "string"
+            },
             "op": {
               "const": "updateStyle",
               "type": "string"
@@ -204,14 +207,16 @@
           },
           "required": [
             "op",
-            "targetId",
-            "style"
+            "targetId"
           ],
           "type": "object",
           "additionalProperties": false
         },
         {
           "properties": {
+            "className": {
+              "type": "string"
+            },
             "layout": {
               "$ref": "#/definitions/AiLayoutSpec"
             },
@@ -225,14 +230,13 @@
           },
           "required": [
             "op",
-            "targetId",
-            "layout"
+            "targetId"
           ],
           "type": "object",
           "additionalProperties": false
         }
       ],
-      "description": "编辑指令：白名单动作（plan W4：store action 子集）"
+      "description": "编辑指令：白名单动作（plan W4：store action 子集）\n\n`updateStyle` / `updateLayout` 都接受 `className`，与生成侧同一套 Tailwind 方言： 模型在编辑时也只会写 `flex items-center gap-3`，不会写 `{mode:'HORIZONTAL',align:'CENTER'}`。 className 先落地，显式字段再覆盖同名字段（与 `buildNodeFromSpec` 同序）。"
     },
     "AiEffectSpec": {
       "description": "模型可表达的效果（阴影/模糊三档，其余效果不在表达范围）",

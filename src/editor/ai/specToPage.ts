@@ -295,6 +295,29 @@ export function buildLayout(spec: AiLayoutSpec | undefined, kind: string): Parti
   return layout;
 }
 
+/**
+ * `className` → 可直接合并的 layout/style 补丁。
+ *
+ * 抽出来的唯一原因是**编辑指令也要用同一套方言**：`updateLayout`/`updateStyle` 若只认
+ * `{mode:'HORIZONTAL',align:'CENTER',gap:12}`，模型在编辑时的表现就会退化回生成侧修好之前
+ * 的样子——它只会写 `flex items-center gap-3`。两条路径共用本函数，方言才是一致的。
+ *
+ * 未知 class 与未知颜色令牌都进违例（不静默丢弃）；合并顺序由调用方决定（class 先、显式后）。
+ */
+export function classPatch(
+  className: string | undefined,
+  ctx: BuildContext,
+  path: string,
+  violations: AiViolation[],
+): { layout: Partial<LayoutSchema>; style: Partial<StyleSchema> } {
+  if (!className) return { layout: {}, style: {} };
+  const parsed = parseClassNames(className);
+  reportUnknownClasses(parsed.unknown, path, violations);
+  const style = parsed.style;
+  resolveClassColors(style, ctx.pack, path, violations);
+  return { layout: parsed.layout, style };
+}
+
 /** 单个 spec → 节点树 */
 export function buildNodeFromSpec(
   spec: AiNodeSpec,
@@ -490,6 +513,47 @@ function normalizeAbsolute(root: UINode, violations: AiViolation[]): void {
   visit(root, null, 'root');
 }
 
+/**
+ * 退化 FILL 规范化（同样是转换层兜底）。
+ *
+ * **主轴 FILL 需要父容器在那一轴上有确定尺寸**。编译器按 FR-47 把主轴 FILL 出成
+ * `flex: 1 1 0; min-*: 0`（标准 flexbox 语义，没错），但父容器若在那一轴是 HUG
+ * （`height: fit-content`），子项就被压成 0 高、内容溢出到容器外——
+ * 实测场景：编辑时把商家卡片从横排改成竖排，里面那块 `heightMode: FILL` 的文字区
+ * 立刻塌成 0，标题和评分全跑到卡片外面。
+ *
+ * 为什么这里**只记 notes 不记 violations**：子项的 sizing 往往是上一轮继承下来的
+ * （模型这次根本没碰它），它看不见也改不动。实测把它当违例会陷入死循环——
+ * 修正已经生效、违例却每轮重现，最后整条编辑指令被拒。所以纠正但不卡流程，
+ * 用 notes 让面板把「我替你改了这里」如实告诉用户。
+ */
+function normalizeFill(root: UINode, notes: string[]): void {
+  const visit = (node: UINode, path: string): void => {
+    if (!isContainer(node)) return;
+    const kids = node.children;
+    const vertical = node.layout.mode === 'VERTICAL';
+    kids.forEach((child, i) => {
+      const childPath = `${path}.children[${i}]`;
+      if (vertical && child.layout.heightMode === 'FILL' && node.layout.heightMode === 'HUG') {
+        child.layout.heightMode = 'HUG';
+        notes.push(`${child.name ?? childPath}：父容器高度是 HUG，heightMode FILL 没有可填的高度（会塌成 0），已按 HUG 处理`);
+      }
+      if (!vertical && child.layout.widthMode === 'FILL' && node.layout.widthMode === 'HUG') {
+        child.layout.widthMode = 'HUG';
+        notes.push(`${child.name ?? childPath}：父容器宽度是 HUG，widthMode FILL 没有可填的宽度（会塌成 0），已按 HUG 处理`);
+      }
+      visit(child, childPath);
+    });
+  };
+  visit(root, 'root');
+}
+
+/** 产物规范化总入口：生成与编辑都必须在落地前跑一遍，否则两条路径的兜底不一致 */
+export function normalizePage(root: UINode, violations: AiViolation[], notes: string[] = []): void {
+  normalizeAbsolute(root, violations);
+  normalizeFill(root, notes);
+}
+
 /** AiPageDraft → 全新 UIPage（页面 id/root id 唯一，避免与既有页冲突） */
 export function draftToPage(draft: AiPageDraft, ctx: BuildContext): DraftBuildResult {
   const violations: AiViolation[] = [];
@@ -530,7 +594,7 @@ export function draftToPage(draft: AiPageDraft, ctx: BuildContext): DraftBuildRe
     buildNodeFromSpec(child, ctx, `root.children[${i}]`, violations),
   );
   // 兜底规范化：必须在 children 建好之后（判定依赖子项是否带 x/y）
-  normalizeAbsolute(page.root, violations);
+  normalizePage(page.root, violations);
   return { page, violations };
 }
 

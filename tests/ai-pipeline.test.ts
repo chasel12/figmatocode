@@ -8,6 +8,7 @@ import { buildPrompt, pickFewShots, type FewShotEntry } from '../src/editor/ai/p
 import { resolveColorRef, draftToPage } from '../src/editor/ai/specToPage';
 import { applyEditOps, opsToStoreActions, projectWithNewPage } from '../src/editor/ai/aiActions';
 import { buildSelectionContext, collectExistingIds } from '../src/editor/ai/selectionContext';
+import { checkEditTargets } from '../src/editor/ai/contract';
 import type { LlmClient, LlmRequest, LlmResult } from '../src/editor/ai/client';
 import type { AiEditPlan, AiPageDraft } from '../src/editor/ai/types';
 
@@ -277,6 +278,94 @@ describe('M7 W4 编辑管线', () => {
   });
 });
 
+describe('编辑侧也走 className 通道', () => {
+  const layoutPlan = (page: UIPage): AiEditPlan => {
+    const card = page.root.children[1];
+    return {
+      kind: 'edit',
+      summary: '卡片改横排、加大间距',
+      actions: [{ op: 'updateLayout', targetId: card.id, className: 'flex items-center gap-3 px-4' }],
+    };
+  };
+
+  it('updateLayout 用 className 表达（模型只会写 flex gap-3，不会写 mode/align 枚举）', () => {
+    const page = seededPage();
+    const dry = applyEditOps(page, layoutPlan(page), { pack });
+    expect(dry.violations).toEqual([]);
+    const card = dry.page.root.children[1];
+    expect(card.layout.mode).toBe('HORIZONTAL');
+    expect(card.layout.gap).toBe(12);
+    expect(card.layout.align).toBe('CENTER');
+    expect(card.layout.padding).toEqual([0, 16, 0, 16]);
+  });
+
+  it('updateStyle 用 className 表达，颜色走令牌解析（bg-primary → 包内 hex）', () => {
+    const page = seededPage();
+    const card = page.root.children[1];
+    const dry = applyEditOps(
+      page,
+      { kind: 'edit', summary: 'x', actions: [{ op: 'updateStyle', targetId: card.id, className: 'bg-primary rounded-xl' }] },
+      { pack },
+    );
+    expect(dry.violations).toEqual([]);
+    expect(dry.page.root.children[1].style?.background).toBe(pack.colors.primary);
+    expect(dry.page.root.children[1].style?.borderRadius).toBe(12);
+  });
+
+  it('显式字段覆盖 className 同名字段', () => {
+    const page = seededPage();
+    const card = page.root.children[1];
+    const dry = applyEditOps(
+      page,
+      {
+        kind: 'edit',
+        summary: 'x',
+        actions: [{ op: 'updateLayout', targetId: card.id, className: 'gap-3', layout: { gap: 24 } }],
+      },
+      { pack },
+    );
+    expect(dry.page.root.children[1].layout.gap).toBe(24);
+  });
+
+  it('className 里表达不了的部分不静默丢弃：未知 class 进违例', () => {
+    const page = seededPage();
+    const card = page.root.children[1];
+    const dry = applyEditOps(
+      page,
+      { kind: 'edit', summary: 'x', actions: [{ op: 'updateLayout', targetId: card.id, className: 'grid grid-cols-2' }] },
+      { pack },
+    );
+    expect(dry.violations.some((v) => /不支持的 class/.test(v.message))).toBe(true);
+  });
+
+  it('干跑与落库必须完全一致（历史上 updateLayout 传的 kind 就分叉过）', () => {
+    const page = seededPage();
+    const plan = layoutPlan(page);
+    const dry = applyEditOps(page, plan, { pack });
+
+    let state = initialState(page, '测试');
+    for (const a of opsToStoreActions(plan, { pack }).actions) state = editorReducer(state, a);
+
+    const dryCard = dry.page.root.children[1];
+    const realCard = state.page.root.children[1];
+    expect(realCard.layout.mode).toBe(dryCard.layout.mode);
+    expect(realCard.layout.gap).toBe(dryCard.layout.gap);
+    expect(realCard.layout.padding).toEqual(dryCard.layout.padding);
+    expect(realCard.layout.align).toBe(dryCard.layout.align);
+  });
+
+  it('updateStyle 既无 style 也无 className → 语义违例（空指令会让用户以为改成功了）', () => {
+    const page = seededPage();
+    const card = page.root.children[1];
+    const violations = checkEditTargets(
+      { kind: 'edit', summary: 'x', actions: [{ op: 'updateStyle', targetId: card.id }] },
+      new Set([card.id, page.root.id]),
+      { pack },
+    );
+    expect(violations.some((v) => /至少要给 style 或 className/.test(v.message))).toBe(true);
+  });
+});
+
 describe('M7 W5 采纳新页面（工程级）', () => {
   it('尾插新页：既有页与组件/样式引用不变，页面数 +1', () => {
     const existing = createPage('既有页');
@@ -341,5 +430,91 @@ describe('M7 生成页 id 纪律', () => {
     expect(a.id).not.toBe(b.id);
     expect(findById(a.root, a.id)?.node.type).toBe('PAGE');
     expect(nextId('x')).toMatch(/^x-\d+$/);
+  });
+});
+
+describe('退化 FILL 规范化（主轴 FILL 需要父容器在该轴上有确定尺寸）', () => {
+  const degenerate = {
+    kind: 'page',
+    name: '退化',
+    root: {
+      kind: 'FRAME',
+      className: 'flex flex-col',
+      children: [
+        {
+          kind: 'FRAME',
+          name: '卡片',
+          className: 'flex flex-col p-4',
+          children: [
+            { kind: 'FRAME', name: '信息', className: 'h-full', children: [{ kind: 'TEXT', text: '标题' }] },
+          ],
+        },
+      ],
+    },
+  } as unknown as AiPageDraft;
+
+  const inner = (page: UIPage): { layout: { heightMode?: string } } =>
+    (page.root as unknown as { children: { children: { layout: { heightMode?: string } }[] }[] }).children[0]
+      .children[0];
+
+  it('竖排 + 父 HUG 高 + 子 h-full → 子降级为 HUG（不卡流程，只记在 report 里）', () => {
+    const { page, violations } = draftToPage(degenerate, { pack });
+    expect(inner(page).layout.heightMode).toBe('HUG');
+    // 规范化是安全网不是闸门：不进 violations（否则模型改不动会死循环）
+    expect(violations.some((v) => /没有可填的高度/.test(v.message))).toBe(false);
+  });
+
+  it('父容器高度确定时（h-64）保持 FILL，不误伤', () => {
+    const spec = JSON.parse(JSON.stringify(degenerate)) as {
+      root: { children: { className: string; children: unknown[] }[] };
+    };
+    spec.root.children[0].className = 'flex flex-col p-4 h-64';
+    const { page, violations } = draftToPage(spec as unknown as AiPageDraft, { pack });
+    expect(inner(page).layout.heightMode).toBe('FILL');
+    expect(violations.some((v) => /没有可填的高度/.test(v.message))).toBe(false);
+  });
+
+  it('横排对称：父 HUG 宽 + 子 w-full → 子降级为 HUG', () => {
+    const spec = {
+      kind: 'page',
+      name: '退化横排',
+      root: {
+        kind: 'FRAME',
+        className: 'flex flex-col',
+        children: [
+          {
+            kind: 'FRAME',
+            className: 'flex p-4',
+            children: [{ kind: 'FRAME', className: 'w-full', children: [{ kind: 'TEXT', text: 'x' }] }],
+          },
+        ],
+      },
+    } as unknown as AiPageDraft;
+    const { page } = draftToPage(spec, { pack });
+    const child = (page.root as unknown as { children: { children: { layout: { widthMode?: string } }[] }[] }).children[0].children[0];
+    expect(child.layout.widthMode).toBe('HUG');
+  });
+
+  it('编辑路径也跑规范化：把容器改成竖排会让子项的 FILL 塌陷，必须同样兜住', () => {
+    const page = seededPage();
+    // 造一个「横排父 + heightMode FILL 子项」的合法结构（横排时 FILL 是交叉轴，正常）
+    const row = page.root.children[1] as unknown as {
+      id: string;
+      layout: Record<string, unknown>;
+      children: { layout: Record<string, unknown> }[];
+    };
+    row.layout.mode = 'HORIZONTAL';
+    row.layout.heightMode = 'HUG';
+    row.children[0].layout.heightMode = 'FILL';
+
+    const dry = applyEditOps(
+      page,
+      { kind: 'edit', summary: '改竖排', actions: [{ op: 'updateLayout', targetId: row.id, className: 'flex flex-col' }] },
+      { pack },
+    );
+    const child = (dry.page.root.children[1] as unknown as { children: { layout: { heightMode?: string } }[] }).children[0];
+    expect(child.layout.heightMode).toBe('HUG');
+    expect(dry.violations).toEqual([]);
+    expect(dry.report.some((r) => /自动修正.*没有可填的高度/.test(r.text))).toBe(true);
   });
 });

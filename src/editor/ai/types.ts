@@ -200,14 +200,20 @@ export interface AiPageDraft {
   root: AiNodeSpec;
 }
 
-/** 编辑指令：白名单动作（plan W4：store action 子集） */
+/**
+ * 编辑指令：白名单动作（plan W4：store action 子集）
+ *
+ * `updateStyle` / `updateLayout` 都接受 `className`，与生成侧同一套 Tailwind 方言：
+ * 模型在编辑时也只会写 `flex items-center gap-3`，不会写 `{mode:'HORIZONTAL',align:'CENTER'}`。
+ * className 先落地，显式字段再覆盖同名字段（与 `buildNodeFromSpec` 同序）。
+ */
 export type AiEditOp =
   | { op: 'add'; parentId: string; index?: number; node: AiNodeSpec }
   | { op: 'remove'; targetId: string }
   | { op: 'move'; targetId: string; parentId: string; index?: number }
   | { op: 'setText'; targetId: string; text: string }
-  | { op: 'updateStyle'; targetId: string; style: AiStyleSpec }
-  | { op: 'updateLayout'; targetId: string; layout: AiLayoutSpec };
+  | { op: 'updateStyle'; targetId: string; style?: AiStyleSpec; className?: string }
+  | { op: 'updateLayout'; targetId: string; layout?: AiLayoutSpec; className?: string };
 
 /** prompt + 选中 → 修改计划 */
 export interface AiEditPlan {

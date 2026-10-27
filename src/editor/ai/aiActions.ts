@@ -14,7 +14,25 @@ import { isContainer } from '../../schema/types';
 import { clonePage, findById } from '../../schema/factory';
 import type { EditorAction } from '../store';
 import type { AiEditOp, AiEditPlan, AiViolation } from './types';
-import { buildLayout, buildNodeFromSpec, buildStyle, type BuildContext } from './specToPage';
+import { buildLayout, buildNodeFromSpec, buildStyle, classPatch, normalizePage, type BuildContext } from './specToPage';
+
+/**
+ * `updateLayout` / `updateStyle` 的补丁来源：className 先落地，显式字段再覆盖同名。
+ * 两条指令都吃整份 className（含 layout 与 style 两部分）——只取一半会把另一半
+ * 静默丢掉，而模型写 `flex items-center gap-3 bg-card` 时是把它当一个整体表达的。
+ */
+function updatePatch(
+  op: Extract<AiEditOp, { op: 'updateLayout' | 'updateStyle' }>,
+  kind: string,
+  ctx: BuildContext,
+  path: string,
+  violations: AiViolation[],
+): { layout: Record<string, unknown>; style: Record<string, unknown> } {
+  const fromClass = classPatch(op.className, ctx, path, violations);
+  const layout = { ...fromClass.layout, ...buildLayout(op.op === 'updateLayout' ? op.layout : undefined, kind) };
+  const style = { ...fromClass.style, ...buildStyle(op.op === 'updateStyle' ? op.style : undefined, ctx.pack, `${path}.style`, violations) };
+  return { layout, style };
+}
 
 export interface EditReportLine {
   op: AiEditOp['op'];
@@ -115,17 +133,23 @@ export function applyEditOps(page: UIPage, plan: AiEditPlan, ctx: BuildContext):
         report.push({ op: 'setText', targetId: op.targetId, text: `改文案「${op.text.slice(0, 16)}」` });
         return;
       }
-      case 'updateStyle': {
-        const patch = buildStyle(op.style, ctx.pack, `${path}.style`, violations);
-        found.node.style = { ...(found.node.style ?? {}), ...patch };
-        stats.styleChanges += 1;
-        report.push({ op: 'updateStyle', targetId: op.targetId, text: `改样式「${nodeLabel(found.node)}」：${Object.keys(patch).join('/')}` });
-        return;
-      }
+      case 'updateStyle':
       case 'updateLayout': {
-        const patch = buildLayout(op.layout, found.node.type);
-        Object.assign(found.node.layout, patch);
-        report.push({ op: 'updateLayout', targetId: op.targetId, text: `改布局「${nodeLabel(found.node)}」：${Object.keys(patch).join('/')}` });
+        /**
+         * kind 固定传 'FRAME'：`buildLayout` 只在 kind 是 TEXT/OVAL/IMAGE 时补 widthMode 缺省值，
+         * 而这里是在打**补丁**，不该凭空塞一个 widthMode（会把用户原有设置改掉）。
+         * 同时这样与 `opsToStoreActions` 完全一致——那边拿不到节点类型，只能传 'FRAME'。
+         */
+        const patch = updatePatch(op, 'FRAME', ctx, path, violations);
+        Object.assign(found.node.layout, patch.layout);
+        found.node.style = { ...(found.node.style ?? {}), ...patch.style };
+        if (Object.keys(patch.style).length) stats.styleChanges += 1;
+        const keys = [...Object.keys(patch.layout), ...Object.keys(patch.style)];
+        report.push({
+          op: op.op,
+          targetId: op.targetId,
+          text: `改${op.op === 'updateLayout' ? '布局' : '样式'}「${nodeLabel(found.node)}」：${keys.join('/') || '（无变化）'}`,
+        });
         return;
       }
       default:
@@ -134,6 +158,20 @@ export function applyEditOps(page: UIPage, plan: AiEditPlan, ctx: BuildContext):
   });
 
   stats.nodesAfter = countNodes(next.root);
+  /**
+   * 干跑最后跑一遍与生成侧**同一个**规范化：编辑同样会造出退化结构
+   * （把容器从横排改竖排，子项的 heightMode: FILL 会立刻塌成 0 高）。
+   * 只在生成侧跑，编辑就会绕过兜底——这是两条路径最容易分叉的地方。
+   *
+   * 但这里的修正**不进 violations**：规范化是安全网，不是闸门。模型看不见子项继承来的
+   * sizing，拿它去卡模型只会陷入「每轮都报同一个错、最后整条指令被拒」。
+   * 改成写进 report，让面板如实告诉用户「我替你改了这里」。
+   */
+  const normViolations: AiViolation[] = [];
+  const notes: string[] = [];
+  normalizePage(next.root, normViolations, notes);
+  for (const v of normViolations) notes.push(`${v.path}：${v.message}`);
+  for (const text of notes) report.push({ op: 'updateLayout', targetId: next.root.id, text: `（自动修正）${text}` });
   return { page: next, report, violations, stats };
 }
 
@@ -165,14 +203,21 @@ export function opsToStoreActions(plan: AiEditPlan, ctx: BuildContext, violation
       case 'setText':
         actions.push({ type: 'UPDATE_TEXT', id: op.targetId, text: op.text });
         break;
-      case 'updateStyle': {
-        const patch = buildStyle(op.style, ctx.pack, `actions[${i}].style`, violations);
-        actions.push({ type: 'UPDATE_STYLE', id: op.targetId, patch });
-        break;
-      }
+      case 'updateStyle':
       case 'updateLayout': {
-        const patch = buildLayout(op.layout, 'FRAME');
-        actions.push({ type: 'UPDATE_LAYOUT', id: op.targetId, patch });
+        /**
+         * 必须与 `applyEditOps` 走**同一个** updatePatch，否则干跑看到的和真正 dispatch 的
+         * 不是一回事（历史上这里给 buildLayout 传死 'FRAME'，而干跑传的是真实 kind，已经分叉）。
+         */
+        const patch = updatePatch(op, 'FRAME', ctx, `actions[${i}]`, violations);
+        if (op.op === 'updateLayout') {
+          actions.push({ type: 'UPDATE_LAYOUT', id: op.targetId, patch: patch.layout });
+          // className 里的外观部分（bg-*/rounded-* 等）单独出一条 style 动作，不能吞掉
+          if (Object.keys(patch.style).length) actions.push({ type: 'UPDATE_STYLE', id: op.targetId, patch: patch.style });
+        } else {
+          actions.push({ type: 'UPDATE_STYLE', id: op.targetId, patch: patch.style });
+          if (Object.keys(patch.layout).length) actions.push({ type: 'UPDATE_LAYOUT', id: op.targetId, patch: patch.layout });
+        }
         break;
       }
     }

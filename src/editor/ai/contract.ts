@@ -211,6 +211,16 @@ export function checkEditTargets(
     if (a.op === 'move' && !existingIds.has(a.parentId)) {
       violations.push({ path: `actions[${i}].parentId`, kind: 'ref', message: `目标父容器 "${a.parentId}" 不存在` });
     }
+    /**
+     * `style`/`layout` 改成可选（好让模型只写 className），代价是「两个都没写」也能过 schema——
+     * 那是一条什么都不做的空指令，会让用户以为改成功了。这里补上语义检查。
+     */
+    if (a.op === 'updateStyle' && !a.style && !a.className) {
+      violations.push({ path: `actions[${i}]`, kind: 'schema', message: 'updateStyle 至少要给 style 或 className 之一' });
+    }
+    if (a.op === 'updateLayout' && !a.layout && !a.className) {
+      violations.push({ path: `actions[${i}]`, kind: 'schema', message: 'updateLayout 至少要给 layout 或 className 之一' });
+    }
   });
   return violations;
 }

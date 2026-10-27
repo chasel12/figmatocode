@@ -103,8 +103,12 @@ className 写法示例（**推荐照这个风格写**，比 layout 手写更可�
 {"op":"remove","targetId":"id"}
 {"op":"move","targetId":"id","parentId":"容器id","index":1}
 {"op":"setText","targetId":"id","text":"新文案"}
-{"op":"updateStyle","targetId":"id","style":{...}}
-{"op":"updateLayout","targetId":"id","layout":{...}}`;
+{"op":"updateStyle","targetId":"id","className":"bg-primary rounded-lg","style":{...可选，覆盖 class}}
+{"op":"updateLayout","targetId":"id","className":"flex items-center gap-3","layout":{...可选，覆盖 class}}
+改布局/改样式**同样优先用 className**（和生成时是同一套写法），只有 className 表达不了的
+（lineHeight、effects、精确 width/height、ABSOLUTE 的 x/y）才写显式字段。两个字段至少给一个。
+**改容器方向（横排↔竖排）时，子项的 FILL 轴要一起改**：flex-1 / h-full 是相对主轴生效的，
+原来横向撑满的子项在竖排下会塌成 0 高、内容溢出，必须同时给它们 w-full。`;
 
 const RULES_BLOCK = `## 硬规则（违反会被 schema 闸门拦下并返工）
 1. 只用风格包令牌：颜色写 @color.xxx；不要出现包外色值。
