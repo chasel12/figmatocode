@@ -18,7 +18,7 @@ import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { collectFxDefs } from './html';
 import { assetBytes } from './zipKit';
-import { IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
+import { collectPlaceholderNodes, imagePlaceholderCss, isDarkColor } from './imagePlaceholder';
 import {
   collectAssets,
   makeEmitContext,
@@ -30,6 +30,7 @@ import {
   type TagMap,
 } from './emit-context';
 import { componentNameOf, emitTsxBody } from './tsx-emitter';
+import { buildNavGraph, navTargetOf, relativeHtmlHref } from './navigation';
 
 /** React 的标签表是 identity：语义标签本身就是合法 DOM 标签 */
 export const REACT_TAG_MAP: TagMap = {};
@@ -88,7 +89,19 @@ function escapeAttr(text: string): string {
 export function generateReact(ctx: EmitContext): GeneratedFile[] {
   const dir = ctx.meta.path;
   const name = componentNameOf(ctx.meta);
-  const body = emitTsxBody(ctx, { rootId: ctx.page.root.id, startDepth: 2, buttonType: true });
+  const body = emitTsxBody(ctx, {
+    rootId: ctx.page.root.id,
+    startDepth: 2,
+    buttonType: true,
+    navAttr: (node) => {
+      const target = navTargetOf(node, ctx.nav);
+      if (!target) return '';
+      // MPA：直接换页。用相对 href 而不是 `location.assign`，
+      // 是因为产物 base 为 './'，可整体搬到任意子目录（file:// 也能跑）。
+      const href = relativeHtmlHref(ctx.meta.path, target.path);
+      return ` onClick={() => { window.location.href = ${JSON.stringify(href)} }}`;
+    },
+  });
   const fxDefs = collectFxDefs(ctx.page);
 
   const component = `import './page.css'
@@ -140,12 +153,13 @@ export function generateReactProject(
 ): GeneratedFile[] {
   const appName = options.name ?? 'ui-compiler-react-app';
   const assets = collectAssets(pages);
+  const nav = buildNavGraph(pages);
   const files: GeneratedFile[] = [];
   const pageMetas: { path: string; title: string; name: string }[] = [];
 
   pages.forEach((page, i) => {
     const compiled = compilePage(page);
-    const ctx = makeEmitContext(page, compiled, { index: i, allPages: pages, assets });
+    const ctx = makeEmitContext(page, compiled, { index: i, allPages: pages, assets, nav });
     files.push(...generateReact(ctx));
     pageMetas.push({ path: ctx.meta.path, title: ctx.meta.title, name: componentNameOf(ctx.meta) });
   });
@@ -301,7 +315,7 @@ body {
 /* #root 不生成盒子：让页面根节点成为 body 的直接子元素，
    与 HTML 出口（generator/html.ts）的盒子树等价 —— 像素关的前提 */
 #root { display: contents; }
-${IMAGE_PLACEHOLDER_CSS}
+${imagePlaceholderCss(pages.flatMap((p) => collectPlaceholderNodes(p.root)), isDarkColor(pages[0]?.root.style?.background))}
 `;
 
   const readme = `# ${appName}

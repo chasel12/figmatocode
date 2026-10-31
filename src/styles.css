@@ -1116,6 +1116,119 @@ input[type='number'] {
   border-top: 1px solid var(--border);
 }
 
+/* ---------- 崩溃恢复横幅（FR-60 第 4 道防线） ---------- */
+/*
+ * 视觉上刻意用「警示色左边框 + 面板底色」而不是红色告警条：
+ * 数据**已经恢复了**，这不是错误状态，是「你需要知道的一件事」。
+ * 真正需要红色的是保存失败（.title-save-warning）。
+ */
+.recovery-banner {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  background: var(--panel-2);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.recovery-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.recovery-icon {
+  color: var(--warn);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.recovery-text {
+  flex: 1 1 auto;
+  line-height: 1.6;
+}
+
+.recovery-text b {
+  color: var(--warn);
+}
+
+.recovery-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.btn-sm {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.recovery-snapshots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 12px 10px 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.recovery-snapshot-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 10px;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.recovery-snapshot-row:hover {
+  border-color: var(--accent);
+}
+
+.recovery-snapshot-when {
+  flex: 0 0 88px;
+  color: var(--text-dim);
+}
+
+.recovery-snapshot-meta {
+  flex: 1 1 auto;
+  color: var(--text-dim);
+}
+
+.recovery-snapshot-go {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.recovery-empty,
+.recovery-error,
+.recovery-foot {
+  padding: 4px 2px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.recovery-error {
+  color: var(--danger);
+}
+
+/* 自动保存失败：配额满时必须在标题栏可见，否则用户以为一直在保存 */
+.title-save-warning {
+  margin-left: 10px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
 /* 标题栏脏标记：项目名右侧小圆点 */
 .title-dirty-dot {
   display: inline-block;
@@ -2343,6 +2456,121 @@ input[type='number'] {
   cursor: default;
 }
 
+/* 设计参考（skill 上传）：折叠区。默认收起——多数用户不带参考，
+   摊开会让「输入提示词 → 生成」这条主路径被一堆设置挤下去 */
+.ai-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-ref-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ai-ref-head:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.ai-ref-head:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ai-ref.is-open .ai-ref-head {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.ai-ref-caret {
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.ai-ref-title {
+  flex: 0 0 auto;
+}
+
+.ai-ref-count {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.ai-ref-count.is-on {
+  color: var(--pass);
+}
+
+.ai-ref-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.ai-ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-ref-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.ai-ref-item.is-off {
+  opacity: 0.5;
+}
+
+.ai-ref-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-ref-size {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.ai-ref-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-ref-error {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--warn);
+}
+
 .ai-actions {
   display: flex;
   gap: 6px;
@@ -2452,6 +2680,24 @@ input[type='number'] {
 .ai-diff-stat {
   margin-top: 3px;
   color: var(--text);
+}
+
+/* 整站结果：多页切换标签（每页一个按钮，当前页高亮） */
+.ai-site-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.ai-site-tabs .mini-btn {
+  padding: 2px 8px;
+}
+
+.ai-site-tabs .mini-btn.is-active {
+  color: var(--text);
+  background: var(--accent-soft, rgba(80, 140, 255, 0.18));
+  border-color: var(--accent, #508cff);
 }
 
 /* ---- W2.5 图标资产 ---- */

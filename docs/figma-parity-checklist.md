@@ -188,7 +188,7 @@
 | B1 | 对齐快捷 | 6 向对齐 + 2 向分布 | ✓ | ✓ | — | P |
 | B2 | 位置尺寸 | X/Y/W/H、旋转、锁定比例 | ✓ | ✓ | — | P |
 | B3 | Layout | 方向、模式、gap、padding 9 点位、sizing、min/max、wrap、baseline、space-between、clip、Ignore auto layout | ✓ | ✓ | — | P |
-| B4 | Constraints | 4 档 2 轴、Ctrl 预览 | ✓ | ✓ | — | P |
+| B4 | Constraints | **5 档** 2 轴（含 Left+Right / Top+Bottom 拉伸）、Ctrl 预览 | ✓ | ✓ | — | P |
 | B5 | Layer | blend mode、opacity、可见/锁 | ✓ | ✓ | — | P |
 | B6 | Fill | 多层增删排序、显隐、5 型、层透明、渐变 stop/角度、Image 层 | ✓ | ✓ | — | P |
 | B7 | Stroke | 单值/四边、3 对齐、透明、dash+gap、cap、join+miter、默认 1px inside | ✓ | ✓ | — | P |
@@ -301,13 +301,19 @@ AI_PROVIDER=ollama                        npm run ai-matrix   # 本地端点，�
 | E16 | 原型交互 | 交互 / flow 起点 | 无 | ❌ 不写（原型在自家 AST 内独立表达） |
 | E17 | 矢量几何 | `vectorData`（blob 命令流） | 无命令几何 | ❌ 不写（差异 #13 同族） |
 
-**实跑结果（2026-10-23）：**
+**实跑结果（2026-10-27，旁挂层落地后）：**
 
 ```
 导入关  PASS  4 个真实 Figma 文件（circle-text / gold-preview / slots / variable-override-precedence）
-往返关  PASS  18/19 页结构无损 · 1 页报备降级（18-样片-参数矩阵 PROGRESSIVE_BLUR）
-CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
+往返关  PASS  19/19 页结构无损（含页面级：视口 / 根尺寸 / 根布局模式）
+CSS 关  PASS  19/19 页样式一致
 ```
+
+> **更正（2026-10-27）**：上一版这里写的是「18/19 · 1 页报备降级（PROGRESSIVE_BLUR）」。
+> 该降级已通过 `meta.json` 的 `ui_compiler_extras` 旁挂层消除，`KNOWN_LOSS` 白名单**清空**。
+> 同轮还修掉 7 个静默丢字段的 bug（`textTruncation`/`maxLines`、`blendMode`、页面视口高度、
+> 自绝对定位子项的 `x/y`、`clipContent`、`border.widths` 等、`background`+多层 `fills`），
+> 并补了「全字段无损」用例（每个 DSL 字段都设非缺省值）。详见 `docs/HANDOFF.md` §12.3.2。
 
 **样本**：`tests/fixtures/fig/` 下 4 个，取自 `github.com/open-pencil/open-pencil` 的
 `tests/fixtures/*.fig`（Git LFS，须走 `media.githubusercontent.com/media/...`）。
@@ -321,7 +327,7 @@ CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
 | **行走查结果** | **PASS 70 / FAIL 0 / P2 对照声明 3 = 100% ≥95% ✅**（P1-01 于 2026-10-18 方案 A 拍板后改判 PASS，差异 #4 结案；★ 核心行零 FAIL。历史口径 10-17 曾为 69/1=98.6%） |
 | **四模块结果** | 附 A **19/19 ✅** · 附 B **11/11 ✅** · 附 C **7/7 ✅** · FR-57 样片 **五区 5/5 ✅**（avg 99.51%）→ **四模块全 100% ✅** |
 | 采样证据 | `scripts/m6-appendix.mjs` → `dist/m6-appendix/report.json` + `appendix.md` + 截图（附 A/B/C 逐项）；附 A 为「数据层+产物层」双关判定 |
-| **`.fig` 互操作（附 E，非 GA 四模块）** | 导入 **4/4** 真实文件 · 往返 **18/19** 页（1 页报备降级）· CSS **18/19** 页 · 17 项能力对照：双向 ✅ 11 / 换算 ⚠ 2 / 不做 ❌ 4。报告 `dist/fig/report.json` |
+| **`.fig` 互操作（附 E，非 GA 四模块）** | 导入 **4/4** 真实文件 · 往返 **19/19** 页（零降级）· CSS **19/19** 页 · 17 项能力对照：双向 ✅ 11 / 换算 ⚠ 2 / 不做 ❌ 4。报告 `dist/fig/report.json` |
 | **AI 供应商接入（非 GA 矩阵）** | **6 家 / 2 种协议**（Anthropic、DeepSeek 走 Messages；OpenAI、Gemini、Ollama、自定义端点走 `/chat/completions`）· 单测 17 例含真实 HTTP 往返 · 未收录模型显示「未计价」不回退别家价格 |
 | 门禁回归 | **2026-10-21（M7 落地后全量复跑）**：tsc 0 错 · vitest **667/667** · e2e **19/19 ≥98%** · viewport **76/76** · walkthrough **9/9** · m1 **22/22** · m2 **27/27** · present-smoke **18/18** · pages 断言 **266/266** · build 主包 905.87 kB（gzip 291.02）· ai-matrix 离线 **10/10**。历史快照（2026-10-18）：vitest 525/525 · canvasdiff 18/19（avg 97.87%，唯一 MISS=14 页差异 #1 已豁免）· m12 24/24 · ci-local 4/4 |
 | 阻断项 | **零**（差异 #4 已于 2026-10-18 结案：PM 拍板方案 A「≥95% 帧按时 <1.5×vsync」，实测按时率 **95.27%** 达标，P1-01 转正；全议题签署见 `go-no-go.md`）。P0 全绿、四模块 100% |
@@ -366,9 +372,9 @@ CSS 关  PASS  18/19 页样式一致 · 同上 1 页降级
 | 33 | 门禁子进程的 stdio 策略 | 异步 `spawn` + `stdio:['ignore','pipe','pipe']` + `createWriteStream(log,{flags:'w'})` | 三条死路实测：`execSync`+pipe 会 ENOBUFS；同步 spawn + `stdio:'ignore'` 子进程拿 NUL 句柄卡在 emit；`createWriteStream(log,'w')` 被宿主 fs shim 当 encoding 解析（`ERR_INVALID_ARG_VALUE: Received 'w'`） | **已解决**：三种写法都踩过并记录在 HANDOFF §11.2 第 6 条 | 主线 / 2026-10-23 |
 | 34 | `.fig` 无「填充父容器」原语（附 E5） | AST 的 `widthMode/heightMode: 'FILL'` 在 Figma schema 里没有对应枚举（`StackSize` 只有 FIXED/HUG/RESIZE_TO_FIT_*，`StackAlign` 没有 STRETCH） | 表达模型不同：Figma 用**子项**的 `stackChildPrimaryGrow`（主轴）与 `stackChildAlignSelf='STRETCH'`（交叉轴）承载 | **接受（换算）**：导出按父容器排列方向写 grow/stretch；导入按「grow>0 → 主轴 FILL」「STRETCH 且交叉尺寸≈父内容盒 → 交叉轴 FILL」反推。往返关 18/19 无损 | 主线 / 2026-10-23 |
 | 35 | `.fig` 无 BUTTON 原语（附 E13） | AST 的 `BUTTON` 节点在 Figma 里无对应 type | Figma 里按钮就是「Frame + 一个文本」 | **接受（结构映射）**：导出拆成 FRAME + 名为 `Label` 的文本子节点（居中翻译成 `stackAlign`）；导入按「FRAME 单子项且子项是名为 `Label` 的 TEXT」合回 BUTTON | 主线 / 2026-10-23 |
-| 36 | `PROGRESSIVE_BLUR` 往返降级（附 E10） | 18-样片-参数矩阵页的渐进模糊，往返后变 `LAYER_BLUR` | `EffectType` 枚举无 PROGRESSIVE_BLUR（Figma 的渐进模糊是 UI 层的多效果组合，不是单一 effect 类型） | **接受（信息丢失，已入 `KNOWN_LOSS` 白名单）**：`scripts/fig-check.ts` 命中白名单计「降级」不计「失败」，并打印原因；CSS 关同步豁免该页 | 主线 / 2026-10-23 |
+| 36 | `PROGRESSIVE_BLUR` 往返降级（附 E10） | 18-样片-参数矩阵页的渐进模糊，往返后变 `LAYER_BLUR` | `EffectType` 枚举无 PROGRESSIVE_BLUR（Figma 的渐进模糊是 UI 层的多效果组合，不是单一 effect 类型） | **✅ 已消除（2026-10-27）**：Figma 侧仍写 `FOREGROUND_BLUR`（视觉上就是模糊），但整份 `effects` 数组旁挂进 `meta.json` 的 `ui_compiler_extras`，导入时按「原生优先、旁挂补齐」还原 `kind` 与 `startRadius`/`beta`/`density` 等参数。`KNOWN_LOSS` 白名单已清空 | 主线 / 2026-10-27 |
 | 37 | `style.boxShadow` 无法存进 `.fig` | demo 数据里两处 CSS 阴影串（`0 -4px 16px rgba(0,0,0,.08)`）往返后丢失 | `.fig` 只有结构化 `Effect[]`，没有 CSS 字符串通道 | **已修复（数据侧迁移）**：`src/demo/pages.ts` 两处改为 `effects: [{ kind:'DROP_SHADOW', ... }]`（`compile.ts` 注释即此迁移口径）。三端像素关复跑 99.52%/99.52%，与迁移前逐页一致 | 主线 / 2026-10-23 |
-| 38 | 叶子节点的 `layout.mode` 不往返 | 叶子 `mode` 往返后回落到工厂默认值 | Figma 不存「叶子自身布局模式」（叶子不参与父容器的 stack 方向）；而 `compile.ts:224` 会把 `mode==='ABSOLUTE'` 当绝对定位 | **接受（有损但必要）**：导出不写叶子 mode，导入回落默认值。写成 ABSOLUTE 会让整页元素全部脱流（CSS 关曾出现 `position:absolute` + `width:max-content`） | 主线 / 2026-10-23 |
+| 38 | 叶子节点的 `layout.mode` 不往返 | 叶子 `mode` 往返后回落到工厂默认值 | Figma 不存「叶子自身布局模式」（叶子不参与父容器的 stack 方向）；而 `compile.ts:468` 会把 `mode==='ABSOLUTE'` 当绝对定位 | **✅ 已修复（2026-10-27）**：不能写进 Figma 原生字段（会让整页元素脱流），改走 `meta.json` 旁挂层的 `mode`。导入时旁挂优先，原生 `stackMode` 只用于容器 | 主线 / 2026-10-27 |
 | 39 | 计划外缺口：`.fig` 只能被门禁调用，编辑器无入口 | 文件菜单里「导入 Figma 文件」长期是 `disabled` 的占位项；`src/fig/` 只被 `scripts/fig-check.ts` 引用 | M5/M6 的验收口径是「格式映射正确」，未包含产品入口 | **✅ 已补齐（2026-10-24）**：文件菜单改为「打开…（含 .fig）」+「导入 Figma 文件（.fig）…」+「另存为 Figma 文件（.fig）」；新增 `src/fig/project.ts` 入口层，动态 import 不进首屏。Playwright 真跑 **3/3**（导入 slots.fig → 2 页 · 另存 29,947 B） | 主线 / 2026-10-24 |
 | 40 | 计划外缺口：只能接 Anthropic 协议的模型 | 供应商表两家（Anthropic / DeepSeek）都走 Messages 协议，OpenAI 协议的端点一个都接不了 | plan §7 只列了 Anthropic + DeepSeek 两家，未要求协议通用 | **✅ 已补齐（2026-10-24）**：按**协议**分层（`Protocol = anthropic \| openai`）+ 统一工厂 `createLlmClient()`；新增手写 `createOpenAiCompatClient`（零新增依赖），供应商扩到 6 家（OpenAI / Gemini / Ollama / 自定义端点）。兼容层差异按能力探测降级；未知模型价格显示「未计价」不回退。单测 17 例含真实 HTTP 往返 | 主线 / 2026-10-24 |
 | 41 | 计划外缺口：装饰层表达力（B0/B1） | 现代 UI 的「多点渐变 / 聚光 / 暗角 / 渐变描边 / 斜切角 / 双色调」全部做不出来：`GRADIENT_RADIAL` 圆心锁死 50%/50%、`BorderSchema.color` 是单值、`clip-path` 已被 mask/形状占用 | 属性闭包 vs 代码闭包（`docs/expression-gap-plan.md` §0）：AST 上界 = Figma 属性集的笛卡尔积 | **✅ 已补齐（2026-10-25，B1）**：`BorderSchema.fill` 渐变描边（CSS/Konva/`.fig` 三端**精确**）+ `StyleSchema.decorations` 5 种封闭枚举。详见附 F | 主线 / 2026-10-25 |

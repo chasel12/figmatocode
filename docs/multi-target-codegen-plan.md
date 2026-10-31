@@ -333,7 +333,7 @@ Taro 的 `Button`/`Image` 在 h5 下是自定义元素，带内置样式；产�
 但 **Taro 版本升级会改变内置样式**，故 Taro 像素值按「尽力值」记录，不与 React/Vue 同口径比较。
 这是 §8 风险表「Taro 版本兼容」的兑现方式：**构建关必须过，像素关记录实测不虚报**。
 
-### 10.4 与计划的偏差报备（16 条）
+### 10.4 与计划的偏差报备（19 条）
 
 | # | 计划口径 | 实际实现 | 理由 |
 |---|---|---|---|
@@ -343,7 +343,7 @@ Taro 的 `Button`/`Image` 在 h5 下是自定义元素，带内置样式；产�
 | 4 | FR-74「路由」 | vite **MPA**（每页独立 HTML 入口），非 react-router | 构建关与像素关都最稳：真实 HTML 文件可直接 goto，无需等 hydration；接入方要 SPA 时自行换 router，不被我们的路由约定绑死 |
 | 5 | §4「Taro 建议升 4.x」 | Taro **4.0.9** + webpack **5.91.0 精确锁** | `@tarojs/webpack5-runner@4.0.9` 的 peer 就是 `5.91.0`，用 `^` 直接 ERESOLVE |
 | 6 | FR-79「图片进 assets/」 | 图片进 **`public/assets/`**，URL 用 `/assets/x` | 相对路径会被 Rollup 当 import 解析（Vue 实测报错 `Rollup failed to resolve import "assets/img-1.svg"`）；走 public 让 Vite 按 base 自动改写 |
-| 7 | FR-75「真跑 build」 | 门禁跑 Taro 时注入 **`TARO_NO_MINIMIZE=1`**（关压缩），产物默认仍压缩 | 压缩器的 worker 池在带 fs 拦截的宿主里会死锁：19 页里写完 12 个 css chunk 后永久等待（同一命令在普通终端 21s 完成）。门禁验证的是「能不能构建 + 产物像素对不对」，压缩与否不影响这两件事；产物本身默认走压缩，不受影响 |
+| 7 | FR-75「真跑 build」 | 门禁跑 Taro 时**默认不注入任何额外环境变量**（`env = undefined`）。<br>**（2026-10-27 更正：原实现注入 `TARO_NO_MINIMIZE=1`，已撤掉）** | 早先为绕开「压缩器 worker 池在带 fs 拦截的宿主里死锁」而关压缩器。2026-10-26 实测该变量在当前宿主上反而更糟：webpack 能跑完并写出 `dist/index.html`，但**进程永不退出**，每次构建都被 300s 超时杀掉判 FAIL（两次 attempt 均 300374ms / 300468ms）。去掉后同一命令 73s 正常结束。若某天压缩器 worker 又死锁，可单独带该变量跑一次定位，但不要默认打开 |
 | 8 | G5「`.fig` 往返一致」 | 往返**结构 18/19 无损 + 1 页报备降级**（渐进模糊） | Figma 的 `EffectType` 没有渐进模糊原语，只能降级成 `FOREGROUND_BLUR`；门禁把它列进 `KNOWN_LOSS` 白名单并打印原因，不静默吞掉 |
 | 9 | 导入「组件实例展开为普通 Frame」 | ✅ 但**组件/Variables/Prototype 语义不写** | 与 §7「明确不做」一致：只做视觉层。实例被摊平成 Frame，名字保留 |
 | 10 | 矢量节点 | 导出写 `VECTOR` 但**不写命令几何**（`d` 丢失） | Figma 的矢量几何是独立命令 blob（需额外解码器），当前只保留节点与描边样式；门禁比对口径不含 `vector.d` |
@@ -353,6 +353,9 @@ Taro 的 `Button`/`Image` 在 h5 下是自定义元素，带内置样式；产�
 | 14 | 旧 `boxShadow` 字符串 | demo 数据迁移到 FR-19 `effects`；导出按 CSS 颜色串（含 `rgba()`）解析 | `.fig` 存不下原始 CSS 串；`effects` 才是迁移目标（compile.ts 注释即此口径）。迁移后 `box-shadow` 变成合法 CSS，像素关 99.52% 不变 |
 | 15 | 显式 `fontFamily: 'Inter'` | 导出把「未指定字体族」写成 `Inter`，导入把 `Inter` 还原成 undefined | Figma 的 `fontName.family` 必填；AST「不写」会落到 `FONT_STACK`，两者编译结果不同。代价：真实文件里显式指定 Inter 会退化成默认栈 |
 | 16 | FR-75 门禁的日志落盘方式 | 子进程 `data` 事件只在**内存**累积，退出时一次性 `writeFileSync`；`--target all` 的子进程用异步 `spawn` + await | 第 4 条「假死」死路：只要「跑的过程中写文件」（`pipe(createWriteStream)` 或 `appendFileSync` 都算），宿主 fs shim 的写调用就迟迟不返回 → 管道无人消费 → 子进程永久阻塞在 write（日志停在 279 字节、CPU 6~25s 后归零，而同命令 `> file` 34~44s 完成）。另外 `spawnSync` 会堵死父进程事件循环，taro 从 40s 拖成 6 分钟。改后 `all` 端到端 3m07s |
+| 17 | FR-78「prettier 统一三端产物」 | ✅ 已接（2026-10-27）。`scripts/codegen.ts` 在**写盘前**格式化（`--no-format` 可关） | 写盘前而非写盘后：manifest 里的 `bytes` 是写盘字节数，先写后格式化会让这个数失真。**跳过 `.html`**：标签间空白有语义（inline 元素空隙就来自它），prettier 会插换行、折属性，像素关有回归风险；而三端 html 只是挂载壳，本来没有 diff 噪声。格式化失败不阻断出码，只在日志里报出 |
+| 18 | 门禁四关的执行顺序（语法→类型→构建→像素） | **不变**。<br>曾试过「构建提到最前」，实测**无效，已撤回** | 2026-10-27 一度以为 taro 卡死是「构建前进程已做过事」导致（`--only build` 两次通过 60.1s / 86.7s），于是把构建关提前。随后完整跑仍然卡（两次 300s），说明**顺序不是变量**。已改回原顺序，不留下没有依据的改动 |
+| 19 | 构建关判据「有没有产出 html」 | 改为「有没有**本次**写出的 html」（mtime ≥ 开工时间−5s），并单列 `degraded` 档；`--skip-build` 时像素关改为信任磁盘上的 `dist` | `cleanBuildDir()` 有意留空（沙箱删除守卫），`dist/index.html` 构建前就存在 → **上次的残留会被当成这次的成果**。实测已发生：报告写 `html: 1`，而本次日志里一行 webpack 输出都没有（`freshHtml: 0` 现在会直接指出）。「产物已写出但进程不退」单列一档：必须同时满足「本次写出的 html + 日志含 `compiled` + 已超时」才判降级通过，否则仍是 FAIL。另：`--skip-build` 原实现会让像素关一起跳过（一个参数两个后果），现改为信任现有 `dist` |
 
 
 **另两条环境事实（非设计偏差，写进 HANDOFF 免得复跑踩）**：

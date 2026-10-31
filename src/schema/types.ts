@@ -89,10 +89,19 @@ export interface LayoutSchema {
   widthMode: SizeMode;
   heightMode: SizeMode;
   /**
-   * B3 滚动定位：`STICKY` / `FIXED` **仅出码侧生效**（画布没有滚动概念，不预览）。
-   * 与 `mode: 'ABSOLUTE'` 互斥——ABSLOUTE 已经出 `position: absolute`，此处不再覆写。
+   * 自身定位方式。**与 `mode` 严格分工**：`mode` 管「我内部怎么排」，`position` 管
+   * 「我相对谁定位」。这两件事必须分开表达，否则会出现「想要 A 就丢 B」的残缺。
+   *
+   * - `FIXED` / `STICKY`：相对**视口**（滚动相关），仅出码侧生效（画布没有滚动概念）。
+   * - `ABSOLUTE`：相对**父容器内容区**，用 `x`/`y` 定位，**不占父的流**。
+   *   与 `mode: 'ABSOLUTE'` 的区别是后者会连带把**自己的内部排版**也变成绝对定位
+   *   （`compile.ts` 在 mode=ABSOLUTE 下不输出 gap/align/justify），所以
+   *   「脱流 + 内部居中」这种组合只能用 `position: 'ABSOLUTE'`：
+   *   典型就是图标右上角的数字角标——18×18 圆底要脱流挂到角上，里面的数字还要居中。
+   *
+   * 与 `mode: 'ABSOLUTE'` 互斥：后者已经出 `position: absolute`，此处不再覆写。
    */
-  position?: 'STICKY' | 'FIXED';
+  position?: 'STICKY' | 'FIXED' | 'ABSOLUTE';
   /** 配合 `position: STICKY` 的 `top`（px）；缺省 0 */
   stickyTop?: number;
   /** 配合 `position: STICKY` 的 `bottom`（px）；与 stickyTop 同时存在时以 top 为准 */

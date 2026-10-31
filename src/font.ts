@@ -1,5 +1,21 @@
 /** FR-48 Inter 本地托管 + 字体栈单源（编辑器 / 文本测量 / Konva 文本 / 出码 HTML / reference 共用同一字体）。 */
-export const FONT_STACK = 'Inter, Arial, "PingFang SC", "Microsoft YaHei", sans-serif';
+/**
+ * 字体栈单源。**`Arial` 不能留在 Inter 与中文之间**（2026-10-28 修）。
+ *
+ * 原来的顺序是 `Inter, Arial, "PingFang SC", ...`。单文件 HTML 用 `file://` 打开时，
+ * `@font-face` 的 `/fonts/...` 会解析成 `file:///C:/fonts/...` —— 必然 404，Inter 加载不到，
+ * 于是**西文全部落到 Arial**。Arial 是 1990 年代的字体（字面窄、只有 4 个字重），
+ * 在深色仪表盘这类界面上明显过时；而直接写 CSS 的对照组用的是系统字体（Segoe UI / SF Pro），
+ * 观感差距就来自这里，不是「AST 表达力不足」。
+ *
+ * 换成系统 UI 字体后：Inter 可用（工程产物 / 编辑器）→ 行为完全不变；
+ * Inter 不可用（单文件 HTML 本地打开）→ 落到 Segoe UI / SF Pro，而不是 Arial。
+ *
+ * 为什么安全：编辑器的文本测量也读这个常量，但编辑器页面本身托管了 `public/fonts/`，
+ * Inter 恒可用，所以测量结果不受 fallback 变化影响。
+ */
+export const FONT_STACK =
+  'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 const LATIN =
   'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
@@ -17,7 +33,8 @@ const LATIN_EXT =
  * M7 W2.5：风格包配套字体 Space Grotesk（OFL-1.1，@fontsource-variable/space-grotesk）。
  * 与 Inter 同源同注入点——出码产物、编辑器、文本测量共用一份字体清单（FR-48 口径延续）。
  */
-export const PACK_FONT_STACK = '"Space Grotesk", Inter, Arial, "PingFang SC", "Microsoft YaHei", sans-serif';
+export const PACK_FONT_STACK =
+  '"Space Grotesk", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 export function fontFaceCss(base: string): string {
   return `@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('${base}/inter-latin-wght-normal.woff2') format('woff2');unicode-range:${LATIN}}

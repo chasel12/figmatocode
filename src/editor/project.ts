@@ -1,6 +1,7 @@
 import type { ComponentDef, StyleToken, UIProject, UIPage } from '../schema/types';
 import { createPage } from '../schema/factory';
 import { initialState, type EditorState } from './store';
+import { sanitizeSkills, type AiSkill } from './ai/skills';
 
 /** 本模块承载 v1（单页 JSON）→ v2（UIProject）的**唯一**升级路径。
  *  消费方三处共用：autosave 读侧、File→打开、旧 fixture 单测（wave1-prototype-plan §1.3）。
@@ -8,6 +9,14 @@ import { initialState, type EditorState } from './store';
 export interface SerializedProject {
   version: 2;
   project: UIProject;
+  /**
+   * AI 设计参考（skill）。**刻意不放进 `UIProject`**：
+   * `UIProject` 是 `.fig` 往返比对的唯一口径（`scripts/fig-normalize.ts`），
+   * 往里加键就等于给往返门禁加一个 Figma 表达不了的字段。
+   * 放在包体顶层既能让工程文件带着参考一起分享，又完全不碰 AST 契约。
+   * 空列表时**不写这个键**——保证「没用到该功能」的工程文件与旧版逐字节一致。
+   */
+  aiSkills?: AiSkill[];
 }
 
 /**
@@ -31,8 +40,9 @@ export function upgradeProjectV1(page: UIPage, projectName?: string): UIProject 
 }
 
 /** File→保存：固定写 v2 形状（文件里不再出现 version:1；单页 JSON 只保留在打开路径） */
-export function serializeProject(project: UIProject): SerializedProject {
-  return { version: 2, project };
+export function serializeProject(project: UIProject, aiSkills?: AiSkill[]): SerializedProject {
+  const skills = sanitizeSkills(aiSkills);
+  return skills.length ? { version: 2, project, aiSkills: skills } : { version: 2, project };
 }
 
 function isPageLike(value: unknown): value is UIPage {
@@ -93,19 +103,22 @@ function ensureChildren(project: UIProject): UIProject {
 
 /**
  * File→打开 / autosave 读侧统一入口：**同时解析** v1（`data.page`）与 v2（`data.project`），
- * 两者都统一走 upgradeProjectV1 归一，返回 `{project, upgradedFromV1}` 供调用方决定回写策略。
+ * 两者都统一走 upgradeProjectV1 归一，返回 `{project, upgradedFromV1, aiSkills}` 供调用方决定回写策略。
  * 无法识别 → 抛错（沿既有 File→打开 的 alert 先例）。
+ *
+ * `aiSkills` 由调用方负责写回本机（`restoreSkillsFromEnvelope`）——解析函数保持无副作用。
  */
-export function parseProject(raw: unknown): { project: UIProject; upgradedFromV1: boolean } {
+export function parseProject(raw: unknown): { project: UIProject; upgradedFromV1: boolean; aiSkills: AiSkill[] } {
   const data = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
+  const aiSkills = sanitizeSkills((data as { aiSkills?: unknown } | null)?.aiSkills);
   const v2 = parseV2(data);
-  if (v2) return { project: ensureChildren(v2), upgradedFromV1: false };
+  if (v2) return { project: ensureChildren(v2), upgradedFromV1: false, aiSkills };
   const v1 = parseV1(data);
   if (v1) {
     const projectName = typeof (data as { projectName?: unknown })?.projectName === 'string'
       ? (data as { projectName: string }).projectName
       : undefined;
-    return { project: ensureChildren(upgradeProjectV1(v1, projectName)), upgradedFromV1: true };
+    return { project: ensureChildren(upgradeProjectV1(v1, projectName)), upgradedFromV1: true, aiSkills };
   }
   throw new Error('无效的工程文件：既非 v2 工程（project）也非 v1 单页（page）');
 }

@@ -15,8 +15,8 @@
  */
 import type { UINode } from '../schema/types';
 import { isContainer } from '../schema/types';
-import { svgOfVector } from './vector';
-import { IMAGE_PLACEHOLDER_CLASS } from './imagePlaceholder';
+import { svgOfNodeVector, svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, placeholderClass } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { assetPathOf, semanticTag, type EmitContext } from './emit-context';
 
@@ -43,6 +43,25 @@ export interface TsxEmitOptions {
   buttonType?: boolean;
   /** 无 src 图片的占位类名（缺省 ui-image-placeholder，与 html.ts 同口径） */
   imagePlaceholderClass?: string;
+  /**
+   * 是否同时挂上 P3-4 的色调类（`ui-image-ph-<tone>-<hue>`）。
+   *
+   * 缺省 true（React 出口的 index.css 里带着占位规则）。Taro 出口传 false：
+   * 它的 `index.scss` 不含占位规则（空图走 `Image` 组件而不是背景块），
+   * 挂一个没有对应规则的类只会让产物里多一串查不到定义的类名。
+   */
+  imageToneClass?: boolean;
+  /**
+   * 节点级附加属性（导航用）：返回串直接拼在 `className` 之后。
+   *
+   * 为什么是回调而不是布尔：React 与 Taro 的跳转写法完全不同
+   * （`window.location.href` vs `Taro.navigateTo`），emitter 不该知道这些。
+   * 目标推导与方式选择由 `generator/navigation.ts` 负责，各端只做字符串拼装。
+   *
+   * 只挂在 TEXT / BUTTON / 容器上：`wireNavigation` 只给 TEXT/BUTTON 挂跳转，
+   * 而 IMAGE / VECTOR 分支返回的是整段 svg 或自闭合标签，往里拼属性容易拼坏。
+   */
+  navAttr?: (node: UINode) => string;
 }
 
 const defaultImageAttr = (_node: UINode, src: string): string => `src="${src}" alt=""`;
@@ -54,6 +73,8 @@ export function emitTsxBody(ctx: EmitContext, options: TsxEmitOptions = {}): str
   const imageAttr = options.imageAttr ?? defaultImageAttr;
   const buttonType = options.buttonType ?? true;
   const placeholder = options.imagePlaceholderClass ?? IMAGE_PLACEHOLDER_CLASS;
+  const withTone = options.imageToneClass ?? true;
+  const navAttr = options.navAttr;
   const classNames = new Map(ctx.compiled.nodes.map((n) => [n.id, n.className]));
 
   const renderNode = (node: UINode, depth: number): string => {
@@ -62,13 +83,14 @@ export function emitTsxBody(ctx: EmitContext, options: TsxEmitOptions = {}): str
     const tag = ctx.tag(node);
     // 根节点 id 锚点（对齐 html.ts buildPreviewDom 的注入口径）
     const idAttr = options.rootId && node.id === ctx.page.root.id ? ` id="${node.id}"` : '';
+    const nav = navAttr ? navAttr(node) : '';
 
     if (node.type === 'TEXT') {
-      return `${indent}<${tag}${idAttr} className="${cls}">{${JSON.stringify(node.text)}}</${tag}>`;
+      return `${indent}<${tag}${idAttr} className="${cls}"${nav}>{${JSON.stringify(node.text)}}</${tag}>`;
     }
     if (node.type === 'BUTTON') {
       const typeAttr = buttonType ? ' type="button"' : '';
-      return `${indent}<${tag}${idAttr} className="${cls}"${typeAttr}>{${JSON.stringify(node.text)}}</${tag}>`;
+      return `${indent}<${tag}${idAttr} className="${cls}"${typeAttr}${nav}>{${JSON.stringify(node.text)}}</${tag}>`;
     }
     if (node.type === 'IMAGE') {
       const raw = node.src || '';
@@ -81,17 +103,13 @@ export function emitTsxBody(ctx: EmitContext, options: TsxEmitOptions = {}): str
         }
         return `${indent}<${tag}${idAttr} className="${cls}" ${imageAttr(node, src)} />`;
       }
-      return `${indent}<div${idAttr} className="${cls} ${placeholder}"></div>`;
+      return `${indent}<div${idAttr} className="${cls} ${placeholder}${withTone ? ` ${placeholderClass(node.name)}` : ''}"></div>`;
     }
     if (node.type === 'SLICE') {
       return ''; // FR-14：Slice 不生成出码 DOM（与 html.ts 一致）
     }
     if (node.type === 'VECTOR') {
-      const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
-        className: cls,
-        border: node.style?.border,
-        fill: node.style?.background,
-      });
+      const svg = svgOfNodeVector(node, cls);
       return svg ? `${indent}${svgToJsx(svg)}` : '';
     }
     if (isShapeSvgNode(node)) {
@@ -109,15 +127,15 @@ export function emitTsxBody(ctx: EmitContext, options: TsxEmitOptions = {}): str
       return `${indent}<div${idAttr} className="${cls}"></div>`;
     }
     if (!isContainer(node) || node.type === 'RECTANGLE') {
-      return `${indent}<${tag}${idAttr} className="${cls}"></${tag}>`;
+      return `${indent}<${tag}${idAttr} className="${cls}"${nav}></${tag}>`;
     }
-    if (!node.children.length) return `${indent}<${tag}${idAttr} className="${cls}"></${tag}>`;
+    if (!node.children.length) return `${indent}<${tag}${idAttr} className="${cls}"${nav}></${tag}>`;
 
     const children = node.children
       .map((c) => renderNode(c, depth + 1))
       .filter(Boolean)
       .join('\n');
-    return `${indent}<${tag}${idAttr} className="${cls}">\n${children}\n${indent}</${tag}>`;
+    return `${indent}<${tag}${idAttr} className="${cls}"${nav}>\n${children}\n${indent}</${tag}>`;
   };
 
   return renderNode(ctx.page.root, startDepth);

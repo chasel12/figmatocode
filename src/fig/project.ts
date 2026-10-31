@@ -9,7 +9,7 @@
  * 所以 `.fig` 的工程语义（components/tokens/flows 从哪来）只能在这里显式补，
  * 不能顺手往 AST 上加字段。
  */
-import type { UIPage, UIProject } from '../schema/types';
+import type { ComponentDef, FlowDef, StyleToken, UIPage, UIProject } from '../schema/types';
 import { importFig, type FigImportStats } from './import';
 import { exportFig } from './export';
 import { loadFigCodec } from './codec';
@@ -17,17 +17,27 @@ import { loadFigCodec } from './codec';
 /**
  * `UIPage[]` → `UIProject`。
  *
- * 组件 / 样式 / 原型流一律空表：`.fig` 的组件与实例在导入时已摊平成 Frame（plan §11.6
- * 明确不做组件语义），此时再编造 components 只会让面板显示一堆「有定义无实例」的孤儿。
+ * `extras` 是 `.fig` 旁挂层（`ui_compiler_extras.project`）读回来的项目级资产。
+ *
+ * **历史**：早先这里固定给空表，理由是「`.fig` 的组件与实例在导入时已摊平成 Frame，
+ * 再编造 components 只会让面板显示一堆『有定义无实例』的孤儿」。那个理由在当时成立
+ * ——因为导出侧根本没写组件表。现在导出侧会把组件表/样式表/流程写进旁挂层，
+ * 导入侧也读得回来，再给空表就是**主动丢数据**了。
+ *
+ * 旧文件（没有 `project` 旁挂）仍然落到空表，行为不变。
  */
-export function pagesToProject(pages: UIPage[], name?: string): UIProject {
+export function pagesToProject(
+  pages: UIPage[],
+  name?: string,
+  extras?: { components?: Record<string, ComponentDef>; tokens?: StyleToken[]; flows?: FlowDef[] },
+): UIProject {
   return {
     version: 2,
     name: name || pages[0]?.name || '未命名项目',
     pages,
-    components: {},
-    tokens: [],
-    flows: [],
+    components: extras?.components ?? {},
+    tokens: extras?.tokens ?? [],
+    flows: extras?.flows ?? [],
   };
 }
 
@@ -49,7 +59,11 @@ export async function importFigFile(file: File): Promise<FigOpenResult> {
   const result = importFig(bytes, codec.decode);
   if (result.pages.length === 0) throw new Error('文件里没有可用的页面');
   return {
-    project: pagesToProject(result.pages, file.name.replace(/\.fig$/i, '')),
+    project: pagesToProject(result.pages, file.name.replace(/\.fig$/i, ''), {
+      components: result.components,
+      tokens: result.tokens,
+      flows: result.flows,
+    }),
     warnings: result.warnings,
     stats: result.stats,
   };
@@ -65,6 +79,10 @@ export async function exportFigBlob(project: UIProject, fileName?: string): Prom
   const codec = await loadFigCodec();
   const { bytes, stats } = await exportFig(project.pages, codec.encode, {
     fileName: fileName || project.name || 'project',
+    // 项目级资产一并写出（早先不传，存盘再打开组件/样式/流程全丢）
+    components: project.components,
+    tokens: project.tokens,
+    flows: project.flows,
   });
   // 复制成独立 ArrayBuffer：Uint8Array 可能是大 buffer 的视图，直接传会让 Blob 带上整块内存
   const copy = new Uint8Array(bytes.byteLength);

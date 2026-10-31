@@ -1,4 +1,4 @@
-import { useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor } from '../store';
 import { CanvasGeometryContext } from '../canvasContext';
 import { compilePage } from '../../compiler';
@@ -29,10 +29,21 @@ import {
 import { loadFewShots } from './promptPack';
 import { runEditPlan, runPageGeneration, type ProgressEvent } from './generate';
 import { buildSelectionContext, collectExistingIds } from './selectionContext';
-import { opsToStoreActions, projectWithNewPage, type EditDryRun } from './aiActions';
-import type { AiEditPlan } from './types';
+import { opsToStoreActions, projectWithNewPage, projectWithSite, type EditDryRun } from './aiActions';
+import { describeWiring, runSiteGeneration, type NavLink } from './site';
+import {
+  MAX_SKILL_COUNT,
+  SKILL_FILE_ACCEPT,
+  composeDesignRef,
+  loadSkills,
+  makeSkill,
+  onSkillsChanged,
+  saveSkills,
+  skillNameFromFile,
+} from './skills';
+import type { AiEditPlan, AiSiteDraft, AiSkill } from './types';
 
-type Mode = 'page' | 'edit';
+type Mode = 'page' | 'site' | 'edit';
 
 interface PageResult {
   kind: 'page';
@@ -53,7 +64,20 @@ interface EditResult {
   elapsed: number;
 }
 
-type Result = PageResult | EditResult;
+interface SiteResult {
+  kind: 'site';
+  pages: UIPage[];
+  site: AiSiteDraft;
+  links: NavLink[];
+  missing: { pageId: string; pageName: string; missing: string[] }[];
+  perPage: { name: string; attempts: number; costCny: number; elapsedMs: number }[];
+  attempts: number;
+  cost: number;
+  firstPass: boolean;
+  elapsed: number;
+}
+
+type Result = PageResult | SiteResult | EditResult;
 
 const STAGE_LABEL: Record<ProgressEvent['stage'], string> = {
   prompt: '提示词',
@@ -92,6 +116,8 @@ export function AiDock() {
   const { state, dispatch } = useEditor();
   const geometry = useContext(CanvasGeometryContext);
   const [mode, setMode] = useState<Mode>('page');
+  /** 整站结果的预览页下标（多页结果要能逐页翻看） */
+  const [sitePreview, setSitePreview] = useState(0);
   const [prompt, setPrompt] = useState('');
   const [packId, setPackId] = useState(PACKS[0].id);
   const [provider, setProviderState] = useState<ProviderId>(getProvider());
@@ -107,11 +133,73 @@ export function AiDock() {
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [undoSteps, setUndoSteps] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  /** 设计参考（skill）：按工程名分桶存本机；工程文件里再带一份便于分享 */
+  const [skills, setSkills] = useState<AiSkill[]>(() => loadSkills(state.projectName));
+  const [refOpen, setRefOpen] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftText, setDraftText] = useState('');
+  const [refError, setRefError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** 换工程（打开/新建）时重新加载该工程自己的参考列表 */
+  useEffect(() => {
+    setSkills(loadSkills(state.projectName));
+  }, [state.projectName]);
+
+  /** 打开工程时从文件里恢复的参考，本面板也要跟着刷新（工程名可能没变） */
+  useEffect(
+    () =>
+      onSkillsChanged((name, next) => {
+        if (name !== state.projectName) return;
+        setSkills((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      }),
+    [state.projectName],
+  );
+
+  const updateSkills = (next: AiSkill[]) => {
+    const capped = next.slice(0, MAX_SKILL_COUNT);
+    setSkills(capped);
+    saveSkills(state.projectName, capped);
+  };
+
+  const designRef = useMemo(() => composeDesignRef(skills), [skills]);
+  const activeRefCount = skills.filter((s) => s.enabled && s.text.trim()).length;
+
+  const addDraftSkill = () => {
+    const text = draftText.trim();
+    if (!text) return;
+    updateSkills([makeSkill(draftName.trim() || `手写参考 ${skills.length + 1}`, text), ...skills]);
+    setDraftName('');
+    setDraftText('');
+    setRefError(null);
+  };
+
+  /** 上传：纯文本一律可读（.md/.txt/.json），不解析结构——只取文字层 */
+  const addSkillFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const picked = Array.from(files).slice(0, MAX_SKILL_COUNT);
+    try {
+      const loaded = await Promise.all(
+        picked.map(async (f) => makeSkill(skillNameFromFile(f.name), await f.text())),
+      );
+      const usable = loaded.filter((s) => s.text.trim().length > 0);
+      if (!usable.length) {
+        setRefError('这些文件里没有可读文本（可能是二进制或空文件）');
+        return;
+      }
+      updateSkills([...usable, ...skills]);
+      setRefError(loaded.length > usable.length ? `${loaded.length - usable.length} 个文件为空，已跳过` : null);
+    } catch (e) {
+      setRefError(`读取失败：${(e as Error).message}`);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const pack = getPack(packId);
   const prov = providerDef(provider);
   const selectionCount = state.selectedIds.filter((id) => id !== state.page.root.id).length;
-  const canRun = hasKey && !running && prompt.trim().length > 0 && (mode === 'page' || selectionCount > 0);
+  const canRun = hasKey && !running && prompt.trim().length > 0 && (mode !== 'edit' || selectionCount > 0);
 
   /** 切供应商：key / 模型 / 面板状态都按供应商隔离，避免把 A 家的 key 发到 B 家端点 */
   const switchProvider = (id: ProviderId) => {
@@ -172,12 +260,35 @@ export function AiDock() {
         client,
         icons: iconMap,
         fewShots,
+        designRef,
         signal: controller.signal,
         onProgress,
         model,
       };
+      if (designRef) pushLog(`已注入 ${activeRefCount} 段设计参考（${designRef.length} 字）`);
 
-      if (mode === 'page') {
+      if (mode === 'site') {
+        const res = await runSiteGeneration(base);
+        setResult({
+          kind: 'site',
+          pages: res.pages,
+          site: res.site,
+          links: res.links,
+          missing: res.missing,
+          perPage: res.perPage,
+          attempts: res.attempts,
+          cost: res.costCny,
+          firstPass: res.firstPass,
+          elapsed: res.elapsedMs,
+        });
+        setSitePreview(0);
+        setCost((c) => c + res.costCny);
+        setUsage(res.usage);
+        pushLog(describeWiring(res));
+        pushLog(
+          `✓ ${res.pages.length} 页（${res.pages.map((p) => p.name).join(' / ')}）· ${(res.elapsedMs / 1000).toFixed(1)}s · ¥${res.costCny.toFixed(3)}`,
+        );
+      } else if (mode === 'page') {
         const res = await runPageGeneration(base);
         setResult({
           kind: 'page',
@@ -238,6 +349,19 @@ export function AiDock() {
     setResult(null);
   };
 
+  /**
+   * 采纳整站：一次 LOAD_PROJECT 写全部页 + 切到入口页。
+   * 分多次 NEW_PAGE 会让每一步都进 undo 栈，用户想撤掉整站要按 N 次。
+   */
+  const adoptSite = () => {
+    if (result?.kind !== 'site') return;
+    const { project, replaced, added } = projectWithSite(state, result.pages);
+    dispatch({ type: 'LOAD_PROJECT', project });
+    dispatch({ type: 'SELECT_PAGE', id: result.pages[0].id });
+    pushLog(`已采纳 ${result.pages.length} 页（新增 ${added}、替换同名 ${replaced}），当前页「${result.pages[0].name}」`);
+    setResult(null);
+  };
+
   /** 采纳编辑：走人点同一条管道（每条指令 = 一条 store action） */
   const adoptEdit = () => {
     if (result?.kind !== 'edit') return;
@@ -268,7 +392,14 @@ export function AiDock() {
     pushLog(`已载入 ${pack.name} 的 ${tokens.length} 条样式到资产面板`);
   };
 
-  const previewPage = result?.kind === 'page' ? result.page : result?.kind === 'edit' ? result.dry.page : null;
+  const previewPage =
+    result?.kind === 'page'
+      ? result.page
+      : result?.kind === 'site'
+        ? (result.pages[Math.min(sitePreview, result.pages.length - 1)] ?? result.pages[0])
+        : result?.kind === 'edit'
+          ? result.dry.page
+          : null;
 
   return (
     <div className="ai-dock">
@@ -408,6 +539,14 @@ export function AiDock() {
           生成新页
         </button>
         <button
+          className={`ai-seg-btn ${mode === 'site' ? 'is-active' : ''}`}
+          onClick={() => setMode('site')}
+          disabled={running}
+          title="先规划 2~6 页，再逐页生成并自动连好页面间跳转"
+        >
+          整站
+        </button>
+        <button
           className={`ai-seg-btn ${mode === 'edit' ? 'is-active' : ''}`}
           onClick={() => setMode('edit')}
           disabled={running}
@@ -456,13 +595,105 @@ export function AiDock() {
         </select>
       )}
 
+      <div className={`ai-ref ${refOpen ? 'is-open' : ''}`}>
+        <button
+          className="ai-ref-head"
+          onClick={() => setRefOpen((v) => !v)}
+          disabled={running}
+          title="把任意前端 skill / 风格说明的文本作为「长什么样」的参考注入提示词；它不会改变输出契约"
+        >
+          <span className="ai-ref-caret">{refOpen ? '▾' : '▸'}</span>
+          <span className="ai-ref-title">设计参考</span>
+          <span className={`ai-ref-count ${activeRefCount > 0 ? 'is-on' : ''}`}>
+            {activeRefCount > 0 ? `${activeRefCount} 段生效 · ${designRef.length} 字` : skills.length > 0 ? `${skills.length} 段（全部关闭）` : '未使用'}
+          </span>
+        </button>
+
+        {refOpen && (
+          <div className="ai-ref-body">
+            <div className="ai-setup-note">
+              上传任意前端 skill 或风格说明（<code>.md</code> / <code>.txt</code>，也可以直接粘贴）。
+              它只影响审美，<b>不影响输出格式</b>——产物仍然是可编译的 JSON 节点树，不是代码。
+            </div>
+
+            {skills.length > 0 && (
+              <div className="ai-ref-list">
+                {skills.map((s) => (
+                  <div key={s.id} className={`ai-ref-item ${s.enabled ? '' : 'is-off'}`}>
+                    <input
+                      type="checkbox"
+                      checked={s.enabled}
+                      disabled={running}
+                      onChange={() => updateSkills(skills.map((x) => (x.id === s.id ? { ...x, enabled: !x.enabled } : x)))}
+                      title={s.enabled ? '本次会注入' : '本次不注入（保留在列表里）'}
+                    />
+                    <span className="ai-ref-name" title={s.name}>
+                      {s.name}
+                    </span>
+                    <span className="ai-ref-size">{s.text.length}字</span>
+                    <button
+                      className="mini-btn"
+                      disabled={running}
+                      onClick={() => updateSkills(skills.filter((x) => x.id !== s.id))}
+                      title="删除这段参考"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <input
+              className="ai-key-input"
+              placeholder="参考名称（可留空）"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              disabled={running}
+            />
+            <textarea
+              className="ai-prompt"
+              rows={4}
+              placeholder="把 skill 正文粘在这里：设计原则、间距节奏、阴影层次、配色倾向、字体对比……"
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              disabled={running}
+            />
+            <div className="ai-ref-actions">
+              <button className="mini-btn" disabled={running || !draftText.trim()} onClick={addDraftSkill}>
+                添加为参考
+              </button>
+              <button className="mini-btn" disabled={running} onClick={() => fileInputRef.current?.click()}>
+                上传文件
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={SKILL_FILE_ACCEPT}
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => void addSkillFiles(e.target.files)}
+              />
+              {skills.length > 0 && (
+                <button className="mini-btn" disabled={running} onClick={() => updateSkills([])} title="清空本工程的全部参考">
+                  清空
+                </button>
+              )}
+            </div>
+            {refError && <div className="ai-ref-error">{refError}</div>}
+          </div>
+        )}
+      </div>
+
       <textarea
         className="ai-prompt"
         rows={4}
         placeholder={
           mode === 'page'
             ? '例：做一个健身 App 的训练计划页，顶部显示本周进度，下面 3 张训练卡片，底部固定「开始训练」按钮'
-            : '例：把选中的卡片背景改成主色、圆角加大到 16，标题字号提到 20'
+            : mode === 'site'
+              ? '例：一个健身打卡 App，要有首页（今日训练）、训练（动作清单）、我的（连续打卡与设置）三页，底部导航互通'
+              : '例：把选中的卡片背景改成主色、圆角加大到 16，标题字号提到 20'
         }
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
@@ -471,7 +702,7 @@ export function AiDock() {
 
       <div className="ai-actions">
         <button className="ai-run" onClick={run} disabled={!canRun}>
-          {running ? '生成中…' : mode === 'page' ? '生成' : '生成修改'}
+          {running ? '生成中…' : mode === 'page' ? '生成' : mode === 'site' ? '规划并生成整站' : '生成修改'}
         </button>
         {running && (
           <button className="mini-btn" onClick={cancel}>
@@ -505,13 +736,48 @@ export function AiDock() {
             <span>
               {result?.kind === 'page'
                 ? `预览：${result.page.name}`
-                : `预览：${result?.plan.summary ?? '修改结果'}`}
+                : result?.kind === 'site'
+                  ? `预览：${previewPage.name}（${Math.min(sitePreview, result.pages.length - 1) + 1}/${result.pages.length}）`
+                  : `预览：${result?.plan.summary ?? '修改结果'}`}
             </span>
             <span className="ai-result-meta">
-              {result?.kind === 'edit' ? `${result.plan.actions.length} 条指令` : `${result?.attempts ?? 0} 轮`}
+              {result?.kind === 'edit'
+                ? `${result.plan.actions.length} 条指令`
+                : result?.kind === 'site'
+                  ? `${result.links.length} 条跳转`
+                  : `${result?.attempts ?? 0} 轮`}
             </span>
           </div>
+          {result?.kind === 'site' && (
+            <div className="ai-site-tabs">
+              {result.pages.map((p, i) => (
+                <button
+                  key={p.id}
+                  className={`mini-btn ${i === sitePreview ? 'is-active' : ''}`}
+                  onClick={() => setSitePreview(i)}
+                  title={`${p.name} · ${result.perPage[i]?.attempts ?? 1} 轮`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
           <PreviewFrame page={previewPage} />
+          {result?.kind === 'site' && (
+            <div className="ai-diff">
+              {result.perPage.map((p, i) => (
+                <div key={i} className="ai-diff-line">
+                  · {p.name}：{p.attempts} 轮 · {(p.elapsedMs / 1000).toFixed(1)}s · ¥{p.costCny.toFixed(3)}
+                </div>
+              ))}
+              <div className="ai-diff-stat">{describeWiring({ pages: result.pages, links: result.links, missing: result.missing })}</div>
+              {result.missing.length > 0 && (
+                <div className="ai-diff-line" style={{ opacity: 0.75 }}>
+                  导航项缺失的页面，那一项点了不会跳——可以采纳后手动补，或重新生成该页。
+                </div>
+              )}
+            </div>
+          )}
           {result?.kind === 'edit' && (
             <div className="ai-diff">
               {result.dry.report.map((r, i) => (
@@ -526,8 +792,11 @@ export function AiDock() {
             </div>
           )}
           <div className="ai-actions">
-            <button className="ai-adopt" onClick={result?.kind === 'page' ? adoptPage : adoptEdit}>
-              采纳{result?.kind === 'page' ? '为新页面' : '修改'}
+            <button
+              className="ai-adopt"
+              onClick={result?.kind === 'page' ? adoptPage : result?.kind === 'site' ? adoptSite : adoptEdit}
+            >
+              采纳{result?.kind === 'page' ? '为新页面' : result?.kind === 'site' ? `这 ${(result as SiteResult).pages.length} 页` : '修改'}
             </button>
             <button className="mini-btn" onClick={() => setResult(null)}>
               放弃

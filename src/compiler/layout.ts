@@ -306,9 +306,17 @@ export class LayoutResolver {
     const justify = L.justify ?? 'START';
     const gapCross = L.gapCross ?? gap;
 
-    // FR-36：Ignore auto layout（子 mode=ABSOLUTE）——不入 flow 游标，按自身 x/y 相对父内容区放置
-    const flowChildren = children.filter((c) => c.layout.mode !== 'ABSOLUTE');
-    const absChildren = children.filter((c) => c.layout.mode === 'ABSOLUTE');
+    /**
+     * FR-36：脱流子项——不入 flow 游标，按自身 x/y 相对父内容区放置。
+     *
+     * 两种写法都认（见 `LayoutSchema.position` 注释）：
+     * - `mode: 'ABSOLUTE'`：老写法，脱流**且**自己的内部排版也变绝对；
+     * - `position: 'ABSOLUTE'`：新写法，只脱流，内部排版照旧走 flex/gap/align。
+     */
+    const isOutOfFlow = (c: UINode): boolean =>
+      c.layout.mode === 'ABSOLUTE' || c.layout.position === 'ABSOLUTE';
+    const flowChildren = children.filter((c) => !isOutOfFlow(c));
+    const absChildren = children.filter(isOutOfFlow);
     const assignAbsolute = () => {
       for (const child of absChildren) {
         const cm = marOf(child.layout);

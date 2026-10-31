@@ -9,10 +9,19 @@ import type { StylePack } from './types';
 import shadcnJson from './shadcn.tokens.json';
 import openpropsJson from './openprops.tokens.json';
 import daisyDarkJson from './daisy-dark.tokens.json';
+import blackgreenJson from './blackgreen.tokens.json';
 
 export type { StylePack } from './types';
 
-export const PACKS: StylePack[] = [shadcnJson, openpropsJson, daisyDarkJson] as unknown as StylePack[];
+/**
+ * 已注册风格包。
+ *
+ * `blackgreen` 是**手写**的（不是 `scripts/extract-tokens.mjs` 产物）：三个抽取包里
+ * 主色分别是紫 / 蓝 / 蓝，没有任何绿色，而提示词硬规则明确「不要出现包外色值」——
+ * 意味着「做一个黑绿色的 app」这类显式配色要求，不改代码就实现不了。
+ * 补一个包是最小修复；更彻底的方案是让用户能在 UI 里自定义包（当前只能改源码）。
+ */
+export const PACKS: StylePack[] = [shadcnJson, openpropsJson, daisyDarkJson, blackgreenJson] as unknown as StylePack[];
 
 export const DEFAULT_PACK_ID = 'shadcn';
 

@@ -67,6 +67,19 @@
 
 **现状**：FR-29 已交付「属性集 × 值组合、实例切换、新建变体、同名组合拒绝」。**未做**：跨变体属性增量合并（当前切换=整体替换内容 + 清 overrides）。
 
+> **2026-10-27 更正：上面这句「未做」已经过期，实际早就做了。**
+> `store.ts` 的 `SET_VARIANT_PROPS` 取旧覆盖 → 用新变体 root 重新派生 → 按路径重放覆盖
+> （路径在新变体中不存在则该条丢弃，同 Figma），并原位替换以保住 id / 名称 / 画布位置。
+> 这条口径之所以长期没更新，是因为**锁定它的那条单测是假的**：用例拿 CREATE_COMPONENT
+> 建的基组件去取 `variantProps`，取到 undefined 就走 `else { expect(true).toBe(true) }`，
+> 切换那一步一次都没执行过，于是一直绿着、也没人回头核。
+> 现已换成真用例（`tests/component-store.test.ts`：真建两个成员、真切到另一个成员、
+> 断言覆盖被重放到新结构上；另加「保 id 与位置」「路径失效则丢弃」两条）。
+>
+> 仍然**没做**的只剩语义层的一块：跨变体属性**增量合并**（属性集本身不同时怎么合）。
+> 当前口径是「路径对齐的覆盖保留、对不上的丢弃」，这对「同构变体」（只换颜色/尺寸）
+> 完全够用；对「结构不同」的变体则是丢弃而非智能映射 —— 与 Figma 一致，故维持现状。
+
 **PM 决议**：✅ **列为 GA 后增强（2026-10-18，PM「全接受」）**：不影响 GA 判定，已并入本文 §四/Future 与 HANDOFF §6 增强清单。
 
 ---
@@ -103,7 +116,7 @@
 1. Variables（变量 mode 切换）——若议题 3 GO。
 2. 协作 MVP（FR-61）——若议题 2 GO。
 3. 变体属性增量合并（FR-29 增强）。
-4. Constraints stretch 档（Left+Right / Top+Bottom）。
+4. ~~Constraints stretch 档（Left+Right / Top+Bottom）~~ **✅ 已完成**：出码侧 2026-10-20（`compile.ts` #4a，输出 `left+right` 且删 `width`）；画布侧 2026-10-27（`constraints.ts` 此前把这一档当 `SCALE`，属 bug 而非未做 —— 表现为「画布等比缩放、出码却是拉伸」）。两轴各 5 档，`tests/fr35-constraints.test.ts` 表格驱动全覆盖。
 5. Layout grid 独立分区入口（现挂在 FR-27 GRID 样式，入口与 Figma 不同）。
 6. 矢量：独立手柄拖拽（改曲率）、arcData → SVG path。
 7. Overlay 拖拽定位 + 遮罩透明度。

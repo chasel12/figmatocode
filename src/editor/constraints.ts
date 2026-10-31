@@ -16,13 +16,19 @@ export interface ChildStart {
 
 export type ChildPatch = Partial<Pick<LayoutSchema, 'x' | 'y' | 'width' | 'height'>>;
 
+/**
+ * 单轴规则。**五档，与 `compile.ts` 的 Constraints 映射一一对应** ——
+ * 少一档就会出现「画布显示的」和「出码出来的」不一致（见 `STRETCH` 注释）。
+ */
+type AxisRule = 'START' | 'END' | 'CENTER' | 'SCALE' | 'STRETCH';
+
 /** 单轴结果：p=新位置、s=新尺寸（缺省=不变） */
 function axisPatch(
   pos: number,
   size: number,
   oldSpan: number,
   newSpan: number,
-  rule: 'START' | 'END' | 'CENTER' | 'SCALE',
+  rule: AxisRule,
 ): { p?: number; s?: number } {
   if (oldSpan <= 0 || newSpan <= 0) return {};
   const delta = newSpan - oldSpan;
@@ -35,6 +41,16 @@ function axisPatch(
       return { p: pos + delta / 2 };
     case 'SCALE':
       return { p: (pos * newSpan) / oldSpan, s: (size * newSpan) / oldSpan };
+    /**
+     * 拉伸档（`LEFT_RIGHT` / `TOP_BOTTOM`，对应 Figma「左和右 / 上和下」）：
+     * 两端到父容器的距离都不变 → 位置不动、**尺寸随父容器增量变化**。
+     *
+     * 这一档曾经缺失，落到 `else` 被当成 `SCALE`：画布上拖父容器把手时子项等比缩放，
+     * 而 `compile.ts` 出的是 `left+right`（拉伸）—— 同一份 AST 两个消费者理解不同，
+     * 属于「画布骗人」。delta=0 时返回空 patch，保持「无变化不出 patch」的约定。
+     */
+    case 'STRETCH':
+      return delta === 0 ? {} : { s: size + delta };
   }
 }
 
@@ -47,14 +63,30 @@ export function recomputeChild(
   const c = child.constraints ?? { horizontal: 'LEFT', vertical: 'TOP' };
   const out: ChildPatch = {};
 
-  const hRule =
-    c.horizontal === 'LEFT' ? 'START' : c.horizontal === 'RIGHT' ? 'END' : c.horizontal === 'CENTER' ? 'CENTER' : 'SCALE';
+  const hRule: AxisRule =
+    c.horizontal === 'LEFT'
+      ? 'START'
+      : c.horizontal === 'RIGHT'
+        ? 'END'
+        : c.horizontal === 'CENTER'
+          ? 'CENTER'
+          : c.horizontal === 'LEFT_RIGHT'
+            ? 'STRETCH'
+            : 'SCALE';
   const h = axisPatch(child.x, child.width, oldSize.width, newSize.width, hRule);
   if (h.p !== undefined) out.x = Math.round(h.p);
   if (h.s !== undefined) out.width = Math.max(1, Math.round(h.s));
 
-  const vRule =
-    c.vertical === 'TOP' ? 'START' : c.vertical === 'BOTTOM' ? 'END' : c.vertical === 'CENTER' ? 'CENTER' : 'SCALE';
+  const vRule: AxisRule =
+    c.vertical === 'TOP'
+      ? 'START'
+      : c.vertical === 'BOTTOM'
+        ? 'END'
+        : c.vertical === 'CENTER'
+          ? 'CENTER'
+          : c.vertical === 'TOP_BOTTOM'
+            ? 'STRETCH'
+            : 'SCALE';
   const v = axisPatch(child.y, child.height, oldSize.height, newSize.height, vRule);
   if (v.p !== undefined) out.y = Math.round(v.p);
   if (v.s !== undefined) out.height = Math.max(1, Math.round(v.s));
@@ -62,7 +94,7 @@ export function recomputeChild(
   return out;
 }
 
-/** 父容器 resize → 全体子项 patch 列表（filter 掉空 patch；四档×2 轴全覆盖） */
+/** 父容器 resize → 全体子项 patch 列表（filter 掉空 patch；五档×2 轴全覆盖） */
 export function recomputeChildren(
   children: ChildStart[],
   oldSize: { width: number; height: number },

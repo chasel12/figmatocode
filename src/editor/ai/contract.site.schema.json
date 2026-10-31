@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AiSitePageSpec": {
+      "description": "整站规划里的一页（只有元信息，不含节点树）",
+      "properties": {
+        "brief": {
+          "description": "这一页放什么（一句话，喂给单页生成当需求）",
+          "type": "string"
+        },
+        "entry": {
+          "description": "入口页（有且只有一个；缺省取第一页）",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "页面名（2~8 字中文短语）。**同时是导航串联的唯一依据**：别的页里出现同名文案即自动连到它",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "brief"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    }
+  },
+  "description": "由 scripts/gen-ai-schema.mjs 从 src/editor/ai/types.ts 自动生成，请勿手改。",
+  "properties": {
+    "kind": {
+      "const": "site",
+      "type": "string"
+    },
+    "name": {
+      "description": "站点名",
+      "type": "string"
+    },
+    "pages": {
+      "description": "页面规划（2~6 页）",
+      "items": {
+        "$ref": "#/definitions/AiSitePageSpec"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "kind",
+    "name",
+    "pages"
+  ],
+  "type": "object",
+  "title": "UI Compiler AI · 整站规划契约",
+  "additionalProperties": false
+}

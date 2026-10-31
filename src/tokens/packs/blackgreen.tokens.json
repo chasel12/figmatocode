@@ -1,0 +1,99 @@
+{
+  "id": "blackgreen",
+  "name": "Black Green",
+  "source": "手写（健身/运动类暗色主题：近黑底 + 荧光绿强调）",
+  "license": "CC0-1.0",
+  "mode": "dark",
+  "description": "近黑底 + 荧光绿强调色：底色接近纯黑带绿调、卡片亮一档、强调色只用于主操作与数据高亮，辅助文字低饱和绿灰。",
+  "colors": {
+    "background": "#0a0f0d",
+    "foreground": "#e8f5ee",
+    "card": "#121a16",
+    "card-foreground": "#e8f5ee",
+    "popover": "#121a16",
+    "popover-foreground": "#e8f5ee",
+    "primary": "#00e676",
+    "primary-foreground": "#04120a",
+    "secondary": "#1f2b25",
+    "secondary-foreground": "#c8e6d4",
+    "muted": "#0f1613",
+    "muted-foreground": "#8ba39a",
+    "accent": "#00c853",
+    "accent-foreground": "#04120a",
+    "destructive": "#ff5252",
+    "destructive-foreground": "#2a0505",
+    "border": "#1e2b25",
+    "input": "#1e2b25",
+    "ring": "#00e676",
+    "success": "#00e676",
+    "warning": "#ffb300",
+    "info": "#4dd0e1",
+    "neutral": "#050a08"
+  },
+  "fontSizes": [
+    12,
+    13,
+    14,
+    16,
+    18,
+    20,
+    24,
+    30,
+    36
+  ],
+  "spacings": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64
+  ],
+  "radii": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    24,
+    999
+  ],
+  "shadows": [
+    "0 1px 2px 0 hsl(160 30% 2%/40%),0 2px 5px -2px hsl(160 30% 2%/40%)",
+    "0 2px 4px -1px hsl(160 30% 2%/45%),0 6px 12px -4px hsl(160 30% 2%/45%)",
+    "0 4px 8px -2px hsl(160 30% 2%/50%),0 12px 24px -8px hsl(160 30% 2%/50%)",
+    "0 8px 16px -4px hsl(160 30% 2%/55%),0 24px 48px -12px hsl(160 30% 2%/55%)",
+    "0 0 0 1px hsl(151 100% 45%/18%),0 4px 16px -2px hsl(151 100% 45%/22%)"
+  ],
+  "fonts": [
+    {
+      "family": "Space Grotesk",
+      "stack": "\"Space Grotesk\", Inter, \"PingFang SC\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/space-grotesk",
+      "license": "OFL-1.1"
+    },
+    {
+      "family": "Inter",
+      "stack": "Inter, \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/inter",
+      "license": "OFL-1.1"
+    }
+  ]
+}

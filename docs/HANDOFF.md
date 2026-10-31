@@ -82,6 +82,9 @@ tests/            36 个 *.test.ts = 525 例（vitest，node 环境）
 
 ## 6. GA 后待办（发布不阻断，按优先级）
 
+> **当前待办以 [`docs/backlog.md`](./backlog.md) 为准**（2026-10-28 建立：已裁决不做项 + P0~P3 排序 + 每条的证据与验收口径）。
+> 下面这张表是 GA 当时的快照，保留作历史记录。
+
 | # | 任务 | 入手点 | 备注 |
 |---|---|---|---|
 | ~~1~~ | ~~go-no-go 决议栏补签~~ **已完成（2026-10-18 第十七步：PM 三决全部落笔，议题 1-5 签署完毕，差异 #1 终签）** | — | ✅ |
@@ -102,6 +105,13 @@ tests/            36 个 *.test.ts = 525 例（vitest，node 环境）
 | 4 变体扩展 | ✅ 已签：GA 后增强 | 否 |
 
 **已裁决闭环（勿再问，go-no-go.md §二议题 5 归档）**：① P1-12「5 向」=按 FR-35 枚举 **4 档 2 轴**，改判 PASS（stretch 档列 GA 后增强）；② P1-05 形状布尔=「自动矢量化」方案，已实做；③ P1-14 形状 SVG=已实做（矩形/直线留 CSS 通道，弧 OVAL 留 conic——均报备）；④ 样片 ≥99%=**按均值口径**（99.51%），两 B 档卡如实登记；⑤ 差异 #1 14 页 92.07% 接受豁免。
+
+> **2026-10-27 更正（第 ① 条）**：stretch 档**已经做完**，现在是两轴各 5 档。
+> 出码侧 2026-10-20 落地（`compile.ts` #4a）；画布侧 2026-10-27 才补上 —— 此前
+> `constraints.ts` 的映射链以 `else → SCALE` 收尾，`LEFT_RIGHT` / `TOP_BOTTOM`
+> 被当成等比缩放，表现为「**画布骗人**：拖把手看到的是缩放，导出的是拉伸」。
+> 这不是"功能未做"，是缺陷；`tests/fr35-constraints.test.ts` 已用表格驱动锁死五档
+> （撤掉任一档映射会有 7 条用例变红）。
 
 ## 8. 快速自检（接手后 10 分钟）
 
@@ -394,14 +404,115 @@ npm run codegen:verify -- --target react --only pixel   # 单关调试
 ```bash
 npm run fig:check                                  # 三关 + dist/fig/report.json
 npm run fig:check -- --samples .tmp/fig-samples    # 追加外部样本目录
-npx vitest run tests/fig.test.ts                   # 16 例
+npx vitest run tests/fig.test.ts                   # 20 例
 ```
+
+### 12.3.1 两处「门禁一直红/一直绿」的修复（2026-10-27）
+
+起因是查 Constraints：出码侧 5 档早就齐了，画布侧少了 stretch。顺着往下查，`.fig` 往返
+还有两个更严重的问题 —— 一个**静默丢数据**，一个**让门禁长期红着没人管**。
+
+| 问题 | 表现 | 根因 |
+|---|---|---|
+| **Constraints 往返全丢** | 另存为 `.fig` 再打开，所有约束消失 | `export.ts` 从不写 `horizontalConstraint`/`verticalConstraint`，`import.ts` 也不读；**而 `fig-check` 的 `normalize` 同样没比这两个字段** → 门禁一直是绿的 |
+| **页面根布局模式丢失** | 「绝对定位页」往返后从 `ABSOLUTE` 变 `VERTICAL`，子项由 `top/left` 变 `flex: 0 0 auto` | `.fig` 的 CANVAS **没有布局概念**，导入侧回落到工厂默认 `VERTICAL`。这个问题其实**一直在被 CSS 关抓到**（`fig:check` 在 HEAD 上就是 `CSS 关 FAIL 17/19`），只是没人在意那个红 |
+
+**修法**
+
+1. Constraints 是**无损映射**，不该进 `KNOWN_LOSS`：`MIN↔LEFT / MAX↔RIGHT / CENTER / SCALE / STRETCH↔LEFT_RIGHT`（垂直同理）。
+   两侧都遵守「缺省不落盘」：Figma 的缺省 `MIN/MIN` ≡ AST 的缺省 `LEFT/TOP`，
+   所以导入时 `MIN/MIN` 还原成**没有 `constraints` 字段**，否则外部 `.fig` 每个节点都会多一个字段、往返永不相等。
+2. 页面根模式写在 **CANVAS 的 `stackMode`** 上。这不是 Figma 标准用法，但本文件已有先例
+   （`canvasChange.size` 记页面包围盒，注释写着「仅供测试断言，Figma 忽略 CANVAS 尺寸」）。
+   取值域恰好对得上：`VERTICAL/HORIZONTAL/NONE`，而 `ABSOLUTE ≡ NONE`。Figma 打开时忽略，我们自己的往返无损。
+   **必须在 `build()` 之前设**——`import.ts` 用 `page.root.layout.mode` 判断子项 FILL 语义，设晚了子项宽高模式会被按错误的父布局解析。
+3. `fig-check.ts` 与 `tests/fig.test.ts` 的 `normalize` 都补上 `constraints` 比对。
+
+修完 `fig:check` 从 **FAIL（CSS 关 17/19）→ PASS（三关全过，18/19 + 1 条已报备降级）**。
+
+**教训**：`normalize` 是往返门禁的**唯一判据**，它漏比一个字段，就等于那个字段「从来没被验证过」。
+新增任何会往返的 AST 字段，第一件事是问「normalize 里有没有它」。
+
+### 12.3.2 旁挂层：把往返做到「零丢失」（2026-10-27）
+
+上一节修完还剩一类问题：**Figma 没有对应原语的字段**。当时的做法是「导出丢弃 + 登记
+`KNOWN_LOSS`」—— 等于把「会丢」写进产品承诺。
+
+现在改成 **原生优先、旁挂补齐**：
+
+| 层 | 载体 | 谁看得见 |
+|---|---|---|
+| 原生 | `.fig` 的 `NodeChange` 字段 | Figma 打开可见、可编辑 |
+| 旁挂 | `meta.json` 的 `ui_compiler_extras` | 只有我们读；Figma 忽略 |
+
+`meta.json` 是我们自己写的 JSON，键为
+`ui_compiler_extras: { version: 1, nodes: { '<sessionID>:<localID>': ExtraNode } }`。
+**不能往 `NodeChange` 里加键** —— kiwi 的字段集是 schema 固定的，乱加会编码失败。
+
+代码位置：`src/fig/extras.ts`（唯一的类型与读取实现，`export.ts` / `import.ts` 都从这里 import）。
+
+#### 这一轮撞出来的 7 个真 bug
+
+全字段测试（见下）是逐条逼出来的，每条都验证过「撤掉修复会变红」：
+
+| # | 字段 | 病灶 |
+|---|---|---|
+| 1 | `textTruncation` / `maxLines` | 导出侧**从来没写过**（Figma 有原生字段），双向都缺 |
+| 2 | `blendMode` | 同上；Figma 节点级 `blendMode` 与 CSS `mix-blend-mode` 同名，本可直通 |
+| 3 | 页面视口高度 | 导出写的是**子项包围盒**，视口 1600/内容 812 的页面被压成 812 → 百分比定位整体位移 |
+| 4 | 自绝对定位子项的 `x/y` | `layoutChildren` 无差别按流排布；导入侧又无条件 `delete x/y` |
+| 5 | `clipContent` | 原生 `clipsContent` **连 FRAME 上都会被编码器丢掉**（实测探针读回 undefined） |
+| 6 | `border.widths` / `miterLimit` / `opacity` / 渐变描边的回退色 / `dotted` 线型 | 双向都没写；四边权重有原生字段，其余旁挂 |
+| 7 | `background` + 多层 `fills` | 重建时只能靠「首层是不是纯色」猜，渐变叠在底色上时底色被吞 |
+
+外加两个**门禁自身的洞**（比丢字段更危险）：
+
+- `normalize` 的 `x/y` 只按**父容器**模式决定是否抹零，于是「VERTICAL 页里自由摆放的子项」丢坐标永远绿；
+- 门禁**完全不比页面级**（视口尺寸 / 根容器尺寸 / 根布局模式），#3 就是这么藏住的。
+
+#### 三处「同一个东西写了两份」
+
+这轮反复踩同一类坑，索性合并：
+
+1. **`normalize` 口径** → 抽到 `scripts/fig-normalize.ts`，门禁与单测都从这里 import。
+   原先两份还不一样（单测少了 12 个布局字段、门禁少了自绝对定位的 x/y），
+   结果是「同一个 bug 一处红一处绿」。
+2. **`ExtraNode` 类型 + `readExtras`** → 抽到 `src/fig/extras.ts`，原先 `export.ts` / `import.ts` 各写一份。
+3. **效果合并** → 从「原生值覆盖旁挂值」改成「**先判断有没有被改过**」：
+   把旁挂值按导出规则再写一遍，与文件里的原生效果做结构比对（键排序 + 4 位小数），
+   一致就还原旁挂原值。这样 `{color:'#000', opacity:0.3}` 不会在往返后变成
+   `{color:'rgba(0,0,0,0.3)'}`（语义相同但 AST 变了），而用户在 Figma 里真改过的仍以原生为准。
+
+#### 全字段测试：把「从没被验证过」变成「必须过」
+
+系统枚举过一遍：**37 个样式字段里 19 个、26 个布局字段里 12 个**在 19 页 demo 里从未出现，
+门禁里是 `undefined === undefined` —— 再绿也是空比。
+
+`tests/fig.test.ts` 的「全字段无损」用例把每个 `LayoutSchema` / `StyleSchema` 字段都设成非缺省值
+（含形状专属、文字全家桶、四种效果、渐变描边、BUTTON 拆合、FIXED/STICKY 定位），往返后逐字段比。
+开发过程中它**连续红了 8 次**，每次对应上表一个真 bug。
+
+#### 当前状态
+
+```
+导入关  PASS  4 个真实文件
+往返关  PASS  19/19 页结构无损（含页面级三项）
+CSS 关  PASS  19/19 页样式一致
+```
+
+`KNOWN_LOSS` **已清空**。空表本身就是断言：任何新增的有损项都会立刻变红，不会再被「已报备」吞掉。
+
+**仍然做不到的**（不是 bug，是 `.fig` 格式边界）：换到**别的工具**里打开再存，旁挂层会丢 ——
+那一层只有我们读。Figma 打开时视觉正确，但装饰层 / 交互态 / Grid / 段落缩进这些
+「Figma 面板里没有的东西」在 Figma 里改不了也存不住。
+
+
 
 样本在 `tests/fixtures/fig/`（4 个真实 Figma 导出，来自 `open-pencil` 仓库 `tests/fixtures`，
 Git LFS 需走 `media.githubusercontent.com/media/...`）。
 
-**降级不是失败**：`scripts/fig-check.ts` 的 `KNOWN_LOSS` 白名单目前只有一条
-（`18-样片-参数矩阵` 的 `PROGRESSIVE_BLUR`，Figma 无对应原语 → `LAYER_BLUR`）。
+**降级不是失败，但现在没有降级**：`scripts/fig-check.ts` 的 `KNOWN_LOSS` 白名单**当前为空**。
+最后一条（`18-样片-参数矩阵` 的 `PROGRESSIVE_BLUR`）已由 `meta.json` 旁挂层救回，详见 §12.3.2。
 加白名单等于承认信息丢失，**必须先确认 Figma 真的表达不了**。
 
 ---
@@ -598,20 +709,38 @@ npm run codegen:verify:react                    # 此时比对才是同版本
 | 1 | 编辑即落盘（防抖 + 2s 上限） | 每次编辑 | ✅ 已实现 —— **唯一在事件没触发时也有效的一道** |
 | 2 | 页面隐藏时落盘 | `visibilitychange(hidden)` / `pagehide` | ✅ 已实现 |
 | 3 | 关闭前同步落盘 | `beforeunload` 先 flush 再弹确认 | ✅ 已实现 —— 把原生「离开」从丢数据变成安全离开 |
-| 4 | 崩溃后识别与恢复 | 会话标记 + 环形快照 + 恢复横幅 | ⬜ 未做，见 16.4 |
+| 4 | 崩溃后识别与恢复 | 会话标记 + 环形快照 + 恢复横幅 | ✅ 已实现（2026-10-27），见 16.4 |
 
 **为什么第 3 道必须是 `localStorage` 而不是 IndexedDB**：`localStorage` 是**同步** API，
 调用返回即已写入；IndexedDB 是异步的，`beforeunload` 里发起的写有大概率被进程杀掉而丢失。
 这是硬约束，不是偏好。IndexedDB 只适合放「历史快照」这种不赶时间的数据。
 
-### 16.4 还没做（第 4 道防线）
+### 16.4 第 4 道防线：崩溃后识别与恢复（2026-10-27 落地）
 
-- **会话标记**：进入写 `{at, projectName}`，正常关闭清除；下次启动若标记还在 → 上次非正常退出
-  → 顶部横幅「检测到未正常关闭，已恢复 X 分钟前」+「打开回滚点」。
-- **环形快照**：每 60s 另存 `snapshot.<ts>`，保留最近 5 个（151 KB × 5 = 755 KB，配额够）。
-- **IndexedDB 冷存**：大工程与历史快照挪走，localStorage 只留最近一次。
-- **写失败可见**：`flushSnapshot` 已返回 boolean，但目前没人消费 —— 应做状态栏提示
-  「自动保存失败（配额满）」，现在只是静默。
+**模块**：`src/editor/crashRecovery.ts` + `src/editor/RecoveryBanner.tsx`；测试 `tests/crash-recovery.test.ts`（15 例）+ `npm run recovery`（`scripts/recovery-check.mjs`，12 条浏览器验收）。
+
+| 项 | 状态 | 实现要点 |
+|---|---|---|
+| **会话标记** | ✅ | 启动写 `{at, projectName}`，每次落盘 `heartbeat` 刷新 `at`，页面卸载时清除（`beforeunload`/`pagehide` 双保险，`pageshow` 补回 bfcache）。下次启动标记还在 → 上次连卸载都没跑到（被杀/断电）→ 顶部横幅「检测到上次未正常关闭（X 分钟前），已恢复到最近一次自动保存」 |
+| **环形快照** | ✅ | 每 60s 另存一份，保留最近 5 份（151 KB × 5 ≈ 755 KB）。用途**不是**恢复最新（autosave 就是最新），而是最新那份被一次坏编辑写坏时能往回翻；横幅「更早的快照 ▾」列出可选并直接 `LOAD_PROJECT` |
+| **写失败可见** | ✅ | `reportSaveResult()` 订阅制；标题栏出现红色「⚠ 自动保存失败」。此前 `flushSnapshot` 返回的 boolean **没有任何调用方消费**，配额满后每次自动保存都在静默失败 |
+| **IndexedDB 冷存** | ❌ 主动不做 | 理由见下 |
+
+**三个必须知道的判断**
+
+1. **`beforeunload` / `pagehide` / `pageshow(persisted)` 三个都挂，靠心跳自愈补洞。**
+   只挂 `pagehide` 时实测出现过「正常刷新后仍弹横幅」（`pagehide` 确实触发了，另一个同窗监听器
+   收到了，但本模块的处理器没被调用）；`beforeunload` 这条路径已被 `npm run fr60` 第 9 步锁定，
+   不能去掉。而 `beforeunload` 在弹原生确认框**之前**触发 —— 用户选「留在页面」时页面并没走、
+   标记却已被清。所以：**继续编辑就 `heartbeat` 把标记写回来**，不靠"别清"，靠"清错了能补"。
+   `pageshow(persisted)` 补 bfcache 返回（页面不重新挂载，标记得自己写回来）。
+2. **配额告急的处置顺序是明确的优先级**：`flushSnapshot` 先丢回滚点 → 还不行就由 Editor
+   逐份丢**最旧的历史快照** → 再试。理由：「当前工程存不下来」比「5 分钟前的快照」严重得多。
+3. **IndexedDB 不做，不是忘了。** ①快照和 autosave 写的是**同一份 JSON**，拆两个存储 =
+   两条独立失败路径，恢复链路上多一个可能失败的环节比少存 5 份更危险；②5 × 151 KB 在 5 MB
+   配额内，真正撑爆的是**单个工程就很大**，那种情况 autosave 自己先撞墙，换存储解决不了；
+   ③IndexedDB 是异步的，而这条防线的全部意义是「事件没触发时还剩什么」，把异步存储塞进来
+   正是 §16.3 已经踩过的坑。`SnapshotStore` 已抽成同步接口，真要换实现不动调用方。
 
 ### 16.5 新坑：并发跑浏览器脚本会让像素关假红
 
@@ -628,3 +757,102 @@ pages/01  0.00%
 真差异一般在 97~99.x% 区间。串行重跑即恢复 99.52% / 19 页。
 
 判断口诀：**看到 0.00% 先怀疑截图，看到 9x.xx% 再怀疑渲染。**
+
+### 16.6 构建关的 `html: 1` 可能是上一次的残留
+
+`codegen-verify.mjs` 的 `cleanBuildDir()` 是**有意留空**的（沙箱删除守卫，删 >50 文件即拒），
+所以 `dist/codegen/<target>/dist/index.html` 在构建前就已经存在。原来判定只看
+「目录里有没有 html」，于是**上一次构建的产物会被当成这一次的成果**。
+
+实测（2026-10-27）：taro 两次尝试各 300.3s 超时，报告写 `html: 1`、`exit=1`，
+而本次构建的日志里除了一句 punycode 警告**一行 webpack 输出都没有** —— 那个 1 是残留。
+同一份产物手动 `npm run build:h5` 是 67s 编译成功、125s 退出的。
+
+**现判据**（`checkBuild`）：
+
+| 情形 | 判定 |
+|---|---|
+| exit=0 + 目录里有 html + **本次写出的** html | PASS |
+| 超时 + **本次写出的** html + 日志含 `compiled` | PASS，但标 `degraded: 'process-did-not-exit'` 并打印警告 |
+| 其余（含「html 全是上次残留」） | FAIL，报告里 `freshHtml: 0` 直接指出 |
+
+「本次写出」= mtime ≥ 开工时间 − 5s（容差是给 FAT 2s 时间戳粒度留的，不是给构建留的）。
+第三条判据里的 `compiled` 不能省：它证明资产已 emit 完，否则就是「写了一半被超时杀掉」，
+那必须算失败。**降级通过不是放宽标准，是把「产物对了但进程不退」和「产物没出来」分开报。**
+
+### 16.7 taro 构建：由 node 脚本发起时必卡（本宿主特性，非产物问题）
+
+**现象**：`npm run codegen:verify:taro` 的构建关连续超时（300s），日志停在 **278 字节**
+（npm banner + punycode 警告），CPU 归零；`--only build` 偶尔能过（60.1s / 86.7s），
+不稳定。
+
+**已排除的变量**（每个都单独测过）：
+
+| 变量 | 结果 |
+|---|---|
+| stdio 形态 | `pipe` / `fd` 直传 / `shell: true` 自带重定向 / `stdio:'ignore'` —— **都会卡** |
+| 环境变量 | `TARO_NO_MINIMIZE`（早已撤掉）、`CODEBUDDY_SAFE_DELETE_ENABLED=0` —— 都不是 |
+| stdin | 从 `/dev/null` 读 —— 不是 |
+| 门的执行顺序 | 把构建提到最前 —— 无效，已撤回 |
+| 日志文件名复用 | 换成每次唯一 —— 无效（但保留，句柄复用本就不该） |
+
+**真正的分界**：**构建进程的祖先里有没有 node 脚本**。
+
+```
+宿主 bash → npm run build:h5          ✅ 3/3 通过（42s / 61s / 125s）
+node -e → spawn(bash -lc 'npm run…')  ❌ 240s 超时
+node codegen-verify.mjs → cmd → npm   ❌ 300s 超时（×6）
+```
+
+同一个 shell、同一份 env、同一个 stdin —— 只要中间插了一层 node 脚本就卡。
+判断这是**宿主 fs 拦截层**（`NODE_OPTIONS=--require .../shim/...`）与 webpack 5 的
+worker/句柄交互问题，不是 taro、不是产物、不是门禁逻辑。**没有在脚本层修的办法**，
+所以不做 hack（已试过经 bash 转发，见上表，无效）。
+
+**现行处置**（写进 `--skip-build` 的语义）：
+
+```bash
+# 1) 在终端 / 宿主 bash 里构建（这一步稳定）
+cd dist/codegen/taro && npm run build:h5
+# 2) 回到门禁，用现有产物跑其余三关（语法 / 类型 / 像素）
+node scripts/codegen-verify.mjs --target taro --skip-build --allow-miss taro:1
+```
+
+### 16.8 恢复横幅曾把整个编辑器打空：React #185（2026-10-27 修）
+
+**现象**：恢复横幅出现后点「知道了」或点某份历史快照，**整个编辑器变空白**（`.editor` 节点
+数量 0）。控制台只有一句 `Minified React error #185`。
+
+**定位过程**（值得记的是「怎么被骗了两次」）：
+
+1. 报错是压缩后的 #185，看不到组件栈。想用 `vite build --minify false` 取可读栈 —— **构建直接
+   失败**：`remove .../esbuild-xxx: Access is denied`（沙箱 fs 守卫）。此路不通。
+2. 改用 **dev server**（React 不压缩）→ 一次就拿到可读报错与组件栈：
+   `Canvas.tsx → useElementSize → ref 回调 → setState`。**不要跟压缩产物较劲，换 dev 环境。**
+3. 中途误判过一次「循环在加载时就发生」。实际时间线打点后才发现：加载时完全正常，
+   **是点击之后才炸**。教训：`[pageerror]` 是异步事件，跟 `console.log` 混在一行里读会看错
+   先后顺序，必须打时间戳。
+
+**根因**：`Canvas.tsx` 的 `useElementSize()` 里，注释写着「ref 回调必须保持稳定引用」，
+但代码是每次渲染新建的箭头函数 —— **注释是对的，实现是错的**。于是每次 commit 都
+`ref(null)` → `ref(node)`，断开重建 ResizeObserver 并**同步** `setSize`。这把「测量」变成了
+commit 阶段的状态更新；横幅卸载让 `canvas-wrap` 高度 861→902，测出值与已提交状态不一致 →
+嵌套更新 → 50 层后 React 抛 #185 并**卸载整棵树**。
+
+**修复**：`useCallback(..., [])`。ref 只在挂载/卸载时被调用一次，之后的尺寸变化由
+ResizeObserver 异步回调处理（不在 commit 阶段，结构上不可能再触发嵌套更新）。
+
+**为什么之前一直没暴露**：平时尺寸稳定，`setSize` 返回 `prev` → `Object.is` 相等 → React
+直接 bail out，看起来一切正常。**它只需要一次「让容器高度变化」的布局改动就会炸** ——
+恢复横幅恰好是第一个。这类 bug 不能靠"平时没事"判断，得靠门禁。
+
+**门禁**：`npm run recovery`（`scripts/recovery-check.mjs`，12 条）。除了「编辑器还在」，
+额外锁了 **「关横幅/恢复快照不触发 pageerror」** —— 只断言 `editor=1` 会把这种崩溃报成
+一句看不懂的症状，而 pageerror 才是根因。脚本里另有两处坑写进了文件头注释：
+`reload` 会先触发 `pagehide` 清标记（造不出"上次被杀"）、`addInitScript` 每次导航都重放
+（所以只在 `?seed=1` 时播种，否则「正常导航不误报」永远测不出来）。
+
+
+2026-10-27 实跑结果：`语法 PASS 42 文件 · 类型 PASS 0 错 · 像素 PASS 99.43% 18/19（豁免 1）`，
+其中 `pages/06 97.68%` 就是 plan §10.3 早已归因的 Button 文本垂直差 8px。
+**react / vue 两端的构建关在门禁里正常**（12.3s / 10.6s），只有 taro 受影响。

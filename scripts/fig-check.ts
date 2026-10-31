@@ -17,7 +17,9 @@ import { loadFigCodec } from '../src/fig/codec';
 import { allDemoPages } from '../src/demo/pages';
 import { compilePage } from '../src/compiler/compile';
 import { scssFromPage } from '../src/compiler/css-model';
-import type { UINode, UIPage } from '../src/schema/types';
+import { deepEqual, normalize, normalizeCss, roundDeep } from './fig-normalize';
+import { createNode, createPage } from '../src/schema/factory';
+import type { ComponentDef, ContainerNode, FlowDef, StyleToken, UINode, UIPage } from '../src/schema/types';
 
 const ROOT = process.cwd();
 const FIXTURES = join(ROOT, 'tests', 'fixtures', 'fig');
@@ -29,173 +31,17 @@ const OUT = join(ROOT, 'dist', 'fig');
  * `.fig` 是 Figma 的格式，凡是 Figma 没有对应原语的 AST 能力，往返必然有损。
  * 这里逐页列出「已知且已接受」的降级：命中即计为降级而非失败，但必须打印原因，
  * 且**不允许**悄悄加条目 —— 新增一条就等于新增一项对外承诺的损失。
+ *
+ * **当前为空**（2026-10-27）：唯一一条 `PROGRESSIVE_BLUR → LAYER_BLUR` 已通过
+ * `meta.json` 旁挂层（`ui_compiler_extras`）救回，19 页全部逐字段无损。
+ * 空表本身就是一条断言：**任何新增的有损项都会立刻变红**，不会再被"已报备"吞掉。
  */
-const KNOWN_LOSS = new Map<string, string>([
-  ['18-样片-参数矩阵', 'PROGRESSIVE_BLUR 无 Figma 原语，降级为 LAYER_BLUR'],
-]);
+const KNOWN_LOSS = new Map<string, string>();
 
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
-
-/**
- * 规范化：只比「结构与视觉属性」，抹掉三类必然差异。
- *
- * 1. **id / name**：往返后 id 重新分配，名字只影响图层列表，不影响渲染；
- * 2. **叶子节点的布局字段**：IMAGE/TEXT 等叶子在 AST 里可能残留 VERTICAL 之类的默认值，
- *    `.fig` 不写（叶子没有子项），读回来是 ABSOLUTE —— 语义等价；
- * 3. **缺省值**：AST 里 undefined 表示「按默认」，`.fig` 里一律是具体数值（0 / START / 空 padding）。
- */
-function normalize(node: UINode): unknown {
-  const isContainer = 'children' in node;
-  const pad = node.layout.padding ?? [0, 0, 0, 0];
-  const rawWm = node.layout.widthMode;
-  const rawHm = node.layout.heightMode;
-  const layout = {
-    // 叶子与容器统一比真实模式：`.fig` 不存「叶子自身的布局模式」，导入侧回落到工厂默认值，
-    // 与 AST 的约定一致（TEXT=VERTICAL / BUTTON=HORIZONTAL / 矩形=VERTICAL）
-    mode: node.layout.mode,
-    // Figma 的 StackSize 没有 FILL（填充由 grow/stretch 表达），归一成 FIXED
-    widthMode: rawWm === 'FILL' ? 'FIXED' : rawWm,
-    heightMode: rawHm === 'FILL' ? 'FIXED' : rawHm,
-    // HUG / FILL 的尺寸由布局决定；TEXT 的尺寸由字体度量决定（`.fig` 里存的是估算值，
-    // 真实尺寸要 Figma 自己算）。这两类都不比数值，只比模式 —— 数值由 CSS 关兜底。
-    width: rawWm === 'FIXED' && node.type !== 'TEXT' ? (node.layout.width ?? 0) : 0,
-    height: rawHm === 'FIXED' && node.type !== 'TEXT' ? (node.layout.height ?? 0) : 0,
-    x: node.layout.x ?? 0,
-    y: node.layout.y ?? 0,
-    padding: pad,
-    gap: node.layout.gap ?? 0,
-    gapCross: node.layout.gapCross ?? 0,
-    align: node.layout.align ?? 'START',
-    justify: node.layout.justify ?? 'START',
-    clipContent: node.layout.clipContent ?? false,
-  };
-  // 无 src 的 IMAGE 用 1×1 透明图 + 哨兵 hash 表达，能原样还原成 IMAGE，不再需要降级成 RECTANGLE
-  const type = node.type;
-  const base = {
-    type,
-    layout,
-    style: normalizeStyle(node.style),
-    visible: node.visible ?? true,
-    locked: node.locked ?? false,
-    ...(node.type === 'TEXT' ? { text: (node as { text: string }).text } : {}),
-    ...(node.type === 'IMAGE' && (node as { src?: string }).src ? { hasSrc: true } : {}),
-  };
-  if (isContainer) {
-    const kids = (node as { children: UINode[] }).children.map(normalize);
-    // 空 children 与「没有 children」等价（.fig 的矩形读回来是容器，但可能一个子项都没有）
-    return kids.length > 0 ? { ...base, children: kids } : base;
-  }
-  return base;
-}
-
-/**
- * 样式规范化：
- * - 颜色小写；
- * - 单层 SOLID `fills` 与 `background` 是同一件事的两种写法（AST 两者都允许），统一成只留 background；
- * - 数值 0 与缺省等价（圆角 0 / 描边宽 0 / 透明度 1 都不该出现在差异里）。
- */
-function normalizeStyle(style: UINode['style']): Record<string, unknown> {
-  const out = { ...(lowerHex(style ?? {}) as Record<string, unknown>) };
-  /**
-   * B1 装饰层（SPOTLIGHT/VIGNETTE/MESH_GRADIENT/DIAGONAL_CUT/DUOTONE）**整体降级**：
-   * `.fig` 的 `Effect` 只有 type/color/offset/radius/spread/blendMode，且 kiwi 无 `pluginData`，
-   * 5 种装饰在 Figma 里都没有可逆原语 —— 导出丢弃、导入不还原，属已报备的 `KNOWN_LOSS`。
-   * 比对前抹掉，避免「必然丢失」被记成往返失败。
-   */
-  delete out.decorations;
-  /**
-   * B2 交互态（hover / active / focus / disabled）**整体降级**：Figma 没有伪类原语
-   * （交互在 Figma 里是 Prototype 的 `trigger`，与样式无关，且不在 AST 的这一层表达）。
-   * 导出丢弃、导入不还原，属已报备的 `KNOWN_LOSS`。
-   */
-  delete out.states;
-  /**
-   * B3 元素级变换与 CSS Grid：Figma 的 `rotation` 是节点属性（不是 CSS transform），
-   * 且网格布局在 kiwi schema 里没有可逆表达 —— 两者都导出丢弃、导入不还原，
-   * 属已报备的 `KNOWN_LOSS`（`docs/expression-gap-plan.md` 批次 3）。
-   */
-  delete out.transform;
-  delete out.grid;
-  const fills = out.fills as { type?: string; color?: string }[] | undefined;
-  if (Array.isArray(fills)) {
-    if (fills.length === 1 && fills[0].type === 'SOLID' && (fills[0].color ?? '').toLowerCase() === String(out.background ?? '').toLowerCase()) {
-      delete out.fills;
-    }
-  }
-  if (out.borderRadius === 0) delete out.borderRadius;
-  if (out.opacity === 1) delete out.opacity;
-  const border = out.border as { width?: number; style?: string; align?: string; dash?: number[] } | undefined;
-  if (border && border.width === 0) {
-    delete out.border;
-  } else if (border) {
-    // 实线 / INSIDE（AST 缺省对齐）/ 默认 dash 在两边都不写出来，比对前抹掉
-    if (border.style === 'solid') delete border.style;
-    if (border.align === 'INSIDE') delete border.align;
-    if (Array.isArray(border.dash) && border.dash[0] === 4 && border.dash[1] === 4) delete border.dash;
-  }
-  return out;
-}
-
-/** 颜色统一小写（AST 里 "#FFFFFF" 与 "#ffffff" 是同一个颜色） */
-function lowerHex<T>(value: T): T {
-  if (typeof value === 'string') return (value.startsWith('#') ? value.toLowerCase() : value) as unknown as T;
-  if (Array.isArray(value)) return value.map((v) => lowerHex(v)) as unknown as T;
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = lowerHex(v);
-    return out as unknown as T;
-  }
-  return value;
-}
-
-/**
- * 数值统一保留 4 位小数。
- *
- * `.fig` 的数值字段是 **float32**（kiwi 编码决定），0.42 读回来是 0.41999998688697815；
- * 这不是信息丢失，只是精度表示不同，比对前必须归一。
- */
-function roundDeep<T>(value: T, digits: number): T {
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) return value;
-    return Number(value.toFixed(digits)) as unknown as T;
-  }
-  if (Array.isArray(value)) return value.map((v) => roundDeep(v, digits)) as unknown as T;
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = roundDeep(v, digits);
-    return out as unknown as T;
-  }
-  return value;
-}
-
-function deepEqual(a: unknown, b: unknown, path = ''): string | null {
-  if (a === b) return null;
-  if (typeof a !== typeof b) return `${path}: 类型不同 ${typeof a} vs ${typeof b}`;
-  if (a === null || b === null || typeof a !== 'object') return `${path}: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`;
-  if (Array.isArray(a) !== Array.isArray(b)) return `${path}: 数组/对象不匹配`;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return `${path}: 长度 ${a.length} ≠ ${b.length}`;
-    for (let i = 0; i < a.length; i += 1) {
-      const diff = deepEqual(a[i], b[i], `${path}[${i}]`);
-      if (diff) return diff;
-    }
-    return null;
-  }
-  const ka = Object.keys(a as Record<string, unknown>);
-  const kb = Object.keys(b as Record<string, unknown>);
-  for (const k of new Set([...ka, ...kb])) {
-    const va = (a as Record<string, unknown>)[k];
-    const vb = (b as Record<string, unknown>)[k];
-    if (va === undefined && vb === undefined) continue;
-    const diff = deepEqual(va, vb, `${path}.${k}`);
-    if (diff) return diff;
-  }
-  return null;
-}
-
 interface GateResult {
   ok: boolean;
   detail: Record<string, unknown>;
@@ -255,11 +101,32 @@ async function main(): Promise<void> {
   for (const page of pages) {
     const exported = await exportFig([page], codec.encode, { fileName: page.name, exportedAt: '2026-01-01T00:00:00.000Z' });
     const reimported = importFig(exported.bytes, decode);
-    // 只比子节点：`.fig` 的 CANVAS 没有「页面背景/页面尺寸」概念，
-    // 页面根容器不在 .fig 里表达（Figma 的页面底色属于文档设置，不属于画布节点）
+    /**
+     * 先比**页面级**三件事：视口尺寸、根容器尺寸、根布局模式。
+     *
+     * 这三项原先完全不比，于是「视口 1600 高、内容只到 812」的页面往返后被压成 812、
+     * 百分比定位的子项整体位移 —— 子节点树逐字段相同，门禁却全绿。
+     * 页面根容器不在 `.fig` 的节点树里，但它确实承载了设计意图，必须单独比。
+     */
+    const pageBefore = {
+      viewport: `${page.viewport.width}x${page.viewport.height}`,
+      root: `${page.root.layout.width ?? 0}x${page.root.layout.height ?? 0}`,
+      mode: page.root.layout.mode,
+    };
+    const back = reimported.pages[0];
+    const pageAfter = {
+      viewport: `${back.viewport.width}x${back.viewport.height}`,
+      root: `${back.root.layout.width ?? 0}x${back.root.layout.height ?? 0}`,
+      mode: back.root.layout.mode,
+    };
+    const pageDiff =
+      pageBefore.viewport !== pageAfter.viewport || pageBefore.root !== pageAfter.root || pageBefore.mode !== pageAfter.mode
+        ? `页面: ${JSON.stringify(pageBefore)} ≠ ${JSON.stringify(pageAfter)}`
+        : null;
+    // 子节点树逐字段比
     const before = page.root.children.map((n) => roundDeep(normalize(n), 4));
-    const after = reimported.pages[0].root.children.map((n) => roundDeep(normalize(n), 4));
-    const diff = deepEqual(before, after, 'children');
+    const after = back.root.children.map((n) => roundDeep(normalize(n), 4));
+    const diff = pageDiff ?? deepEqual(before, after, 'children');
     const ok = diff === null;
     const known = KNOWN_LOSS.get(page.name);
     structureOk = structureOk && (ok || Boolean(known));
@@ -269,7 +136,7 @@ async function main(): Promise<void> {
   const rtLoss = roundTripRows.length - rtOk;
   console.log(
     `\n往返关  ${structureOk ? 'PASS' : 'FAIL'}  ${rtOk}/${roundTripRows.length} 页结构无损` +
-      (rtLoss > 0 ? ` · ${rtLoss} 页已报备降级` : ''),
+      (rtLoss > 0 ? ` · ${rtLoss} 页有损` : ''),
   );
   for (const r of roundTripRows.filter((r) => !r.ok)) {
     console.log(`        ${r.knownLoss ? '⚠' : '✗'} ${r.page}: ${r.knownLoss ? `${r.knownLoss} → ` : ''}${r.diff}`);
@@ -291,44 +158,92 @@ async function main(): Promise<void> {
   const cssSame = cssRows.filter((r) => r.same).length;
   const cssLoss = cssRows.length - cssSame;
   console.log(
-    `\nCSS 关  ${cssOk ? 'PASS' : 'FAIL'}  ${cssSame}/${cssRows.length} 页样式一致` + (cssLoss > 0 ? ` · ${cssLoss} 页已报备降级` : ''),
+    `\nCSS 关  ${cssOk ? 'PASS' : 'FAIL'}  ${cssSame}/${cssRows.length} 页样式一致` + (cssLoss > 0 ? ` · ${cssLoss} 页有损` : ''),
   );
   for (const r of cssRows.filter((r) => !r.same)) {
     console.log(`        ${r.knownLoss ? '⚠' : '✗'} ${r.page}: ${r.knownLoss ?? '样式不一致'}`);
   }
 
+  /* ---------- 4. 组件实例关（FR-25 / FR-27 / FR-39） ---------- */
+  /**
+   * 这一关补的是一个**已经存在很久的假绿**：
+   * `fig-normalize` 里没有 `componentId` / `instanceOverrides`，19 页 demo 也没有组件实例，
+   * 于是「另存为 `.fig` 再打开，组件实例变普通节点、组件表/样式表/流程全部清空」
+   * 这件事在三关里一直是绿的。
+   *
+   * 现在导出侧把它们写进 `meta.json` 的 `ui_compiler_extras`（节点级 + 项目级），
+   * 导入侧读回，本关逐项断言。
+   */
+  const componentRows: { item: string; ok: boolean; detail?: string }[] = [];
+  let componentOk = true;
+  {
+    const page = createPage('组件实例页', 375, 812);
+    const inst = createNode('FRAME') as ContainerNode;
+    inst.name = '实例卡';
+    Object.assign(inst.layout, { width: 200, height: 100, widthMode: 'FIXED' as const, heightMode: 'FIXED' as const });
+    inst.componentId = 'comp-card';
+    inst.instanceOverrides = [{ path: '0', value: { text: '覆盖后的标题' } }];
+    const title = createNode('TEXT') as UINode;
+    title.name = '标题';
+    (title as { text: string }).text = '原始标题';
+    inst.children = [title];
+    page.root.children = [inst];
+
+    const compRoot = createNode('FRAME') as ContainerNode;
+    compRoot.name = 'Card';
+    Object.assign(compRoot.layout, { width: 200, height: 100, widthMode: 'FIXED' as const, heightMode: 'FIXED' as const });
+    const components: Record<string, ComponentDef> = {
+      'comp-card': { id: 'comp-card', name: 'Card', root: compRoot },
+    };
+    const tokens: StyleToken[] = [{ id: 'tok-primary', name: '主色', kind: 'PAINT', style: { background: '#1677FF' } }];
+    const flows: FlowDef[] = [{ id: 'flow-main', name: '主流程', startNodeId: inst.id }];
+
+    const exported = await exportFig([page], codec.encode, {
+      fileName: '组件实例页',
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      components,
+      tokens,
+      flows,
+    });
+    const back = importFig(exported.bytes, decode);
+
+    // ① 节点上的实例标记与覆盖
+    const nodeDiff = deepEqual(
+      roundDeep(normalize(page.root.children[0]), 4),
+      roundDeep(normalize(back.pages[0].root.children[0]), 4),
+      'instance',
+    );
+    componentRows.push({ item: '实例标记与覆盖', ok: nodeDiff === null, detail: nodeDiff ?? undefined });
+    componentOk = componentOk && nodeDiff === null;
+
+    // ② 项目级三张表
+    const projectPairs: [string, unknown, unknown][] = [
+      ['组件表', components, back.components],
+      ['样式表', tokens, back.tokens],
+      ['原型流程', flows, back.flows],
+    ];
+    for (const [item, before, after] of projectPairs) {
+      const d = deepEqual(roundDeep(before, 4), roundDeep(after ?? null, 4), item);
+      componentRows.push({ item, ok: d === null, detail: d ?? undefined });
+      componentOk = componentOk && d === null;
+    }
+  }
+  console.log(
+    `\n组件实例关  ${componentOk ? 'PASS' : 'FAIL'}  ${componentRows.filter((r) => r.ok).length}/${componentRows.length} 项无损`,
+  );
+  for (const r of componentRows.filter((r) => !r.ok)) console.log(`        ✗ ${r.item}: ${r.detail}`);
+
   const report = {
     generatedAt: new Date().toISOString(),
-    ok: importOk && structureOk && cssOk,
+    ok: importOk && structureOk && cssOk && componentOk,
     import: { ok: importOk, rows: importRows },
     roundTrip: { ok: structureOk, rows: roundTripRows },
     css: { ok: cssOk, rows: cssRows },
+    component: { ok: componentOk, rows: componentRows },
   };
   writeFileSync(join(OUT, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  console.log(`\n${report.ok ? 'PASS' : 'FAIL'}  fig  (3 关) · 报告 → dist/fig/report.json`);
+  console.log(`\n${report.ok ? 'PASS' : 'FAIL'}  fig  (4 关) · 报告 → dist/fig/report.json`);
   if (!report.ok) process.exitCode = 1;
-}
-
-/**
- * CSS 比较口径：只比**声明体集合**，不比选择器。
- * 理由：类名由节点 id 生成，往返后 id 重新分配（fig-N），选择器必然不同；
- * 但「每个盒子长什么样」应当逐条一致。
- * 页面根容器那条规则剔除——`.fig` 不承载页面底色（见上）。
- */
-function normalizeCss(css: string): string {
-  const bodies = css.match(/\{[^}]*\}/g) ?? [];
-  // 颜色大小写不影响渲染（AST 里 "#1677FF" 与 "#1677ff" 同色），比对前统一小写；
-  // border-radius:0 与「不写圆角」等价（`.fig` 里圆角缺省就是 0，无法区分「显式 0」）
-  const cleaned = bodies.map((b) =>
-    b
-      .replace(/\s+/g, '')
-      .replace(/#[0-9a-fA-F]{3,8}/g, (m) => m.toLowerCase())
-      .replace(/border-radius:0(px)?;?/g, '')
-      // 0 带不带单位在 CSS 里等价（编译器对「无 x/y」与「x/y=0」会出两种写法）
-      .replace(/0px(?=;|\}|$)/g, '0'),
-  );
-  if (cleaned.length > 0) cleaned.shift();
-  return cleaned.sort().join('|');
 }
 
 function countNodes(node: UINode): number {

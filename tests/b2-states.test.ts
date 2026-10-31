@@ -148,8 +148,8 @@ describe('B2 交互态 · AI 契约', () => {
   });
 });
 
-describe('B2 交互态 · .fig 往返（已报备降级）', () => {
-  it('states 无 Figma 原语：导出丢弃、导入不还原，其余样式不受影响', async () => {
+describe('B2 交互态 · .fig 往返（旁挂层保住，不再降级）', () => {
+  it('states 经 meta.json 旁挂层原样往返，其余样式不受影响', async () => {
     const { exportFig } = await import('../src/fig/export');
     const { importFig } = await import('../src/fig/import');
     const { loadFigCodec } = await import('../src/fig/codec');
@@ -158,7 +158,8 @@ describe('B2 交互态 · .fig 往返（已报备降级）', () => {
     const exported = await exportFig([page], codec.encode, { exportedAt: '2026-01-01T00:00:00.000Z' });
     const back = importFig(exported.bytes, codec.decode);
     const btn = (back.pages[0].root as ContainerNode).children[0];
-    expect(btn.style?.states).toBeUndefined();
+    // 原先断言「states 丢失」（KNOWN_LOSS 时代）；现在旁挂层必须原样带回
+    expect(btn.style?.states?.hover?.background?.toLowerCase()).toBe('#4096ff');
     expect(btn.style?.borderRadius).toBe(8);
   });
 });

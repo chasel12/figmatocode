@@ -1,0 +1,1425 @@
+{
+  "version": 1,
+  "source": "fewshots.json · 19 条语料 · 展开 repeat 前",
+  "pages": {
+    "01-登录": {
+      "nodes": 20,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 7,
+        "PAGE": 1,
+        "RECTANGLE": 3,
+        "TEXT": 8
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "border",
+        "borderRadius",
+        "color",
+        "decorations",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "states",
+        "textAlign"
+      ],
+      "effectNodes": 2,
+      "effectCount": 3,
+      "gradientCount": 1,
+      "fillsNodes": 0,
+      "decorationNodes": 1,
+      "decorationKinds": [
+        "SPOTLIGHT"
+      ],
+      "statesNodes": 1,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        10,
+        18
+      ],
+      "fontSizes": [
+        12,
+        13,
+        14,
+        16,
+        26
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#e8e8ec",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 1,
+      "textChars": 41,
+      "repeatNodes": 0
+    },
+    "02-注册": {
+      "nodes": 22,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 7,
+        "PAGE": 1,
+        "RECTANGLE": 4,
+        "TEXT": 9
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        10
+      ],
+      "fontSizes": [
+        11,
+        12,
+        16,
+        17,
+        18,
+        22,
+        24
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#8b8d98",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 42,
+      "repeatNodes": 0
+    },
+    "03-商品列表": {
+      "nodes": 53,
+      "kinds": {
+        "FRAME": 24,
+        "IMAGE": 6,
+        "PAGE": 1,
+        "RECTANGLE": 1,
+        "TEXT": 21
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        8,
+        12,
+        19
+      ],
+      "fontSizes": [
+        11,
+        14,
+        16,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        600,
+        700
+      ],
+      "colors": [
+        "#1c2024",
+        "#8b8d98",
+        "#e5484d",
+        "#e8e8ec",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 106,
+      "repeatNodes": 0
+    },
+    "04-商品详情": {
+      "nodes": 24,
+      "kinds": {
+        "BUTTON": 2,
+        "FRAME": 6,
+        "IMAGE": 1,
+        "PAGE": 1,
+        "TEXT": 14
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 1,
+      "effectCount": 1,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        0,
+        8,
+        12
+      ],
+      "fontSizes": [
+        10,
+        11,
+        12,
+        13,
+        15,
+        17,
+        20,
+        28
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#e5484d",
+        "#e8e8ec",
+        "#ffc53d",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 130,
+      "repeatNodes": 0
+    },
+    "05-订单列表": {
+      "nodes": 43,
+      "kinds": {
+        "BUTTON": 4,
+        "FRAME": 15,
+        "PAGE": 1,
+        "TEXT": 23
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        12,
+        14
+      ],
+      "fontSizes": [
+        12,
+        13,
+        14,
+        16,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#30a46c",
+        "#60646c",
+        "#8b8d98",
+        "#e5484d",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 216,
+      "repeatNodes": 0
+    },
+    "06-订单详情": {
+      "nodes": 35,
+      "kinds": {
+        "BUTTON": 2,
+        "FRAME": 13,
+        "PAGE": 1,
+        "RECTANGLE": 1,
+        "TEXT": 18
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "border",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        8,
+        12
+      ],
+      "fontSizes": [
+        12,
+        13,
+        14,
+        17,
+        18,
+        22,
+        24
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#e8e8ec",
+        "#ffffff"
+      ],
+      "borderNodes": 1,
+      "textChars": 111,
+      "repeatNodes": 0
+    },
+    "07-个人中心": {
+      "nodes": 45,
+      "kinds": {
+        "FRAME": 16,
+        "PAGE": 1,
+        "RECTANGLE": 1,
+        "TEXT": 27
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "border",
+        "borderRadius",
+        "color",
+        "decorations",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 1,
+      "effectCount": 1,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 1,
+      "decorationKinds": [
+        "MESH_GRADIENT"
+      ],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        12,
+        28
+      ],
+      "fontSizes": [
+        11,
+        12,
+        14,
+        16,
+        18
+      ],
+      "fontWeights": [
+        400,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#111111",
+        "#1c2024",
+        "#8b8d98",
+        "#e8e8ec",
+        "#ffffff"
+      ],
+      "borderNodes": 1,
+      "textChars": 79,
+      "repeatNodes": 0
+    },
+    "08-设置": {
+      "nodes": 31,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 12,
+        "PAGE": 1,
+        "RECTANGLE": 5,
+        "TEXT": 12
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        10,
+        12
+      ],
+      "fontSizes": [
+        14,
+        15,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#e5484d",
+        "#e8e8ec",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 47,
+      "repeatNodes": 0
+    },
+    "09-Dashboard": {
+      "nodes": 50,
+      "kinds": {
+        "FRAME": 15,
+        "PAGE": 1,
+        "RECTANGLE": 11,
+        "TEXT": 23
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "grid",
+        "lineHeight",
+        "states",
+        "textAlign"
+      ],
+      "effectNodes": 1,
+      "effectCount": 2,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 1,
+      "gridNodes": 1,
+      "transformNodes": 0,
+      "radii": [
+        12
+      ],
+      "fontSizes": [
+        10,
+        11,
+        12,
+        14,
+        18,
+        22
+      ],
+      "fontWeights": [
+        400,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#111111",
+        "#1c2024",
+        "#30a46c",
+        "#60646c",
+        "#8b8d98",
+        "#e5484d",
+        "#e8e8ec",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 69,
+      "repeatNodes": 0
+    },
+    "10-表单页": {
+      "nodes": 23,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 8,
+        "PAGE": 1,
+        "RECTANGLE": 5,
+        "TEXT": 8
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "border",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        8,
+        10
+      ],
+      "fontSizes": [
+        13,
+        16,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#e8e8ec",
+        "#f0f0f3",
+        "#f9f9fb",
+        "#ffffff"
+      ],
+      "borderNodes": 5,
+      "textChars": 37,
+      "repeatNodes": 0
+    },
+    "11-卡片列表": {
+      "nodes": 41,
+      "kinds": {
+        "FRAME": 12,
+        "PAGE": 1,
+        "RECTANGLE": 3,
+        "TEXT": 25
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "states",
+        "textAlign"
+      ],
+      "effectNodes": 1,
+      "effectCount": 2,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 2,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        10,
+        12
+      ],
+      "fontSizes": [
+        10,
+        11,
+        12,
+        14,
+        15,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#e8e8ec",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 184,
+      "repeatNodes": 0
+    },
+    "12-页签页面": {
+      "nodes": 32,
+      "kinds": {
+        "FRAME": 13,
+        "PAGE": 1,
+        "TEXT": 18
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 1,
+      "effectCount": 1,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        12,
+        17
+      ],
+      "fontSizes": [
+        10,
+        13,
+        15,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 75,
+      "repeatNodes": 0
+    },
+    "13-绝对定位页": {
+      "nodes": 13,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 3,
+        "PAGE": 1,
+        "RECTANGLE": 2,
+        "TEXT": 6
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode",
+        "x",
+        "y"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        25,
+        42
+      ],
+      "fontSizes": [
+        12,
+        13,
+        14,
+        16,
+        34
+      ],
+      "fontWeights": [
+        400,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#111111",
+        "#1c2024",
+        "#60646c",
+        "#ffc53d",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 107,
+      "repeatNodes": 0
+    },
+    "14-长文本页面": {
+      "nodes": 14,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 3,
+        "PAGE": 1,
+        "RECTANGLE": 1,
+        "TEXT": 8
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        10
+      ],
+      "fontSizes": [
+        12,
+        14,
+        16,
+        17,
+        18,
+        22,
+        24
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#e8e8ec",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 300,
+      "repeatNodes": 0
+    },
+    "15-图片密集页面": {
+      "nodes": 26,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 7,
+        "IMAGE": 12,
+        "PAGE": 1,
+        "TEXT": 5
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        8,
+        10
+      ],
+      "fontSizes": [
+        12,
+        16,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#e8e8ec",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 18,
+      "repeatNodes": 0
+    },
+    "16-多层嵌套页面": {
+      "nodes": 22,
+      "kinds": {
+        "FRAME": 9,
+        "PAGE": 1,
+        "TEXT": 12
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        6,
+        8,
+        10,
+        12
+      ],
+      "fontSizes": [
+        12,
+        13,
+        17,
+        18,
+        24
+      ],
+      "fontWeights": [
+        400,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#60646c",
+        "#8b8d98",
+        "#f0f0f3",
+        "#f9f9fb",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 101,
+      "repeatNodes": 0
+    },
+    "17--样片-图层种类": {
+      "nodes": 20,
+      "kinds": {
+        "BUTTON": 1,
+        "FRAME": 6,
+        "IMAGE": 1,
+        "LINE": 1,
+        "OVAL": 1,
+        "PAGE": 1,
+        "RECTANGLE": 4,
+        "TEXT": 4,
+        "VECTOR": 1
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "border",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        6,
+        8,
+        10
+      ],
+      "fontSizes": [
+        11,
+        12,
+        13,
+        16
+      ],
+      "fontWeights": [
+        400,
+        500,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#30a46c",
+        "#60646c",
+        "#8b8d98",
+        "#e8e8ec",
+        "#f0f0f3",
+        "#ffffff"
+      ],
+      "borderNodes": 2,
+      "textChars": 39,
+      "repeatNodes": 0
+    },
+    "18--样片-参数矩阵": {
+      "nodes": 60,
+      "kinds": {
+        "FRAME": 17,
+        "PAGE": 1,
+        "RECTANGLE": 23,
+        "TEXT": 19
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode",
+        "x",
+        "y"
+      ],
+      "styleFields": [
+        "background",
+        "border",
+        "borderRadius",
+        "color",
+        "effects",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 1,
+      "effectCount": 1,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        4,
+        6,
+        8,
+        28
+      ],
+      "fontSizes": [
+        10,
+        12,
+        16
+      ],
+      "fontWeights": [
+        400,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#30a46c",
+        "#60646c",
+        "#8b8d98",
+        "#e5484d",
+        "#f0f0f3",
+        "#f9f9fb",
+        "#ffc53d",
+        "#ffffff"
+      ],
+      "borderNodes": 3,
+      "textChars": 114,
+      "repeatNodes": 0
+    },
+    "19--样片-原型跳转": {
+      "nodes": 18,
+      "kinds": {
+        "FRAME": 3,
+        "PAGE": 1,
+        "RECTANGLE": 8,
+        "TEXT": 6
+      },
+      "layoutFields": [
+        "align",
+        "gap",
+        "height",
+        "heightMode",
+        "justify",
+        "mode",
+        "padding",
+        "width",
+        "widthMode"
+      ],
+      "styleFields": [
+        "background",
+        "borderRadius",
+        "color",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "textAlign"
+      ],
+      "effectNodes": 0,
+      "effectCount": 0,
+      "gradientCount": 0,
+      "fillsNodes": 0,
+      "decorationNodes": 0,
+      "decorationKinds": [],
+      "statesNodes": 0,
+      "gridNodes": 0,
+      "transformNodes": 0,
+      "radii": [
+        8,
+        10,
+        12
+      ],
+      "fontSizes": [
+        11,
+        12,
+        14,
+        16
+      ],
+      "fontWeights": [
+        400,
+        600
+      ],
+      "colors": [
+        "#0090ff",
+        "#1c2024",
+        "#30a46c",
+        "#60646c",
+        "#8b8d98",
+        "#e5484d",
+        "#ffc53d",
+        "#ffffff"
+      ],
+      "borderNodes": 0,
+      "textChars": 51,
+      "repeatNodes": 0
+    }
+  },
+  "total": {
+    "nodes": 592,
+    "kinds": {
+      "BUTTON": 16,
+      "FRAME": 196,
+      "IMAGE": 20,
+      "LINE": 1,
+      "OVAL": 1,
+      "PAGE": 19,
+      "RECTANGLE": 72,
+      "TEXT": 266,
+      "VECTOR": 1
+    },
+    "layoutFields": [
+      "align",
+      "gap",
+      "height",
+      "heightMode",
+      "justify",
+      "mode",
+      "padding",
+      "width",
+      "widthMode",
+      "x",
+      "y"
+    ],
+    "styleFields": [
+      "background",
+      "border",
+      "borderRadius",
+      "color",
+      "decorations",
+      "effects",
+      "fontSize",
+      "fontWeight",
+      "grid",
+      "lineHeight",
+      "states",
+      "textAlign"
+    ],
+    "effectNodes": 8,
+    "effectCount": 11,
+    "gradientCount": 1,
+    "fillsNodes": 0,
+    "decorationNodes": 2,
+    "decorationKinds": [
+      "MESH_GRADIENT",
+      "SPOTLIGHT"
+    ],
+    "statesNodes": 4,
+    "gridNodes": 1,
+    "transformNodes": 0,
+    "radii": [
+      0,
+      4,
+      6,
+      8,
+      10,
+      12,
+      14,
+      17,
+      18,
+      19,
+      25,
+      28,
+      42
+    ],
+    "fontSizes": [
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      20,
+      22,
+      24,
+      26,
+      28,
+      34
+    ],
+    "fontWeights": [
+      400,
+      500,
+      600,
+      700
+    ],
+    "colors": [
+      "#0090ff",
+      "#111111",
+      "#1c2024",
+      "#30a46c",
+      "#60646c",
+      "#8b8d98",
+      "#e5484d",
+      "#e8e8ec",
+      "#f0f0f3",
+      "#f9f9fb",
+      "#ffc53d",
+      "#ffffff"
+    ],
+    "borderNodes": 13,
+    "textChars": 1867,
+    "repeatNodes": 0
+  }
+}

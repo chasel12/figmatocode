@@ -85,6 +85,21 @@ try {
   await page.screenshot({ path: join(OUT, '04-图片src编辑.png') });
   step('属性面板输入图片 src', srcValue.startsWith('data:image/'), `src 长度=${srcValue.length}`);
 
+  // 多选批量编辑：Shift 点两个图层 → 面板进入批量模式（分流到 UPDATE_*_MULTI）
+  // 数值是否真的写到每个节点，由 tests/batch-edit.test.ts 锁；这里只验 UI 侧真的切了模式。
+  await page.click('.side-tab:has-text("图层")');
+  await sleep(150);
+  const multiRows = page.locator('.layer-row');
+  const multiRowCount = await multiRows.count();
+  if (multiRowCount >= 3) {
+    await multiRows.nth(1).click();
+    await multiRows.nth(2).click({ modifiers: ['Shift'] });
+    await sleep(250);
+  }
+  const multiHint = await page.locator('.props .align-note').filter({ hasText: '修改作用于全部' }).count();
+  await page.screenshot({ path: join(OUT, '04b-多选批量.png') });
+  step('多选后属性面板进入批量模式', multiHint > 0, `图层行=${multiRowCount} 批量提示条=${multiHint}`);
+
   await page.click('.side-tab:has-text("图层")');
   await sleep(150);
   const beforePaste = await page.locator('.layer-row').count();
@@ -144,8 +159,8 @@ try {
   const keyPersisted = await page.evaluate(() => localStorage.getItem('ui-compiler.ai.key'));
   await page.screenshot({ path: join(OUT, '06c-AI面板未配key.png') });
   step(
-    'AI 面板：未配 key 整体置灰 + 供应商 ≥2 选（现 6 家）+ 风格包 3 选（M7 W5 / §8）',
-    aiSetup > 0 && aiRunDisabled && providerOptions >= 2 && packOptions === 3 && keyPersisted === null,
+    'AI 面板：未配 key 整体置灰 + 供应商 ≥2 选（现 6 家）+ 风格包 ≥3 选（M7 W5 / §8）',
+    aiSetup > 0 && aiRunDisabled && providerOptions >= 2 && packOptions >= 3 && keyPersisted === null,
     `配置区=${aiSetup} 填了提示词后生成按钮仍 disabled=${aiRunDisabled} 供应商选项=${providerOptions} 风格包选项=${packOptions} localStorage 无 key=${keyPersisted === null}`,
   );
 

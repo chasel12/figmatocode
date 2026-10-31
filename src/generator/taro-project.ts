@@ -22,6 +22,7 @@ import { assetBytes } from './zipKit';
 import {
   collectAssets,
   deriveTabBar,
+  hasFixedChrome,
   makeEmitContext,
   makeTagFn,
   type AssetRef,
@@ -30,6 +31,8 @@ import {
   type TagMap,
 } from './emit-context';
 import { componentNameOf, emitTsxBody } from './tsx-emitter';
+import { buildNavGraph, isPeerNav, navTargetOf } from './navigation';
+import { collectPlaceholderNodes, imagePlaceholderCss } from './imagePlaceholder';
 import type { FontPayload } from './react';
 
 export const TARO_TAG_MAP: TagMap = {
@@ -60,15 +63,30 @@ export function generateTaro(ctx: EmitContext): GeneratedFile[] {
   const dir = ctx.meta.path;
   const name = componentNameOf(ctx.meta);
   const taroCtx: EmitContext = { ...ctx, tag: makeTagFn(TARO_TAG_MAP) };
+
+  /** 该页是否有会被发射的跳转（决定要不要 import Taro） */
+  let hasNav = false;
+  const navAttr = (node: UINode): string => {
+    const target = navTargetOf(node, ctx.nav);
+    if (!target) return '';
+    hasNav = true;
+    const url = `/${target.path}/index`;
+    // 平级导航（底栏互链）走 reLaunch 清栈：navigateTo 每次压栈，
+    // 小程序栈上限 10 层，连点底栏之后所有跳转都会静默失败
+    const mode = isPeerNav(ctx.nav, ctx.page.id, target.pageId) ? 'reLaunch' : 'navigateTo';
+    return ` onClick={() => { Taro.${mode}({ url: ${JSON.stringify(url)} }) }}`;
+  };
+
   const body = emitTsxBody(taroCtx, {
     rootId: ctx.page.root.id,
     startDepth: 2,
     buttonType: false,
     imageAttr: taroImageAttr,
+    navAttr,
   });
 
   const tsx = `import { View, Text, Image, Button } from '@tarojs/components'
-import './index.scss'
+${hasNav ? "import Taro from '@tarojs/taro'\n" : ''}import './index.scss'
 
 export default function ${name}() {
   return (
@@ -117,12 +135,13 @@ export function generateTaroMultiPageProject(
 ): GeneratedFile[] {
   const appName = options.name ?? 'ui-compiler-taro-app';
   const assets = collectAssets(pages);
+  const nav = buildNavGraph(pages);
   const files: GeneratedFile[] = [];
   const pageRoutes: string[] = [];
 
   pages.forEach((page, i) => {
     const compiled = compilePage(page);
-    const ctx = makeEmitContext(page, compiled, { index: i, allPages: pages, assets });
+    const ctx = makeEmitContext(page, compiled, { index: i, allPages: pages, assets, nav });
     files.push(...generateTaro(ctx));
     pageRoutes.push(`${ctx.meta.path}/index`);
   });
@@ -139,7 +158,13 @@ export function generateTaroMultiPageProject(
     files.push({ path: `src/assets/fonts/${f.name}`, content: f.base64, encoding: 'base64' });
   }
 
-  const tabBar = deriveTabBar(pages);
+  /**
+   * 设计稿自带外壳（画了 FIXED 底栏/工具栏）时：不出框架 tabBar，导航栏也交给设计稿。
+   * 否则 native 导航栏会把内容下推 47px、native tabBar 与设计稿底栏叠成两条。
+   * 判据与理由见 `emit-context.hasFixedChrome`（demo 19 页 FIXED 数为 0，基线不动）。
+   */
+  const ownChrome = hasFixedChrome(pages);
+  const tabBar = ownChrome ? undefined : deriveTabBar(pages);
   const appConfig = {
     pages: pageRoutes,
     window: {
@@ -147,6 +172,7 @@ export function generateTaroMultiPageProject(
       navigationBarBackgroundColor: '#ffffff',
       navigationBarTitleText: pages[0]?.name ?? appName,
       navigationBarTextStyle: 'black',
+      ...(ownChrome ? { navigationStyle: 'custom' } : {}),
     },
     ...(tabBar
       ? {
@@ -178,7 +204,7 @@ function App({ children }: PropsWithChildren) {
 export default App
 `,
     },
-    { path: 'src/app.scss', content: appScss(Boolean(options.fonts?.length)) },
+    { path: 'src/app.scss', content: appScss(Boolean(options.fonts?.length), pages) },
     // Taro h5 的单页模板（SPA：多页靠 hash 路由 #/pages/<NN>/index）
     { path: 'src/index.html', content: h5Template(pages[0]?.name ?? appName) },
     ...scaffold(appName, pages.length, pageRoutes.length),
@@ -194,7 +220,7 @@ function toBase64(asset: AssetRef): string {
   return btoa(bin);
 }
 
-function appScss(hasFonts: boolean): string {
+function appScss(hasFonts: boolean, pages: UIPage[]): string {
   return `${hasFonts ? fontFaceCss('./assets/fonts') + '\n' : ''}page,
 .taro_page {
   background: #ffffff;
@@ -220,11 +246,29 @@ taro-button-core::after,
 button::after {
   border: 0;
 }
+
+/* Taro 内置「taro-button-core + taro-button-core { margin-top: 15px }」（模仿微信
+   原生 button 的相邻间距）。它有两个标签名，特异性 0,0,2，压得过上面那条单选择器
+   reset —— 于是「两个按钮上下排」会凭空多出 15px 间隙，整页从那里开始整体下移。
+   实测：零食商城商品详情页因此比基准高 15px，taro 端相似度 92.88%，而 react /
+   uni-app 都是 100%（同一份 AST、同一份 CSS，只差这一条组件默认值）。
+   必须用同样两个标签名的相邻选择器才压得住。 */
+taro-button-core + taro-button-core,
+button + button {
+  margin-top: 0;
+}
 taro-image-core,
 img {
   display: inline-block;
   vertical-align: top;
 }
+
+/* 空 src 图片的占位样式（唯一权威定义在 imagePlaceholder.ts）。
+   必须放全局 app.scss：页面级 index.scss 由 scssFromPage 生成，只含编译器的盒模型规则。
+   曾经不发射这段、同时关掉色调类，理由是「Taro 的空图走 Image 组件而不是背景块」——
+   实际 emitTsxBody 对空 src 出的是 View + 占位类，结果封面块透明、露出卡片底色，
+   taro 端像素相似度被压在 92% 且只有截图能发现。 */
+${imagePlaceholderCss(pages.flatMap((p) => collectPlaceholderNodes(p.root)))}
 `;
 }
 

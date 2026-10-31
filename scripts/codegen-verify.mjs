@@ -14,7 +14,7 @@
  * 这样门禁在无网环境也能跑——「能不能构建」是代码问题，「能不能下载」是网络问题，不该混。
  */
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -150,6 +150,15 @@ function walk(dir, out = []) {
   return out;
 }
 
+/** 文件 mtime（毫秒）；取不到返回 0（当作「很旧」，不会误判成本次产物） */
+function mtimeOf(path) {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 /* ---------------- 语法关 ---------------- */
 
 async function checkSyntax(target) {
@@ -242,41 +251,39 @@ function hasLocalDeps(dir) {
  *    2026-10-24 晚复现两次：`taro` 构建在门禁里 240s 超时 ×2（日志 279 字节、CPU 6s 归零），
  *    而**同一条命令在 bash 里 `> file` 43s 就完成**。差别只在「子进程的 stdout 是不是管道」。
  *
- * 现在（第 5 版，也是目前唯一稳定通过的）：**把日志文件的 fd 直接交给子进程**
- * （`stdio: ['ignore', fd, fd]`），父进程既不读管道也不写文件——等价于 shell 里的 `> file`。
- * 父进程只等退出码，结束后读文件尾部做诊断。日志实时可读，且不存在「无人消费」的可能。
+ * 5. **把日志 fd 直接交给子进程**（`stdio: ['ignore', fd, fd]`，第 5 版）：
+ *    父进程不读管道也不写文件，看着等价于 `> file`。**实测仍会卡**（2026-10-27：
+ *    `--target taro` 连续两次 300s 超时，日志停在 278 字节 = npm banner + punycode 警告，
+ *    CPU 归零；而 `--only build` 同一份代码 60.1s 通过、bash 里手动跑 125s 通过）。
+ *    结论：**「父进程替子进程开 fd」这条路本身不可靠**，无论 fd 从哪来。
+ *
+ * 现在（第 6 版）：**重定向交给 shell**，父进程 `stdio: 'ignore'` 完全不碰 I/O：
+ *
+ *     spawn('npm run build:h5 > "<log>" 2>&1', { shell: true, stdio: 'ignore' })
+ *
+ * 这正是唯一被反复验证能跑完的形态（等价于 bash 里 `cmd > file 2>&1`，实测 43s / 125s 完成）。
+ * 差别在于「谁打开这个文件」：shell 自己开、自己关，父进程连 fd 都不持有。
+ * 日志照样实时可读（结束后读文件尾部做诊断），且不存在「无人消费」的可能。
+ *
+ * **教训**：这条链路上已经踩了 6 次，每次都是「看起来等价于 shell 重定向」。真正的分界线
+ * 不是「有没有管道」，而是**文件句柄由谁打开**。别再试图在父进程里「更聪明地」接 stdout。
  */
+/** 每次 `run()` 递增，用于生成唯一日志文件名（不复用同一个路径，见上） */
+let runSeq = 0;
+
 function run(cmd, cwd, timeout = 900_000, extraEnv) {
   const started = Date.now();
-  const logFile = join(cwd, '.codegen-cmd.log');
+  const logFile = join(cwd, `.codegen-cmd-${process.pid}-${(runSeq += 1)}.log`);
   if (process.env.CODEGEN_DEBUG) console.log(`[run] ${cmd}  (cwd=${cwd})`);
   return new Promise((resolve) => {
-    // fd 拿不到（shim 不支持 openSync）才退回管道 + 内存；正常路径下父进程完全不碰 I/O
-    let fd = null;
-    try {
-      writeFileSync(logFile, '');
-      fd = openSync(logFile, 'w');
-    } catch {
-      fd = null;
-    }
-    const child = spawn(cmd, {
+    const child = spawn(`${cmd} > "${logFile}" 2>&1`, {
       cwd,
       shell: true,
       windowsHide: true,
-      stdio: fd === null ? ['ignore', 'pipe', 'pipe'] : ['ignore', fd, fd],
+      stdio: 'ignore',
       env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     });
-    if (process.env.CODEGEN_DEBUG) console.log(`[run] pid=${child.pid} fd=${fd}`);
-
-    let memory = '';
-    const MAX_MEMORY = 4_000_000;
-    const onData = (buf) => {
-      if (memory.length < MAX_MEMORY) memory += buf.toString('utf8');
-    };
-    if (fd === null) {
-      child.stdout.on('data', onData);
-      child.stderr.on('data', onData);
-    }
+    if (process.env.CODEGEN_DEBUG) console.log(`[run] pid=${child.pid} log=${logFile}`);
 
     let timer = null;
     let done = false;
@@ -284,26 +291,11 @@ function run(cmd, cwd, timeout = 900_000, extraEnv) {
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
-      if (fd !== null) {
-        try {
-          closeSync(fd);
-        } catch {
-          /* 已关闭 */
-        }
-      } else {
-        try {
-          writeFileSync(logFile, memory);
-        } catch {
-          /* 日志写不了不影响判定 */
-        }
-      }
-      let tail = memory;
-      if (fd !== null) {
-        try {
-          tail = readFileSync(logFile, 'utf8');
-        } catch {
-          tail = '';
-        }
+      let tail = '';
+      try {
+        tail = readFileSync(logFile, 'utf8');
+      } catch {
+        /* 日志读不到不影响判定 */
       }
       resolve({
         ok: exitCode === 0 && !error,
@@ -316,10 +308,10 @@ function run(cmd, cwd, timeout = 900_000, extraEnv) {
 
     timer = setTimeout(() => {
       // **必须杀整棵进程树**：`child.kill()` 在 Windows 上只杀 shell（cmd），
-      // npm 与 taro 是孙进程，会继续跑并**持有 stdout 管道** → close 永不触发，
+      // npm 与 taro 是孙进程，会继续跑并占着文件 → close 永不触发，
       // 「超时」形同虚设（实测超时后又被拖了 4 分钟）。
       killTree(child.pid);
-      // 兜底：管道若仍被占（孙进程杀不掉），3s 后无论如何结束这一次尝试
+      // 兜底：进程树若杀不干净，3s 后无论如何结束这一次尝试
       setTimeout(() => finish(1, `超时 ${(timeout / 1000).toFixed(0)}s 未结束`), 3000);
     }, timeout);
 
@@ -403,35 +395,76 @@ async function checkBuild(target) {
   const attempts = [];
   let last = null;
   for (let i = 1; i <= 2; i += 1) {
+    /**
+     * **构建前先记时间**：`cleanBuildDir()` 是有意留空的（沙箱删除守卫），所以
+     * `dist/index.html` 可能是**上一次构建的残留**。只数「有没有 html」会把残留
+     * 当成这次的产物 —— 实测已经发生过：报告写 `html: 1`，而本次构建的日志里
+     * 除了一句 punycode 警告什么都没有，webpack 一行输出都没打印。
+     *
+     * 判据改成「有没有**本次**写出的 html」：mtime 早于开工时间的一律不算。
+     * 留 5s 容差是给文件系统时间戳粒度（FAT 2s）留余地，不是给构建留余地。
+     */
+    const startedAt = Date.now() - 5000;
     const r = await run(cmd, dir, BUILD_TIMEOUT(target), env);
     // React/Vue 是多页 MPA（每页一个 html）；Taro h5 是 SPA（单 index.html + hash 路由）
     const htmlFiles = walk(outDir).filter((f) => f.endsWith('.html'));
+    const freshHtml = htmlFiles.filter((f) => mtimeOf(f) >= startedAt);
     const hasEntry = target === 'taro' ? existsSync(join(outDir, 'index.html')) : htmlFiles.length > 0;
+    /**
+     * 「进程没正常退出，但产物确实写出来了」单列一档，不当失败也不当完全成功。
+     *
+     * 已知形态：Taro/webpack 编译完、资产全 emit、日志有 `compiled with N warning`，
+     * 但 node 进程不退出（worker 池或 fs shim 的句柄没释放），最后被超时杀掉。
+     * 判据必须同时满足三条才认：**本次**写出的 html + 日志里有 `compiled` + 已超时。
+     * 少了任何一条都还是 FAIL —— 否则就成了「用宽容掩盖真卡死」。
+     */
+    const timedOut = Boolean(r.error && /超时/.test(r.error));
+    const compiled = /compiled/i.test(r.output ?? '');
+    const freshOk = freshHtml.length > 0;
+    const degraded = timedOut && freshOk && compiled;
+    const ok = (r.ok && hasEntry && freshOk) || degraded;
     attempts.push({
       attempt: i,
-      ok: r.ok && hasEntry,
+      ok,
       exitCode: r.exitCode,
       durationMs: r.durationMs,
       html: htmlFiles.length,
+      freshHtml: freshHtml.length,
+      ...(degraded ? { degraded: 'process-did-not-exit' } : {}),
       ...(r.error ? { error: r.error } : {}),
     });
-    last = { r, htmlCount: htmlFiles.length, hasEntry };
-    if (r.ok && hasEntry) break;
+    last = { r, htmlCount: htmlFiles.length, freshCount: freshHtml.length, hasEntry, ok, degraded };
+    if (ok) {
+      if (degraded) {
+        console.log(
+          `        ⚠ 产物已写出（${freshHtml.length} html）但进程未退出，按超时杀掉；日志有 compiled，判为降级通过`,
+        );
+      }
+      break;
+    }
     if (i === 1) {
-      const why = r.error ?? (r.ok ? '没有产出入口 html' : `exit=${r.exitCode}`);
+      const why =
+        r.error ??
+        (r.ok
+          ? freshOk
+            ? '没有产出入口 html'
+            : `本次没有写出 html（目录里的 ${htmlFiles.length} 个是上次残留）`
+          : `exit=${r.exitCode}`);
       console.log(`        构建第 1 次未完成（${why}），重试一次…`);
     }
   }
 
-  const { r, htmlCount, hasEntry } = last;
+  const { r, htmlCount, freshCount, ok, degraded } = last;
   return {
-    ok: r.ok && hasEntry,
+    ok,
     exitCode: r.exitCode,
     durationMs: r.durationMs,
     deps: local ? 'local' : 'workspace',
     html: htmlCount,
+    freshHtml: freshCount,
+    ...(degraded ? { degraded: 'process-did-not-exit' } : {}),
     attempts,
-    ...(r.ok ? {} : { output: r.output }),
+    ...(ok ? {} : { output: r.output }),
   };
 }
 
@@ -619,12 +652,24 @@ for (const target of TARGETS) {
   if ((!only || only === 'build') && !skipBuild && (!report.typecheck || report.typecheck.ok)) {
     const build = await checkBuild(target);
     report.build = build;
-    console.log(`构建关  ${build.ok ? 'PASS' : 'FAIL'}  exit=${build.exitCode} · ${build.html} html · ${(build.durationMs / 1000).toFixed(1)}s · deps=${build.deps}`);
+    const fresh = build.freshHtml ?? 0;
+    console.log(
+      `构建关  ${build.ok ? 'PASS' : 'FAIL'}  exit=${build.exitCode} · ${fresh}/${build.html} html 本次写出 · ${(build.durationMs / 1000).toFixed(1)}s · deps=${build.deps}`,
+    );
     if (!build.ok && build.output) console.log(build.output.split('\n').slice(-10).join('\n'));
   }
 
-  const pixelReady =
-    only === 'pixel' ? existsSync(join(CODEGEN, target, 'dist')) : Boolean(report.build?.ok);
+  /**
+   * 像素关的前置：需要有一份构建产物。
+   *
+   * `--skip-build` 的语义是「别重建，用现有产物」—— 所以它应当**信任磁盘上的 dist**，
+   * 而不是因为 `report.build` 不存在就把像素关也跳过（那会让「跳过构建」变成
+   * 「顺带跳过像素」，把一个参数变成两个后果）。这条路径是给「构建在别处跑过」用的：
+   * 本宿主里 taro 的 webpack 由 node 脚本发起时必卡（见 HANDOFF §16.7），
+   * 只能先在终端/宿主 bash 里构建，再用 `--skip-build` 跑其余三关。
+   */
+  const distReady = existsSync(join(CODEGEN, target, 'dist'));
+  const pixelReady = only === 'pixel' ? distReady : skipBuild ? distReady : Boolean(report.build?.ok);
   if ((!only || only === 'pixel') && !skipPixel && pixelReady) {
     const pixel = await checkPixel(target, manifest);
     report.pixel = pixel;

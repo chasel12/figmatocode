@@ -74,9 +74,21 @@ if (existsSync(jsonOut)) {
   }
 }
 
+/**
+ * 拿不到 json 报告 = 无法证明「文件都跑过了」，**必须红**。
+ *
+ * 原来这里是 `exit(0)` + 一行警告。那是本脚本自身留的假绿口子：
+ * 这个脚本存在的唯一理由就是「不允许有文件静默漏跑」，而校验的依据正是这份报告；
+ * 依据没了却仍然放行，等于校验形同虚设。
+ * json reporter 是 vitest 内置的，输出路径在项目内 `.tmp-esbuild`（已 mkdir），
+ * 拿不到只可能是真问题（vitest 崩了 / 报告被写坏），没有「环境正常但拿不到」的情形。
+ */
 if (collected === null) {
-  console.warn(`\n[vitest-run] 警告：未取到 json 报告，跳过文件数校验（预期 ${expectedFiles} 个测试文件）`);
-  process.exit(0);
+  console.error(
+    `\n[vitest-run] 失败：未取到 json 报告（${jsonOut}），无法校验文件数——预期 ${expectedFiles} 个测试文件。`,
+  );
+  console.error('[vitest-run] 这通常意味着 vitest 异常退出或报告写入失败，不能当作通过。');
+  process.exit(1);
 }
 
 if (collected !== expectedFiles) {

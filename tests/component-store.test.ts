@@ -148,36 +148,85 @@ describe('PUSH_TO_COMPONENT：其它实例跟随且保留各自覆盖', () => {
   });
 });
 
-describe('SET_VARIANT_PROPS：切变体保留覆盖（旧版清空）', () => {
-  it('切到另一变体后，实例覆盖仍在且生效', () => {
+/**
+ * 跨变体保留覆盖（旧版是 `instanceOverrides = undefined`，改动全丢）。
+ *
+ * **这条用例曾经是假的**：原版拿 `compA`（CREATE_COMPONENT 建的基组件，没有
+ * `variantProps`）去取 `targetComp.variantProps`，取到 undefined 就走进
+ * `else { expect(true).toBe(true) }` —— 切换那一步**一次都没执行过**，却一直是绿的。
+ * 现在改成真的建两个成员、真的切到**另一个**成员，并断言覆盖被重放到新结构上。
+ */
+describe('SET_VARIANT_PROPS：跨变体保留实例覆盖', () => {
+  /** 造「基组件 + State=Default / State=Hover 两个变体成员」的现场 */
+  function withTwoVariants() {
     let s = freshState();
     s = editorReducer(s, { type: 'ADD_NODE', kind: 'TEXT' });
     const srcId = s.selectedIds[0];
     s = editorReducer(s, { type: 'CREATE_COMPONENT', id: srcId });
-    const compA = Object.keys(s.components)[0];
+    s = editorReducer(s, { type: 'CREATE_VARIANT', id: srcId, props: { State: 'Default' } });
+    s = editorReducer(s, { type: 'CREATE_VARIANT', id: srcId, props: { State: 'Hover' } });
+    const members = Object.values(s.components).filter((c) => c.variantProps);
+    expect(members.length).toBe(2);
+    const def = members.find((m) => m.variantProps!.State === 'Default')!;
+    const hover = members.find((m) => m.variantProps!.State === 'Hover')!;
+    expect(hover.id).not.toBe(def.id);
+    return { state: s, def, hover };
+  }
 
-    // 建变体：给它一组 props，形成 A/B 两个成员
-    s = editorReducer(s, { type: 'CREATE_VARIANT', props: { State: 'Default' } });
-    // 再插一条同组不同值的变体（用 UPDATE_VARIANT_PROPS 造第二成员较绕，这里直接断言最小语义）
-    const inst = insertInstance(s, compA);
-    const instId = inst.selectedIds[0];
-    const innerText = textIdsIn(findById(inst.page.root, instId)!.node)[0];
-    let s2 = editorReducer(inst, { type: 'UPDATE_STYLE', id: innerText, patch: { color: '#abcdef' } });
-    expect(findById(s2.page.root, instId)!.node.instanceOverrides?.length).toBe(1);
+  it('切到另一个变体成员后，嵌套节点的覆盖仍在且生效', () => {
+    const { state, def, hover } = withTwoVariants();
 
-    // 切回同一档位（等价于"切变体"路径）：覆盖必须仍存在
-    const members = s2.components;
-    const targetComp = members[compA];
-    if (targetComp?.variantProps) {
-      s2 = editorReducer(s2, { type: 'SET_VARIANT_PROPS', id: instId, props: targetComp.variantProps });
-      const after = findById(s2.page.root, instId);
-      // 若命中同一成员，覆盖必须保留
-      if (after) {
-        const kept = after.node.instanceOverrides ?? [];
-        expect(kept.length).toBe(1);
-      }
-    } else {
-      expect(true).toBe(true); // 无变体成员时跳过（保持用例稳定）
-    }
+    // 实例指向 Default 档；改内层文案颜色 → 覆盖记录在 path='0'
+    let s = editorReducer(state, { type: 'INSERT_INSTANCE', componentId: def.id });
+    const instId = s.selectedIds[0];
+    const innerText = textIdsIn(findById(s.page.root, instId)!.node)[0];
+    s = editorReducer(s, { type: 'UPDATE_STYLE', id: innerText, patch: { color: '#abcdef' } });
+    const ov = findById(s.page.root, instId)!.node.instanceOverrides ?? [];
+    expect(ov.length).toBe(1);
+    expect(ov[0].path).toBe('0');
+
+    // 切到 **另一个** 成员：componentId 换人、覆盖条数不变、颜色在新树上仍生效
+    s = editorReducer(s, { type: 'SET_VARIANT_PROPS', id: instId, props: { State: 'Hover' } });
+    const after = findById(s.page.root, instId)!;
+    expect(after.node.componentId).toBe(hover.id);
+    expect((after.node.instanceOverrides ?? []).length).toBe(1);
+    const newInner = textIdsIn(after.node)[0];
+    expect((findById(s.page.root, newInner)!.node.style as { color?: string }).color).toBe('#abcdef');
+  });
+
+  it('切变体保住实例的 id 与画布位置（不跳回原点）', () => {
+    const { state, def } = withTwoVariants();
+    let s = editorReducer(state, { type: 'INSERT_INSTANCE', componentId: def.id });
+    const instId = s.selectedIds[0];
+    s = editorReducer(s, { type: 'UPDATE_LAYOUT', id: instId, patch: { x: 240, y: 96 } });
+    expect(findById(s.page.root, instId)!.node.layout.x).toBe(240);
+
+    s = editorReducer(s, { type: 'SET_VARIANT_PROPS', id: instId, props: { State: 'Hover' } });
+    const after = findById(s.page.root, instId)!.node;
+    expect(after.id).toBe(instId);
+    expect(after.layout.x).toBe(240);
+    expect(after.layout.y).toBe(96);
+  });
+
+  it('覆盖路径在新变体里不存在时静默丢弃（不报错、不误伤别的节点）', () => {
+    const { state, def, hover } = withTwoVariants();
+    let s = editorReducer(state, { type: 'INSERT_INSTANCE', componentId: def.id });
+    const instId = s.selectedIds[0];
+    const innerText = textIdsIn(findById(s.page.root, instId)!.node)[0];
+    s = editorReducer(s, { type: 'UPDATE_STYLE', id: innerText, patch: { color: '#abcdef' } });
+
+    // 把 Hover 成员的结构改成「FRAME 里没有子节点」，路径 '0' 失效
+    s = {
+      ...s,
+      components: {
+        ...s.components,
+        [hover.id]: { ...s.components[hover.id], root: { ...s.components[hover.id].root, children: [] } },
+      },
+    };
+    s = editorReducer(s, { type: 'SET_VARIANT_PROPS', id: instId, props: { State: 'Hover' } });
+    const after = findById(s.page.root, instId)!;
+    expect(after.node.componentId).toBe(hover.id);
+    // 覆盖条目仍在（记录没被抹掉），但新树上无处重放 → 不产生任何子节点
+    expect(textIdsIn(after.node).length).toBe(0);
   });
 });

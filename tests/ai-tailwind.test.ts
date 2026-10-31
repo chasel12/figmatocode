@@ -116,8 +116,13 @@ describe('class → style', () => {
 
 describe('映射不了的一律进 unknown（不静默丢弃）', () => {
   it('越界语法', () => {
-    const { unknown } = parseClassNames('grid md:flex hover:bg-card gap-x-4 rounded-t-lg justify-around leading-tight');
-    expect(unknown).toEqual(['grid', 'md:flex', 'hover:bg-card', 'gap-x-4', 'rounded-t-lg', 'justify-around', 'leading-tight']);
+    /**
+     * 2026-10-29 更新：`leading-tight` 已从「越界」变成受支持（补 StyleKit 素材时加的，
+     * 见 `tests/ai-class-dialect.test.ts`），所以换成 `shadow-red-500` 保持这条测试的强度
+     * ——它代表「能识别前缀但取值不在受控子集」这一类，必须继续进 unknown。
+     */
+    const { unknown } = parseClassNames('grid md:flex hover:bg-card gap-x-4 rounded-t-lg justify-around shadow-red-500');
+    expect(unknown).toEqual(['grid', 'md:flex', 'hover:bg-card', 'gap-x-4', 'rounded-t-lg', 'justify-around', 'shadow-red-500']);
   });
 
   it('Tailwind 默认色板没有对应令牌，不能硬映射成包外色值', () => {

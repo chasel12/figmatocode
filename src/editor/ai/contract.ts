@@ -10,14 +10,16 @@
  */
 import Ajv, { type ErrorObject } from 'ajv';
 import pageSchema from './contract.page.schema.json';
+import siteSchema from './contract.site.schema.json';
 import editSchema from './contract.edit.schema.json';
-import type { AiEditPlan, AiNodeSpec, AiPageDraft, AiViolation } from './types';
+import type { AiEditPlan, AiNodeSpec, AiPageDraft, AiSiteDraft, AiViolation } from './types';
 import { resolveIconName } from './iconVocab';
 import type { StylePack } from '../../tokens/packs/types';
 
 const ajv = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
 
 const validatePageSchema = ajv.compile(pageSchema);
+const validateSiteSchema = ajv.compile(siteSchema);
 const validateEditSchema = ajv.compile(editSchema);
 
 /** ajv instancePath → 可读路径：`/root/children/0/style` → `root.children[0].style` */
@@ -205,8 +207,23 @@ export function checkEditTargets(
       walkSpec(a.node, opts.pack, opts.icons, `actions[${i}].node`, violations, counter);
       return;
     }
-    if (!existingIds.has(a.targetId)) {
-      violations.push({ path: `actions[${i}].targetId`, kind: 'ref', message: `目标节点 "${a.targetId}" 不存在` });
+    /**
+     * `group` 只有 `targetIds`，批量 `updateStyle`/`updateLayout` 两个都可能有。
+     * 统一收成一个列表逐个查，避免每加一种批量 op 就在这漏一次（漏了 = 引用不存在也能过）。
+     */
+    const targets =
+      a.op === 'group'
+        ? a.targetIds
+        : [a.targetId, ...(a.op === 'updateStyle' || a.op === 'updateLayout' ? (a.targetIds ?? []) : [])].filter(
+            (id): id is string => typeof id === 'string',
+          );
+    if (targets.length === 0) {
+      violations.push({ path: `actions[${i}]`, kind: 'schema', message: `${a.op} 至少要指定一个目标节点` });
+    }
+    for (const id of targets) {
+      if (!existingIds.has(id)) {
+        violations.push({ path: `actions[${i}].targetId`, kind: 'ref', message: `目标节点 "${id}" 不存在` });
+      }
     }
     if (a.op === 'move' && !existingIds.has(a.parentId)) {
       violations.push({ path: `actions[${i}].parentId`, kind: 'ref', message: `目标父容器 "${a.parentId}" 不存在` });
@@ -225,11 +242,92 @@ export function checkEditTargets(
   return violations;
 }
 
+/* ---------------- 整站规划 ---------------- */
+
+/** 页数上下限：少于 2 不叫整站；多于 6 则单页预算被摊薄，每页都会残 */
+export const SITE_MIN_PAGES = 2;
+export const SITE_MAX_PAGES = 6;
+/** 页面名字符上限（导航项放不下更长的） */
+export const SITE_NAME_MAX = 8;
+
+/**
+ * 整站规划的语义检查。
+ *
+ * schema 只能管形状（有没有 name/brief、pages 是不是数组），管不了这三件事：
+ *  - 页面名**重复** → 导航串联会连到错的页（`wireNavigation` 按名字匹配，重名必然二选一）；
+ *  - 页面名**太长** → 导航栏塞不下，模型会自己缩写，于是文案与页面名对不上、连不上；
+ *  - 入口页**不是恰好一个** → 演示时不知道该从哪页开始。
+ * 这三条都是「形状合法但语义错」，必须在闸门里拦，不能等用户点了发现跳不过去。
+ */
+export function checkSitePlan(draft: AiSiteDraft): AiViolation[] {
+  const violations: AiViolation[] = [];
+  const pages = draft.pages ?? [];
+
+  if (pages.length < SITE_MIN_PAGES) {
+    violations.push({ path: 'pages', kind: 'limit', message: `整站至少 ${SITE_MIN_PAGES} 页，当前 ${pages.length} 页` });
+  }
+  if (pages.length > SITE_MAX_PAGES) {
+    violations.push({ path: 'pages', kind: 'limit', message: `整站最多 ${SITE_MAX_PAGES} 页，当前 ${pages.length} 页（请合并次要页）` });
+  }
+
+  const seen = new Map<string, number>();
+  pages.forEach((p, i) => {
+    const name = (p.name ?? '').trim();
+    if (!name) {
+      violations.push({ path: `pages[${i}].name`, kind: 'schema', message: '页面名不能为空' });
+      return;
+    }
+    if (name.length > SITE_NAME_MAX) {
+      violations.push({
+        path: `pages[${i}].name`,
+        kind: 'limit',
+        message: `页面名「${name}」超过 ${SITE_NAME_MAX} 字，导航栏放不下，请改成短名`,
+      });
+    }
+    /**
+     * 页面名不允许带空格：模型常把品牌名拼进去写成「零食小铺 首页」。
+     *
+     * 后果不是难看，是**结构性失配**——导航栏识别（`NAV_WORDS`）和页面跳转
+     * （「文案 == 页面名」）都按整串比较，「零食小铺 首页」既进不了 tabBar，
+     * 也没有任何按钮会写这五个字，那一页在产物里彻底孤立。
+     * 实测：零食商城整站生成把入口页命名成「零食小铺 首页」，6 页里 3 条导航全断。
+     */
+    if (/\s/.test(name)) {
+      violations.push({
+        path: `pages[${i}].name`,
+        kind: 'schema',
+        message: `页面名「${name}」含空格。页面名会原样用作导航文案并参与跳转匹配，请只写页面本身（如「首页」），品牌名放进页面内容里`,
+      });
+    }
+    if (!(p.brief ?? '').trim()) {
+      violations.push({ path: `pages[${i}].brief`, kind: 'schema', message: `页面「${name}」缺少 brief（这一页放什么）` });
+    }
+    const prev = seen.get(name);
+    if (prev !== undefined) {
+      violations.push({ path: `pages[${i}].name`, kind: 'schema', message: `页面名「${name}」与 pages[${prev}] 重复，导航无法区分` });
+    } else {
+      seen.set(name, i);
+    }
+  });
+
+  const entries = pages.filter((p) => p.entry === true);
+  if (entries.length > 1) {
+    violations.push({ path: 'pages', kind: 'schema', message: `入口页只能有一个，当前标了 ${entries.length} 个` });
+  }
+  return violations;
+}
+
+/** 入口页下标（未标 entry 时取第一页） */
+export function entryPageIndex(draft: AiSiteDraft): number {
+  const i = (draft.pages ?? []).findIndex((p) => p.entry === true);
+  return i >= 0 ? i : 0;
+}
+
 /* ---------------- 统一入口 ---------------- */
 
 export interface ValidateOptions {
-  /** 期望的输出类型：page=新页面 / edit=修改计划 / auto=按 kind 字段判断 */
-  expect: 'page' | 'edit' | 'auto';
+  /** 期望的输出类型：page=新页面 / site=整站规划 / edit=修改计划 / auto=按 kind 字段判断 */
+  expect: 'page' | 'site' | 'edit' | 'auto';
   pack: StylePack;
   icons?: Record<string, string>;
   /** 编辑模式下当前页已有节点 id（校验引用） */
@@ -238,32 +336,46 @@ export interface ValidateOptions {
 
 export interface ValidateResult {
   ok: boolean;
-  kind: 'page' | 'edit' | 'unknown';
+  kind: 'page' | 'site' | 'edit' | 'unknown';
   /** 通过 schema 后的原始对象（未归一化） */
-  data?: AiPageDraft | AiEditPlan;
+  data?: AiPageDraft | AiSiteDraft | AiEditPlan;
   violations: AiViolation[];
 }
 
 export function validateAiOutput(raw: unknown, opts: ValidateOptions): ValidateResult {
   const kindField = (raw as { kind?: unknown } | null)?.kind;
-  const kind: 'page' | 'edit' | 'unknown' =
-    opts.expect === 'auto' ? (kindField === 'edit' ? 'edit' : kindField === 'page' ? 'page' : 'unknown') : opts.expect;
+  const kind: 'page' | 'site' | 'edit' | 'unknown' =
+    opts.expect === 'auto'
+      ? kindField === 'edit'
+        ? 'edit'
+        : kindField === 'page'
+          ? 'page'
+          : kindField === 'site'
+            ? 'site'
+            : 'unknown'
+      : opts.expect;
 
   if (kind === 'unknown') {
     return {
       ok: false,
       kind,
-      violations: [{ path: '(根)', kind: 'schema', message: '缺少 kind 字段：必须是 "page" 或 "edit"' }],
+      violations: [{ path: '(根)', kind: 'schema', message: '缺少 kind 字段：必须是 "page" / "site" / "edit"' }],
     };
   }
 
-  const validator = kind === 'page' ? validatePageSchema : validateEditSchema;
+  const validator = kind === 'page' ? validatePageSchema : kind === 'site' ? validateSiteSchema : validateEditSchema;
   const valid = validator(raw);
   if (!valid) return { ok: false, kind, violations: violationsFromAjv(validator.errors) };
 
   if (kind === 'page') {
     const draft = raw as unknown as AiPageDraft;
     const semantic = checkDraftSemantics(draft, opts);
+    return { ok: semantic.length === 0, kind, data: draft, violations: semantic };
+  }
+
+  if (kind === 'site') {
+    const draft = raw as unknown as AiSiteDraft;
+    const semantic = checkSitePlan(draft);
     return { ok: semantic.length === 0, kind, data: draft, violations: semantic };
   }
 

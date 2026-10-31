@@ -29,6 +29,37 @@ function withInstanceOverride(
   return page;
 }
 
+/**
+ * `repeat` 展开时 name 的格式是「原名 + 空格 + 序号」（见 `specToPage.expandRepeats`），
+ * 去掉尾部「空格 + 整数」即得同源组的基础名。`2.5` 这类不会被误切（序号只会是整数）。
+ */
+const REPEAT_NAME_SUFFIX = / \d+$/;
+
+export function siblingBaseName(name: string): string {
+  return name.replace(REPEAT_NAME_SUFFIX, '');
+}
+
+/**
+ * 取 `targetId` 的**同父级**同名兄弟（含自身）。
+ *
+ * 为什么靠 name 而不是 AST 标记：repeat 展开时已经自动命名 `日期格 1…35`，信息本来就在。
+ * 另立 `repeatGroup` 字段要动 AST、`.fig` 往返和比对口径（且 `fig-normalize` 没这条就是假绿），
+ * 换来的精度并不比「同父级 + 基础名相同」更高。
+ *
+ * 约束到同父级是刻意的：页面里两个不同区域都叫「卡片」很常见，跨父级一起选会误伤；
+ * 而 repeat 展开出的节点必然同父。
+ */
+export function collectSameNameSiblings(root: ContainerNode, targetId: string): string[] {
+  const found = findById(root, targetId);
+  if (!found?.parent) return [];
+  const base = siblingBaseName(found.node.name ?? '');
+  // 无名字的节点不参与（否则会把所有匿名节点当成一组）
+  if (!base) return [];
+  return found.parent.children
+    .filter((c) => c.id !== root.id && siblingBaseName(c.name ?? '') === base)
+    .map((c) => c.id);
+}
+
 /** FR-29：两属性组合是否等价（键集合与取值全等） */
 function sameProps(a: Record<string, string>, b: Record<string, string>): boolean {
   const ka = Object.keys(a);
@@ -69,11 +100,18 @@ export interface EditorState {
 export type EditorAction =
   | { type: 'SELECT'; id: string | null; additive?: boolean }
   | { type: 'SELECT_MANY'; ids: string[] }
+  /**
+   * 选中「同父级下的同名兄弟」——AI 的 `repeat` 展开后每个节点名形如
+   * `日期格 1` … `日期格 35`（见 `specToPage.expandRepeats`），去掉尾部序号后
+   * 就是同一批。用它替代「在画布上框选」：框选会连标题一起选中，这个不会。
+   */
+  | { type: 'SELECT_SIBLINGS'; id: string }
   | { type: 'SET_TOOL'; tool: Tool }
   | { type: 'ADD_NODE'; kind: NodeKind; parentId?: string; index?: number }
   | { type: 'UPDATE_LAYOUT'; id: string; patch: Partial<LayoutSchema>; transient?: boolean; childrenXY?: { id: string; x: number; y: number }[] }
   | { type: 'UPDATE_LAYOUT_MULTI'; patches: { id: string; patch: Partial<LayoutSchema> }[]; transient?: boolean }
   | { type: 'UPDATE_STYLE'; id: string; patch: Partial<StyleSchema>; transient?: boolean }
+  | { type: 'UPDATE_STYLE_MULTI'; patches: { id: string; patch: Partial<StyleSchema> }[]; transient?: boolean }
   | { type: 'UPDATE_TEXT'; id: string; text: string; transient?: boolean }
   | { type: 'UPDATE_SRC'; id: string; src: string; transient?: boolean }
   | { type: 'UPDATE_NAME'; id: string; name: string }
@@ -298,6 +336,13 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       return { ...state, selectedIds: ids };
     }
 
+    case 'SELECT_SIBLINGS': {
+      const ids = collectSameNameSiblings(state.page.root, action.id);
+      // 少于 2 个等于没选到「一批」，保持原选择不动（避免把单选变成无意义的空操作）
+      if (ids.length < 2) return state;
+      return { ...state, selectedIds: ids };
+    }
+
     case 'SET_TOOL': {
       if (action.tool === state.tool) return state;
       return { ...state, tool: action.tool };
@@ -308,7 +353,26 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       const nextPage = clonePage(state.page);
       for (const p of action.patches) {
         const found = findById(nextPage.root, p.id);
-        if (found) Object.assign(found.node.layout, p.patch);
+        if (!found) continue;
+        Object.assign(found.node.layout, p.patch);
+        /**
+         * 实例覆盖必须逐节点记录——与单节点 `UPDATE_LAYOUT` 同口径。
+         * 早期这里漏了：批量改（多选对齐/等距）落在实例内的节点上时覆盖不落盘，
+         * 切变体或更新主组件后改动被整体丢弃，而单节点改同样的属性却不会丢。
+         */
+        withInstanceOverride(nextPage, p.id, { layout: p.patch as Record<string, unknown> });
+      }
+      return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
+    }
+
+    case 'UPDATE_STYLE_MULTI': {
+      if (!action.patches.length) return state;
+      const nextPage = clonePage(state.page);
+      for (const p of action.patches) {
+        const found = findById(nextPage.root, p.id);
+        if (!found) continue;
+        found.node.style = { ...(found.node.style ?? {}), ...p.patch };
+        withInstanceOverride(nextPage, p.id, { style: p.patch as Record<string, unknown> });
       }
       return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
@@ -376,8 +440,13 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       for (const id of state.selectedIds) {
         const found = findById(nextPage.root, id);
         if (!found?.parent) continue;
-        // 绝对定位父级 / 流父内脱流子项（子 mode=ABSOLUTE，FR-36）均可方向键微调
-        if (found.parent.layout.mode !== 'ABSOLUTE' && found.node.layout.mode !== 'ABSOLUTE') continue;
+        // 绝对定位父级 / 流父内脱流子项（mode 或 position = ABSOLUTE，FR-36）均可方向键微调
+        if (
+          found.parent.layout.mode !== 'ABSOLUTE' &&
+          found.node.layout.mode !== 'ABSOLUTE' &&
+          found.node.layout.position !== 'ABSOLUTE'
+        )
+          continue;
         if (found.node.locked) continue;
         found.node.layout.x = (found.node.layout.x ?? 0) + action.dx;
         found.node.layout.y = (found.node.layout.y ?? 0) + action.dy;
@@ -639,16 +708,31 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       }
       const node = found.node;
       if (action.patch) Object.assign(node.layout, action.patch);
-      // FR-36：拖入其他流式容器 → 退出 Ignore auto layout（进流，恢复切走前方向，缺省纵向）
-      // 同父级内的重排/坐标补丁不改 mode——流父内的脱流子项原地保持自由摆放（Figma 语义）
+      /**
+       * FR-36：**脱流**节点拖入其他流式容器 → 退出脱流（进流）。
+       *
+       * 两种脱流写法都要清：
+       * - `mode: 'ABSOLUTE'`（老式）→ 恢复切走前的方向；
+       * - `position: 'ABSOLUTE'`（新式，只脱流不换内部排版）→ 直接删掉即可。
+       *
+       * 只对**本来脱流的节点**生效：普通流式节点跨父移动时，`action.patch` 里带的
+       * x/y 要留着（那是调用方按落点算好的坐标，如 m2-store 的「移动 + 绝对坐标」用例）。
+       * 同父级内的重排/坐标补丁也不清 —— 流父内的脱流子项原地保持自由摆放（Figma 语义）。
+       * 跨父移动后 x/y 相对的是**旧父**内容区，留着只会让元素跑到新父的错误位置。
+       */
+      const wasOutOfFlow =
+        node.layout.mode === 'ABSOLUTE' || node.layout.position === 'ABSOLUTE';
       if (
         parent.node.layout.mode !== 'ABSOLUTE' &&
-        node.layout.mode === 'ABSOLUTE' &&
+        wasOutOfFlow &&
         found.parent &&
         found.parent.id !== action.parentId
       ) {
-        node.layout.mode = node.layout.prevMode ?? 'VERTICAL';
-        delete node.layout.prevMode;
+        if (node.layout.mode === 'ABSOLUTE') {
+          node.layout.mode = node.layout.prevMode ?? 'VERTICAL';
+          delete node.layout.prevMode;
+        }
+        if (node.layout.position === 'ABSOLUTE') delete node.layout.position;
         delete node.layout.x;
         delete node.layout.y;
       }

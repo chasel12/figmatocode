@@ -10,6 +10,7 @@
  * schema 就是契约层生成的同一份文件——模型侧与闸门侧共用一份定义。
  */
 import pageSchema from './contract.page.schema.json';
+import siteSchema from './contract.site.schema.json';
 import editSchema from './contract.edit.schema.json';
 
 /** plan §7：默认 claude-opus-5-5（adaptive thinking + structured outputs） */
@@ -263,8 +264,19 @@ export interface AiUsage {
   cacheWriteTokens: number;
 }
 
+/**
+ * 请求类型 → 结构化输出的 JSON Schema。
+ *
+ * **必须只有这一个映射点**：曾经两处各写一遍三元表达式（`kind === 'page' ? pageSchema : editSchema`），
+ * 加 `site` 时漏改就变成「规划请求被强塞页面 schema」——走结构化输出的供应商会
+ * 强制模型吐一棵节点树，而 FakeClient 忽略 `kind`，单测完全看不见。
+ */
+export function schemaOfKind(kind: LlmRequest['kind']): unknown {
+  return kind === 'page' ? pageSchema : kind === 'site' ? siteSchema : editSchema;
+}
+
 export interface LlmRequest {
-  kind: 'page' | 'edit';
+  kind: 'page' | 'site' | 'edit';
   /** 稳定前缀（缓存命中区） */
   system: string;
   /** 易变尾部 */
@@ -280,6 +292,15 @@ export interface LlmResult {
   text: string;
   usage: AiUsage;
   model: string;
+  /**
+   * 流式响应的结束原因（`stop` / `length` / `content_filter` / …）。
+   *
+   * 为什么必须暴露：`length` 表示**输出被截断**——拿到的是一个残缺 JSON。
+   * 早先这里不读这个字段，截断被当成正常回答，于是「解析失败 → 自修」
+   * 把半截 JSON 喂回模型，模型沿着断口继续写，产出 `"kind" , "kind" , …` 这种退化文本，
+   * 越修越烂（实测零食商城购物车页连挂两次，outputTokens 从 9K 涨到 21K）。
+   */
+  finishReason?: string;
 }
 
 export interface LlmClient {
@@ -391,14 +412,39 @@ function envOf(): Record<string, string | undefined> {
 }
 
 /**
- * 兼容层能力探测：是否支持 `output_config.format = json_schema`。
+ * 兼容层能力探测（纯 URL 启发式）：是否支持 `output_config.format = json_schema`。
  * DeepSeek 的 Anthropic 端点官方文档写明 `output_config` **仅支持 `effort`**，实测传 format
  * 不报错也不生效（静默忽略）。传了只会让人误以为有强约束，故直接关掉并靠 prompt 契约兜。
+ *
+ * **不要直接调它做判定** —— 用 `structuredOutputFor()`。原因见那个函数的注释。
  */
 export function supportsJsonSchema(baseURL: string | undefined): boolean {
   if (!baseURL) return true; // 官方 Anthropic
   if (/deepseek/i.test(baseURL)) return false;
   return true;
+}
+
+/**
+ * 结构化输出判定的**唯一权威**。
+ *
+ * ## 为什么要这个函数
+ * 供应商表里早就有 `jsonSchema` 字段，但 anthropic 协议那条路径**从来没读过它** ——
+ * 只看 `supportsJsonSchema(baseURL)` 这个 URL 正则。于是同一件事有两个权威：
+ * 表里写 `jsonSchema:false` 的供应商，只要 baseURL 里不含 "deepseek" 就会被判成支持，
+ * 而端点其实会**静默忽略** `output_config`（不报错、不生效）。这比「明确不支持」更糟：
+ * 它会让人以为有强约束。
+ *
+ * ## 现在的顺序
+ * 1. 表里有显式声明 → 用表（人对端点能力的判断优先于正则）；
+ * 2. 表里没写 → 退回 URL 启发式。
+ *
+ * `tests/ai-providers.test.ts` 有一条漂移守卫：所有 anthropic 协议的供应商，
+ * 两种判定必须一致。加新供应商时表写错会当场红。
+ */
+export function structuredOutputFor(providerId: ProviderId, baseURL: string | undefined): boolean {
+  const def = providerDef(providerId);
+  if (def.jsonSchema !== undefined) return def.jsonSchema;
+  return supportsJsonSchema(baseURL);
 }
 
 export async function createAnthropicClient(options: ClientOptions = {}): Promise<LlmClient> {
@@ -410,7 +456,7 @@ export async function createAnthropicClient(options: ClientOptions = {}): Promis
   const apiKey = options.apiKey ?? getApiKey(providerId);
   const model = options.model ?? getModel(providerId);
   const baseURL = options.baseURL ?? env.AI_BASE_URL ?? env.VITE_AI_PROXY_BASE ?? def.baseURL;
-  const structuredOutput = options.structuredOutput ?? supportsJsonSchema(baseURL);
+  const structuredOutput = options.structuredOutput ?? structuredOutputFor(providerId, baseURL);
   // 结构化输出关闭时，在易变尾部（不动 system 稳定前缀）补一句强约束
   const jsonOnlyReminder = structuredOutput
     ? ''
@@ -429,7 +475,7 @@ export async function createAnthropicClient(options: ClientOptions = {}): Promis
 
   return {
     async run(req: LlmRequest): Promise<LlmResult> {
-      const schema = req.kind === 'page' ? pageSchema : editSchema;
+      const schema = schemaOfKind(req.kind);
       const stream = client.messages.stream(
         {
           model,
@@ -588,7 +634,7 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
 
   return {
     async run(req: LlmRequest): Promise<LlmResult> {
-      const schema = req.kind === 'page' ? pageSchema : editSchema;
+      const schema = schemaOfKind(req.kind);
       const jsonOnlyReminder = jsonSchema
         ? ''
         : '\n\n（再提醒一次：只输出一个 JSON 对象，严格遵守 system 里的契约；不要 markdown 围栏、不要任何解释文字。）';
@@ -605,7 +651,7 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
           ? {
               response_format: {
                 type: 'json_schema',
-                json_schema: { name: req.kind === 'page' ? 'page' : 'edit', schema: schema as Record<string, unknown>, strict: false },
+                json_schema: { name: req.kind, schema: schema as Record<string, unknown>, strict: false },
               },
             }
           : jsonObject
@@ -642,6 +688,7 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
       const decoder = new TextDecoder();
       let buffer = '';
       let text = '';
+      let finishReason: string | undefined;
       let usage: AiUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
       for (;;) {
@@ -658,7 +705,7 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
             const payload = trimmed.slice(5).trim();
             if (!payload || payload === '[DONE]') continue;
             let chunk: {
-              choices?: { delta?: { content?: string | null } }[];
+              choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
               usage?: OpenAiUsageRaw;
             };
             try {
@@ -666,17 +713,19 @@ export async function createOpenAiCompatClient(options: ClientOptions = {}): Pro
             } catch {
               continue; // 心跳/注释行
             }
-            const delta = chunk.choices?.[0]?.delta?.content;
+            const choice = chunk.choices?.[0];
+            const delta = choice?.delta?.content;
             if (typeof delta === 'string' && delta) {
               text += delta;
               req.onDelta?.(delta);
             }
+            if (choice?.finish_reason) finishReason = choice.finish_reason;
             if (chunk.usage) usage = mapOpenAiUsage(chunk.usage);
           }
         }
       }
 
-      return { text, model, usage };
+      return { text, model, usage, finishReason };
     },
   };
 }

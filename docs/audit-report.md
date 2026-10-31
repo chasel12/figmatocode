@@ -154,6 +154,14 @@
 | Overlay **拖拽定位 + 遮罩透明度** | 九宫 9 键已支持，自由拖拽未做 |
 | 组件**拖入实例** | 现只能「应用/分离/创建」 |
 
+> **2026-10-27 更正（本表两行已过期，勿据此判断现状）**
+> - **Constraints stretch 档**：已做完。出码侧 2026-10-20（`compile.ts` #4a），画布侧
+>   2026-10-27（此前 `constraints.ts` 把 `LEFT_RIGHT`/`TOP_BOTTOM` 当 `SCALE` 处理，
+>   是缺陷不是未做）。现两轴各 5 档，`tests/fr35-constraints.test.ts` 表格驱动锁死。
+> - **变体属性增量合并**：已实现。此前口径写「整体替换内容 + 清 overrides」是错的，
+>   错因是锁定它的测试是假的（拿基组件去取 `variantProps` 恒为 undefined，走进
+>   `expect(true).toBe(true)`）。已换成真建两个成员的用例，`docs/go-no-go.md` 议题 4 有更正块。
+
 ---
 
 ## 五、诚实边界（未覆盖 / 测不到）

@@ -410,12 +410,33 @@ export function PropertyPanel() {
   const S = node.style ?? {};
   const parent = found?.parent ?? null;
   const absParent = parent?.layout.mode === 'ABSOLUTE';
+  /**
+   * 「这个节点自己按 x/y 定位」的三种情形（2026-10-31 补齐第三种）：
+   *  - 父是自由画布（`absParent`）；
+   *  - 自己 `mode: ABSOLUTE`（老式脱流，内部排版也变绝对）；
+   *  - 自己 `position: ABSOLUTE`（新式脱流，内部排版照旧 —— 角标/浮层用这个）。
+   * 漏掉第三种 → 面板不显示 X/Y 输入框，用户手动也修不了角标。
+   */
+  const selfPositioned = L.mode === 'ABSOLUTE' || L.position === 'ABSOLUTE';
 
   const commit = () => dispatch({ type: 'COMMIT' });
-  const setLayout = (patch: Partial<typeof L>, transient = false) =>
-    dispatch({ type: 'UPDATE_LAYOUT', id: node.id, patch, transient });
-  const setStyle = (patch: Partial<typeof S>, transient = false) =>
-    dispatch({ type: 'UPDATE_STYLE', id: node.id, patch, transient });
+  /**
+   * 多选批量编辑：整个面板每个字段都从这两个函数提交，所以只要这里分流，
+   * 尺寸/间距/圆角/填充/描边/阴影……全部自动获得批量能力，不必逐字段改。
+   *
+   * 语义对齐 Figma：多选改属性 = **给全部选中节点写同一个值**（不是各加偏移）。
+   * `node` 只是 primary（面板显示值来源），批量时不再代表「唯一目标」。
+   */
+  const multiIds = state.selectedIds.filter((id) => id !== state.page.root.id);
+  const isMulti = multiIds.length > 1;
+  const setLayout = (patch: Partial<typeof L>, transient = false) => {
+    if (!isMulti) return dispatch({ type: 'UPDATE_LAYOUT', id: node.id, patch, transient });
+    dispatch({ type: 'UPDATE_LAYOUT_MULTI', patches: multiIds.map((id) => ({ id, patch })), transient });
+  };
+  const setStyle = (patch: Partial<typeof S>, transient = false) => {
+    if (!isMulti) return dispatch({ type: 'UPDATE_STYLE', id: node.id, patch, transient });
+    dispatch({ type: 'UPDATE_STYLE_MULTI', patches: multiIds.map((id) => ({ id, patch })), transient });
+  };
 
   /** 切「绝对定位」：保留当前视觉位置（x/y 由渲染几何反推）；容器切流→绝对时按当前排版固化直接子项 x/y（与节点变更同一历史记录） */
   const switchToAbsolute = (): void => {
@@ -459,11 +480,16 @@ export function PropertyPanel() {
       <div className="panel-title">属性</div>
       {state.tool === 'frame' && <FramePresets />}
       <AlignToolbar />
+      {isMulti && (
+        <div className="align-note">
+          已多选 {multiIds.length} 个 · 属性修改作用于全部（数值取最后一个的当前值作为起点）
+        </div>
+      )}
 
       <div className="prop-section">
         <div className="prop-heading">位置与尺寸</div>
-        {/* X/Y：绝对定位父级子项 / 流父内脱流子项（子 mode=ABSOLUTE）均可直接编辑 */}
-        {(absParent || L.mode === 'ABSOLUTE') && (
+        {/* X/Y：绝对定位父级子项 / 流父内脱流子项（mode 或 position = ABSOLUTE）均可直接编辑 */}
+        {(absParent || selfPositioned) && (
           <>
             <Row label="X">
               <NumField value={L.x ?? 0} min={-1000} max={2400} onInput={(v) => setLayout({ x: v }, true)} onCommit={commit} />
@@ -683,7 +709,11 @@ export function PropertyPanel() {
           <Row label="方向">
             <SelectField
               value={L.mode}
-              options={MODE_OPTIONS}
+              /**
+               * 多选时挡掉 ABSOLUTE：x/y 是相对各自父级的坐标，批量写同一个值必然全部重叠
+               * （正是转换层 `normalizeAbsolute` 要防的那类结果）。改 VERTICAL/HORIZONTAL 是安全的批量操作。
+               */
+              options={isMulti ? MODE_OPTIONS.filter((o) => o.value !== 'ABSOLUTE') : MODE_OPTIONS}
               onChange={(v) => {
                 if (v === 'ABSOLUTE' && L.mode !== 'ABSOLUTE') switchToAbsolute();
                 else setLayout({ mode: v });
@@ -691,7 +721,8 @@ export function PropertyPanel() {
             />
           </Row>
         )}
-        {parent && parent.layout.mode !== 'ABSOLUTE' && (
+        {/* 定位模式（流内/绝对）是逐节点的坐标决策，多选时不提供——避免「批量脱流后全部叠在一起」 */}
+        {!isMulti && parent && parent.layout.mode !== 'ABSOLUTE' && (
           <Row label="定位">
             <SelectField
               value={L.mode === 'ABSOLUTE' ? 'ABSOLUTE' : 'FLOW'}
@@ -1798,28 +1829,57 @@ export function PropertyPanel() {
         })()}
       </div>
 
-      {/* B3 滚动定位：仅出码侧（画布无滚动概念） */}
+      {/* 自身定位方式：`mode` 管「我内部怎么排」，`position` 管「我相对谁定位」 */}
       <div className="prop-section">
-        <div className="prop-heading">滚动定位</div>
+        <div className="prop-heading">定位方式</div>
         {(() => {
           const pos = node.layout.position ?? 'NONE';
           const patch = (p: Partial<typeof node.layout>) => {
             setLayout({ ...node.layout, ...p });
           };
+          /**
+           * 切到「绝对定位」时必须把 x/y 落下来：只改 `position` 不给坐标的话，
+           * 编译侧缺省 x/y=0 → 元素瞬移到父容器左上角（用户会以为「点了没反应」）。
+           * 坐标由渲染几何反推，视觉位置保持不变（与 `switchToAbsolute` 同一策略）。
+           */
+          const switchPosition = (v: 'NONE' | 'STICKY' | 'FIXED' | 'ABSOLUTE'): void => {
+            if (v !== 'ABSOLUTE') {
+              patch({ position: v === 'NONE' ? undefined : v });
+              return;
+            }
+            const next: Partial<typeof node.layout> = { position: 'ABSOLUTE' };
+            if (node.layout.x == null || node.layout.y == null) {
+              const g = geometry?.[node.id];
+              const pg = parent ? geometry?.[parent.id] : undefined;
+              if (g && pg) {
+                const xy = absXYFromGeometry(g, pg, parent!.layout.padding, node.layout.margin);
+                next.x = xy.x;
+                next.y = xy.y;
+              } else {
+                next.x = node.layout.x ?? 0;
+                next.y = node.layout.y ?? 0;
+              }
+            }
+            patch(next);
+          };
           return (
             <>
               <Row label="方式">
                 <SelectField
-                  value={pos as 'NONE' | 'STICKY' | 'FIXED'}
+                  value={pos as 'NONE' | 'STICKY' | 'FIXED' | 'ABSOLUTE'}
                   options={[
-                    { value: 'NONE', label: '跟随文档' },
+                    { value: 'NONE', label: '跟随文档（流内）' },
+                    { value: 'ABSOLUTE', label: '绝对定位（相对父容器）' },
                     { value: 'STICKY', label: '粘性（滚动吸顶）' },
                     { value: 'FIXED', label: '固定（视口）' },
                   ]}
-                  onChange={(v) => patch({ position: v === 'NONE' ? undefined : v })}
+                  onChange={switchPosition}
                 />
               </Row>
-              {pos !== 'NONE' && (
+              {pos === 'ABSOLUTE' && (
+                <div className="props-note">不占父容器排版，用上方 X/Y 定位；内部仍按纵向/横向排（角标、浮层用这个）。</div>
+              )}
+              {(pos === 'STICKY' || pos === 'FIXED') && (
                 <label className="eff-field">
                   <span>{pos === 'STICKY' ? '吸顶偏移' : '距顶'}</span>
                   <NumField
@@ -1831,7 +1891,9 @@ export function PropertyPanel() {
                   />
                 </label>
               )}
-              <div className="props-note">仅导出生效，画布不预览；绝对定位模式下不适用。</div>
+              {(pos === 'STICKY' || pos === 'FIXED') && (
+                <div className="props-note">仅导出生效，画布不预览。</div>
+              )}
             </>
           );
         })()}
@@ -2346,7 +2408,7 @@ export function PropertyPanel() {
                 { value: 'CROP', label: '裁剪' },
                 { value: 'TILE', label: '平铺' },
               ]}
-              onChange={(v) => dispatch({ type: 'UPDATE_STYLE', id: node.id, patch: { imageScaleMode: v as 'FILL' | 'FIT' | 'CROP' | 'TILE' }, transient: true })}
+              onChange={(v) => setStyle({ imageScaleMode: v as 'FILL' | 'FIT' | 'CROP' | 'TILE' }, true)}
             />
           </Row>
         )}
@@ -2354,7 +2416,7 @@ export function PropertyPanel() {
       </div>
 
       {state.selectedIds.length > 1 && (
-        <div className="props-empty">已多选 {state.selectedIds.length} 个（编辑最后一个）</div>
+        <div className="props-empty">已多选 {state.selectedIds.length} 个 · 修改作用于全部</div>
       )}
     </div>
   );

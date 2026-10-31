@@ -17,8 +17,8 @@ import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { collectFxDefs } from './html';
-import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
-import { svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, collectPlaceholderNodes, imagePlaceholderCss, placeholderClass } from './imagePlaceholder';
+import { svgOfNodeVector, svgOfVector } from './vector';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { assetBytes } from './zipKit';
 import {
@@ -31,6 +31,7 @@ import {
   type GeneratedFile,
 } from './emit-context';
 import { componentNameOf } from './tsx-emitter';
+import { buildNavGraph, navTargetOf, pageHasNavigation, relativeHtmlHref } from './navigation';
 import type { FontPayload } from './react';
 
 /** Vue 的标签表是 identity：语义标签本身就是合法 HTML 标签 */
@@ -45,17 +46,26 @@ function vueText(text: string): string {
 export function emitVueTemplate(ctx: EmitContext): string {
   const classNames = new Map(ctx.compiled.nodes.map((n) => [n.id, n.className]));
 
+  /** 跳转属性：`@click="go('../02-cat/index.html')"`（`go` 由 `<script setup>` 提供） */
+  const navAttrOf = (node: UINode): string => {
+    const target = navTargetOf(node, ctx.nav);
+    if (!target) return '';
+    const href = relativeHtmlHref(ctx.meta.path, target.path);
+    return ` @click="go('${href}')"`;
+  };
+
   const renderNode = (node: UINode, depth: number): string => {
     const indent = '  '.repeat(depth);
     const cls = classNames.get(node.id) ?? node.id;
     const tag = ctx.tag(node);
     const idAttr = node.id === ctx.page.root.id ? ` id="${node.id}"` : '';
+    const nav = navAttrOf(node);
 
     if (node.type === 'TEXT') {
-      return `${indent}<${tag}${idAttr} class="${cls}">${vueText(node.text)}</${tag}>`;
+      return `${indent}<${tag}${idAttr} class="${cls}"${nav}>${vueText(node.text)}</${tag}>`;
     }
     if (node.type === 'BUTTON') {
-      return `${indent}<${tag}${idAttr} class="${cls}" type="button">${vueText(node.text)}</${tag}>`;
+      return `${indent}<${tag}${idAttr} class="${cls}" type="button"${nav}>${vueText(node.text)}</${tag}>`;
     }
     if (node.type === 'IMAGE') {
       const raw = node.src || '';
@@ -66,17 +76,13 @@ export function emitVueTemplate(ctx: EmitContext): string {
         }
         return `${indent}<${tag}${idAttr} class="${cls}" src="${src}" alt="" />`;
       }
-      return `${indent}<div${idAttr} class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"></div>`;
+      return `${indent}<div${idAttr} class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></div>`;
     }
     if (node.type === 'SLICE') {
       return '';
     }
     if (node.type === 'VECTOR') {
-      const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
-        className: cls,
-        border: node.style?.border,
-        fill: node.style?.background,
-      });
+      const svg = svgOfNodeVector(node, cls);
       return svg ? `${indent}${svg}` : '';
     }
     if (isShapeSvgNode(node)) {
@@ -93,15 +99,15 @@ export function emitVueTemplate(ctx: EmitContext): string {
       return `${indent}<div${idAttr} class="${cls}"></div>`;
     }
     if (!isContainer(node) || node.type === 'RECTANGLE') {
-      return `${indent}<${tag}${idAttr} class="${cls}"></${tag}>`;
+      return `${indent}<${tag}${idAttr} class="${cls}"${nav}></${tag}>`;
     }
-    if (!node.children.length) return `${indent}<${tag}${idAttr} class="${cls}"></${tag}>`;
+    if (!node.children.length) return `${indent}<${tag}${idAttr} class="${cls}"${nav}></${tag}>`;
 
     const children = node.children
       .map((c) => renderNode(c, depth + 1))
       .filter(Boolean)
       .join('\n');
-    return `${indent}<${tag}${idAttr} class="${cls}">\n${children}\n${indent}</${tag}>`;
+    return `${indent}<${tag}${idAttr} class="${cls}"${nav}>\n${children}\n${indent}</${tag}>`;
   };
 
   return renderNode(ctx.page.root, 1);
@@ -113,8 +119,20 @@ export function generateVue(ctx: EmitContext): GeneratedFile[] {
   const name = componentNameOf(ctx.meta);
   const template = emitVueTemplate(ctx);
   const css = scssFromPage(ctx.compiled);
+  const hasNav = pageHasNavigation(ctx.page, ctx.nav);
 
-  const sfc = `<template>
+  // 只有真有跳转才注入 <script setup>：既有单页工程（无 interactions）产物字节不变
+  const script = hasNav
+    ? `<script setup>
+const go = (href) => {
+  window.location.href = href
+}
+</script>
+
+`
+    : '';
+
+  const sfc = `${script}<template>
 ${template}
 </template>
 
@@ -171,12 +189,13 @@ export interface VueProjectOptions {
 export function generateVueProject(pages: UIPage[], options: VueProjectOptions = {}): GeneratedFile[] {
   const appName = options.name ?? 'ui-compiler-vue-app';
   const assets = collectAssets(pages);
+  const nav = buildNavGraph(pages);
   const files: GeneratedFile[] = [];
   const metas: { path: string; title: string; name: string }[] = [];
 
   pages.forEach((page, i) => {
     const compiled = compilePage(page);
-    const ctx = makeEmitContext(page, compiled, { index: i, allPages: pages, assets });
+    const ctx = makeEmitContext(page, compiled, { index: i, allPages: pages, assets, nav });
     files.push(...generateVue(ctx));
     metas.push({ path: ctx.meta.path, title: ctx.meta.title, name: componentNameOf(ctx.meta) });
   });
@@ -314,7 +333,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 #root { display: contents; }
-${IMAGE_PLACEHOLDER_CSS}
+${imagePlaceholderCss(pages.flatMap((p) => collectPlaceholderNodes(p.root)))}
 `;
 
   const readme = `# ${appName}

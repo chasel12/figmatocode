@@ -11,14 +11,16 @@
  * 自动布局容器的子项按 stack 规则排列，不写 x/y（写了也会被布局覆盖）。
  */
 import { unzipSync } from 'fflate';
-import type { ButtonNode, ContainerNode, ImageNode, LayoutMode, LayoutSchema, NodeKind, StyleSchema, UINode, UIPage } from '../schema/types';
+import type { ButtonNode, ComponentDef, ContainerNode, FlowDef, HorizontalConstraint, ImageNode, LayoutMode, LayoutSchema, NodeKind, StyleSchema, StyleToken, UINode, UIPage, VerticalConstraint } from '../schema/types';
 import { createNode, createPage, resetIdSeq } from '../schema/factory';
 import { BUTTON_LABEL, DEFAULT_FONT_FAMILY, PLACEHOLDER_IMAGE_HASH } from './export';
+import { readExtras, readProjectExtras, type ExtraNode } from './extras';
 import {
   effectsToStyle,
   figColorToCss,
   fillsToStyle,
   strokesToStyle,
+  styleToEffects,
   type FigEffect,
   type FigMatrix,
   type FigPaint,
@@ -41,6 +43,8 @@ export interface FigNode {
   visible?: boolean;
   locked?: boolean;
   opacity?: number;
+  horizontalConstraint?: string;
+  verticalConstraint?: string;
   blendMode?: string;
   size?: { x?: number; y?: number };
   transform?: FigMatrix;
@@ -52,6 +56,11 @@ export interface FigNode {
   fillPaints?: FigPaint[];
   strokePaints?: FigPaint[];
   strokeWeight?: number;
+  borderStrokeWeightsIndependent?: boolean;
+  borderTopWeight?: number;
+  borderRightWeight?: number;
+  borderBottomWeight?: number;
+  borderLeftWeight?: number;
   strokeAlign?: string;
   strokeJoin?: string;
   strokeCap?: string;
@@ -84,6 +93,10 @@ export interface FigNode {
   letterSpacing?: { value?: number; units?: string };
   textCase?: string;
   textDecoration?: string;
+  textTruncation?: string;
+  maxLines?: number | null;
+  paragraphSpacing?: number;
+  paragraphIndent?: number;
   textData?: { characters?: string };
   count?: number;
   starInnerScale?: number;
@@ -106,6 +119,12 @@ export interface FigImportResult {
   warnings: string[];
   /** 页面级缩略图（meta.json 里的 render_coordinates，供画布初值参考） */
   meta?: Record<string, unknown>;
+  /** FR-25 主组件表（来自 `ui_compiler_extras.project`；旧文件没有此字段） */
+  components?: Record<string, ComponentDef>;
+  /** FR-27 命名样式表 */
+  tokens?: StyleToken[];
+  /** FR-39 原型流程 */
+  flows?: FlowDef[];
 }
 
 const SUPPORTED_CONTAINERS = new Set(['FRAME', 'SYMBOL', 'INSTANCE', 'GROUP', 'SECTION']);
@@ -250,8 +269,70 @@ const JUSTIFY: Record<string, 'START' | 'CENTER' | 'END' | 'SPACE_BETWEEN'> = {
   AUTO: 'START',
 };
 
+/** Figma 枚举 → AST Constraints（与 export.ts 的 H_CONSTRAINT_OUT 严格互逆） */
+const H_CONSTRAINT_IN: Record<string, HorizontalConstraint> = {
+  MIN: 'LEFT',
+  MAX: 'RIGHT',
+  CENTER: 'CENTER',
+  SCALE: 'SCALE',
+  STRETCH: 'LEFT_RIGHT',
+};
+const V_CONSTRAINT_IN: Record<string, VerticalConstraint> = {
+  MIN: 'TOP',
+  MAX: 'BOTTOM',
+  CENTER: 'CENTER',
+  SCALE: 'SCALE',
+  STRETCH: 'TOP_BOTTOM',
+};
+
+/**
+ * 读 Constraints。
+ *
+ * **MIN/MIN 不写进 AST**：Figma 的缺省约束就是 MIN/MIN，AST 的缺省也是 LEFT/TOP
+ * （`recomputeChild` 里 `c.constraints ?? {horizontal:'LEFT', vertical:'TOP'}`）。
+ * 如果原样落进去，一份外部 `.fig` 的每个节点都会多出一个 `constraints` 字段，
+ * 往返比对就永远不相等 —— 缺省必须在两侧都保持「不存在」。
+ */
+function constraintsOf(node: FigNode): LayoutSchema['constraints'] {
+  const horizontal = H_CONSTRAINT_IN[node.horizontalConstraint ?? 'MIN'] ?? 'LEFT';
+  const vertical = V_CONSTRAINT_IN[node.verticalConstraint ?? 'MIN'] ?? 'TOP';
+  if (horizontal === 'LEFT' && vertical === 'TOP') return undefined;
+  return { horizontal, vertical };
+}
+
+/** 容器类节点：它们的布局模式由 Figma 的 `stackMode` 原生表达 */
+function isContainerKind(kind: NodeKind): boolean {
+  return kind === 'FRAME' || kind === 'SECTION' || kind === 'PAGE';
+}
+
+/**
+ * 结构等价串：**键排序 + 数值按 4 位小数归一**。
+ *
+ * 两个必须：键序 —— `styleToEffects` 写出的键序和 kiwi 解出来的不一致，直接 `JSON.stringify`
+ * 永远不相等；小数 —— `.fig` 是 float32，0.3 读回来是 0.30000001192…。
+ */
+function canonical(value: unknown): string {
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'number') return Number.isFinite(v) ? Number(v.toFixed(4)) : v;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(v as Record<string, unknown>).sort()) out[k] = walk((v as Record<string, unknown>)[k]);
+      return out;
+    }
+    return v;
+  };
+  return JSON.stringify(walk(value));
+}
+
 /** 布局字段：尺寸 / 自动布局 / padding / gap / 裁剪 / 约束 */
-function layoutOf(node: FigNode, kind: NodeKind, relative: { x: number; y: number }): LayoutSchema {
+function layoutOf(
+  node: FigNode,
+  kind: NodeKind,
+  relative: { x: number; y: number },
+  extra?: ExtraNode,
+  hasChildren = false,
+): LayoutSchema {
   const base = createNode(kind, { id: 'tmp' }).layout;
   const w = node.size?.x ?? 0;
   const h = node.size?.y ?? 0;
@@ -276,13 +357,29 @@ function layoutOf(node: FigNode, kind: NodeKind, relative: { x: number; y: numbe
      *   给叶子写 ABSOLUTE 会让所有文字/矩形突然变成 position:absolute。
      *   所以叶子回落到工厂默认值（TEXT=VERTICAL、BUTTON=HORIZONTAL），与 AST 约定一致。
      */
-    mode: (stack === 'HORIZONTAL'
-      ? 'HORIZONTAL'
-      : stack === 'VERTICAL'
-        ? 'VERTICAL'
-        : kind === 'FRAME' || kind === 'SECTION' || kind === 'PAGE'
-          ? 'ABSOLUTE'
-          : base.mode) as LayoutMode,
+    /**
+     * 模式判定顺序（每一层都有理由，别简化）：
+     * 1. 旁挂的叶子模式优先 —— Figma 没有「叶子自身布局模式」，只能由我们存；
+     * 2. 有 stackMode → 直接映射；
+     * 3. 显式 `stackMode: 'NONE'` → ABSOLUTE。`NONE` 是「没有自动布局」的官方表达，
+     *    等价于自由定位。之前这里把 `NONE` 当"没信息"丢掉，导致「带子项的矩形」
+     *    往返后从 ABSOLUTE 变 VERTICAL（出码会从绝对定位变成流式）。
+     *    **不怕误伤叶子**：实测 4 个真实 Figma 导出文件（3700+ 节点，其中 2842 个带
+     *    `stackMode`）里 `NONE` 出现 **0 次** —— 非自动布局的节点 Figma 干脆不写这个字段。
+     *    所以 `NONE` 实际上是我们自己写的标记，外部文件不会踩到。
+     * 4. 兜底：容器类 → ABSOLUTE，叶子 → 工厂默认。
+     */
+    mode: (extra?.mode && !isContainerKind(kind)
+      ? extra.mode
+      : stack === 'HORIZONTAL'
+        ? 'HORIZONTAL'
+        : stack === 'VERTICAL'
+          ? 'VERTICAL'
+          : node.stackMode === 'NONE'
+            ? 'ABSOLUTE'
+            : isContainerKind(kind)
+              ? 'ABSOLUTE'
+              : base.mode) as LayoutMode,
     widthMode: SIZING[(vertical ? node.stackCounterSizing : node.stackPrimarySizing) ?? ''] ?? 'FIXED',
     heightMode: SIZING[(vertical ? node.stackPrimarySizing : node.stackCounterSizing) ?? ''] ?? 'FIXED',
     // 自动尺寸的轴不落数值（`.fig` 里的尺寸只是缓存，AST 里「不写」才是语义）
@@ -298,15 +395,26 @@ function layoutOf(node: FigNode, kind: NodeKind, relative: { x: number; y: numbe
     // stackChildPrimaryGrow 只作为「主轴 FILL」的标记使用（见 build 包装器），
     // 不再重复写进 flexGrow —— 否则 CSS 会多出一条 flex-grow
     wrap: node.stackWrap === 'WRAP' ? ('WRAP' as const) : undefined,
-    minWidth: node.minSize?.value?.x,
-    minHeight: node.minSize?.value?.y,
-    maxWidth: node.maxSize?.value?.x,
-    maxHeight: node.maxSize?.value?.y,
-    clipContent: node.clipsContent === true ? true : undefined,
+    // 0 在 Figma 里就是「没有这个约束」—— 导出侧只写了单边时会补 0，
+    // 读回来必须还原成 undefined，否则单边约束会凭空长出另一边
+    minWidth: node.minSize?.value?.x || undefined,
+    minHeight: node.minSize?.value?.y || undefined,
+    maxWidth: node.maxSize?.value?.x || undefined,
+    maxHeight: node.maxSize?.value?.y || undefined,
+    clipContent: node.clipsContent === true ? true : extra?.clipContent === true ? true : undefined,
+    constraints: constraintsOf(node),
+    // 旁挂层：Figma 原生表达不了的字段（见 export.ts 的 ExtraLayout）
+    ...(extra?.position ? { position: extra.position } : {}),
+    ...(extra?.stickyTop !== undefined ? { stickyTop: extra.stickyTop } : {}),
+    ...(extra?.stickyBottom !== undefined ? { stickyBottom: extra.stickyBottom } : {}),
+    ...(extra?.margin ? { margin: extra.margin } : {}),
+    ...(extra?.flexGrow !== undefined ? { flexGrow: extra.flexGrow } : {}),
+    ...(extra?.flexShrink !== undefined ? { flexShrink: extra.flexShrink } : {}),
+    ...(extra?.prevMode ? { prevMode: extra.prevMode } : {}),
   };
 }
 
-function styleOf(node: FigNode): StyleSchema {
+function styleOf(node: FigNode, extra?: ExtraNode): StyleSchema {
   const corner = node.cornerRadius;
   const perCorner =
     node.rectangleTopLeftCornerRadius !== undefined
@@ -324,9 +432,19 @@ function styleOf(node: FigNode): StyleSchema {
     ...(isText ? {} : fillsToStyle(node.fillPaints)),
     ...strokesToStyle(node.strokePaints, node.strokeWeight, node.strokeAlign, node.dashPattern, node.strokeJoin, node.strokeCap),
   };
+  // FR-18 四边独立权重（原生字段）
+  if (node.borderStrokeWeightsIndependent === true && style.border) {
+    const w = [node.borderTopWeight, node.borderRightWeight, node.borderBottomWeight, node.borderLeftWeight];
+    if (w.every((v) => typeof v === 'number')) style.border = { ...style.border, widths: w as [number, number, number, number] };
+  }
   if (typeof corner === 'number' && corner > 0) style.borderRadius = corner;
   else if (perCorner && perCorner.some((v) => v > 0)) style.borderRadius = perCorner;
   if (typeof node.opacity === 'number' && node.opacity < 1) style.opacity = node.opacity;
+  // 混合模式直通（Figma 节点级 blendMode 与 CSS mix-blend-mode 同名）；PASS_THROUGH 是
+  // 容器缺省，等价于 CSS 的 normal，不当成显式样式
+  if (node.blendMode && node.blendMode !== 'NORMAL' && node.blendMode !== 'PASS_THROUGH') {
+    style.blendMode = node.blendMode as StyleSchema['blendMode'];
+  }
   const effects = effectsToStyle(node.effects);
   if (effects.length > 0) style.effects = effects;
 
@@ -363,8 +481,89 @@ function styleOf(node: FigNode): StyleSchema {
     if (node.textCase === 'UPPER') style.textCase = 'UPPER';
     if (node.textCase === 'LOWER') style.textCase = 'LOWER';
     if (node.textCase === 'TITLE') style.textCase = 'TITLE';
+    // SMALL_CAPS 也是 Figma 的原生取值（面板里的「小型大写」），漏了它就等于这一档不支持
+    if (node.textCase === 'SMALL_CAPS') style.textCase = 'SMALL_CAPS';
     // textWrap 默认 true，只有「不换行」（WIDTH_AND_HEIGHT）才需要显式写 false
     if (node.textAutoResize === 'WIDTH_AND_HEIGHT') style.textWrap = false;
+    /**
+     * 截断：ENDING 才落盘（DISABLED 与缺省等价，不写以免多出必然差异）。
+     * maxLines 只在截断开启时才有意义，跟着一起读。
+     */
+    if (typeof node.paragraphSpacing === 'number') style.paragraphSpacing = node.paragraphSpacing;
+    if (typeof node.paragraphIndent === 'number') style.paragraphIndent = node.paragraphIndent;
+    if (node.textTruncation === 'ENDING') {
+      style.textTruncation = 'ENDING';
+      if (typeof node.maxLines === 'number' && node.maxLines > 0) style.maxLines = node.maxLines;
+    }
+  }
+  /**
+   * 旁挂层里的样式字段：Figma 没有对应原语，或本导出器还没做原生映射。
+   * 放在最后覆盖 —— 它是**我们自己的真值**，优先级高于从 Figma 字段反推的近似值。
+   */
+  if (extra) {
+    /**
+     * 底色：`fills` 非空时由旁挂层定夺（`null` = 明确没有底色）。
+     * 不这么做的话，`fillsToStyle` 只能靠「首层是不是纯色」猜 ——
+     * 「渐变叠在底色上」这种最常见的组合会被猜掉底色。
+     */
+    if (extra.background !== undefined && style.fills) {
+      if (extra.background === null) delete style.background;
+      else style.background = extra.background;
+    }
+    if (extra.borderColor !== undefined && style.border) style.border = { ...style.border, color: extra.borderColor };
+    if (extra.borderStyle && style.border) {
+      /**
+       * 线型回来了，`dash` 要跟着还原：导出侧对 dashed/dotted 会**补一个隐含的 dash**
+       * （[4,4] / [1,2]），读回来必须把它抹掉，否则原本没有 `dash` 的描边会凭空多一条。
+       */
+      const implied: [number, number] = extra.borderStyle === 'dotted' ? [1, 2] : [4, 4];
+      const next = { ...style.border, style: extra.borderStyle };
+      if (next.dash && next.dash[0] === implied[0] && next.dash[1] === implied[1]) delete next.dash;
+      style.border = next;
+    }
+    if (extra.borderMiterLimit !== undefined || extra.borderOpacity !== undefined) {
+      if (style.border) {
+        style.border = {
+          ...style.border,
+          ...(extra.borderMiterLimit !== undefined ? { miterLimit: extra.borderMiterLimit } : {}),
+          ...(extra.borderOpacity !== undefined ? { opacity: extra.borderOpacity } : {}),
+        };
+      }
+    }
+    if (extra.rotation !== undefined) style.rotation = extra.rotation;
+    if (extra.cornerSmoothing !== undefined) style.cornerSmoothing = extra.cornerSmoothing;
+    if (extra.boxShadow !== undefined) style.boxShadow = extra.boxShadow;
+    if (extra.imageScaleMode !== undefined) style.imageScaleMode = extra.imageScaleMode;
+    if (extra.arcData !== undefined) style.arcData = extra.arcData;
+    if (extra.paragraphIndent !== undefined) style.paragraphIndent = extra.paragraphIndent;
+    if (extra.openType !== undefined) style.openType = extra.openType;
+    if (extra.decorations !== undefined) style.decorations = extra.decorations;
+    if (extra.states !== undefined) style.states = extra.states;
+    if (extra.transform !== undefined) style.transform = extra.transform;
+    if (extra.grid !== undefined) style.grid = extra.grid;
+    if (extra.layoutGrids !== undefined) style.layoutGrids = extra.layoutGrids;
+    /**
+     * 效果按「原生优先、旁挂补齐」合并：
+     * - 原生值（radius / color / offset / spread）在前，所以**在 Figma 里改过的参数会生效**；
+     * - 旁挂值补齐 Figma 没有字段的（startRadius / beta / opacity / density…）；
+     * - `kind` 例外，取旁挂 —— Figma 的 EffectType 多对一，原生分不出
+     *   `LAYER_BLUR` 与 `PROGRESSIVE_BLUR`。
+     * 长度对不上说明 Figma 里增删过效果，此时整体以原生为准，不硬套旧序列。
+     */
+    if (extra.effects && style.effects && style.effects.length === extra.effects.length) {
+      style.effects = style.effects.map((e, i) => {
+        const prev = extra.effects![i];
+        /**
+         * 先判断「这一项在 Figma 里有没有被改过」：把旁挂值按导出规则再写一遍，
+         * 和文件里的原生效果逐字段比对。**完全一致就说明没人动过**，此时直接还原旁挂原值 ——
+         * 否则 `{color:'#000', opacity:0.3}` 会被原生路径重写成 `{color:'rgba(0,0,0,0.3)'}`，
+         * 语义相同但 AST 变了。不一致则以原生为准（用户在 Figma 里改的应该生效）。
+         */
+        const written = styleToEffects({ effects: [prev] })[0];
+        const untouched = canonical(written) === canonical(node.effects?.[i]);
+        return untouched ? prev : { ...prev, ...e, kind: prev.kind };
+      });
+    }
   }
   return style;
 }
@@ -383,6 +582,8 @@ const TEXT_STYLE_KEYS = [
   'textAlignVertical',
   'textDecoration',
   'textCase',
+  'textTruncation',
+  'maxLines',
   'textWrap',
 ] as const;
 
@@ -432,6 +633,8 @@ export function importFig(
   const withImages = options.images !== false;
   const archive = openFigArchive(bytes);
   const { nodeChanges, blobs } = decode(archive.canvas);
+  /** AST 专有字段的旁挂层（导出侧写、Figma 忽略）；外部 `.fig` 没有这层就是空表 */
+  const extras = readExtras(archive.meta);
 
   const warnings: string[] = [];
   const byType: Record<string, number> = {};
@@ -502,8 +705,8 @@ export function importFig(
     if (type === 'TEXT') {
       const kind: NodeKind = 'TEXT';
       const node = createNode(kind, { id: nextFigId(), name: fig.name ?? '文本' });
-      node.layout = layoutOf(fig, kind, relative);
-      node.style = styleOf(fig);
+      node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (fig.visible === false) node.visible = false;
       if (fig.locked) node.locked = true;
       (node as { text: string }).text = fig.textData?.characters ?? '';
@@ -513,8 +716,8 @@ export function importFig(
 
     if (src || isImagePlaceholder) {
       const node = createNode('IMAGE', { id: nextFigId(), name: fig.name ?? '图片' }) as ImageNode;
-      node.layout = layoutOf(fig, 'IMAGE', relative);
-      node.style = styleOf(fig);
+      node.layout = layoutOf(fig, 'IMAGE', relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (src) node.src = src;
       if (fig.visible === false) node.visible = false;
       if (fig.locked) node.locked = true;
@@ -527,8 +730,8 @@ export function importFig(
     if (type === 'FRAME' && kids.length === 1 && kids[0].type === 'TEXT' && kids[0].name === BUTTON_LABEL) {
       const label = kids[0];
       const node = createNode('BUTTON', { id: nextFigId(), name: fig.name ?? '按钮' }) as ButtonNode;
-      node.layout = layoutOf(fig, 'BUTTON', relative);
-      node.style = { ...styleOf(fig), ...textStyleOf(styleOf(label)) };
+      node.layout = layoutOf(fig, 'BUTTON', relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.style = { ...styleOf(fig, extras[guidKey(fig.guid)]), ...textStyleOf(styleOf(label)) };
       // 导出时把「按钮 flex 居中」翻译成了 label 的 textAlignVertical，这里不能当成原始样式搬回去
       if (node.layout.align === 'CENTER' && node.style.textAlignVertical === 'CENTER') delete node.style.textAlignVertical;
       node.text = label.textData?.characters ?? '';
@@ -541,8 +744,8 @@ export function importFig(
     if (SUPPORTED_CONTAINERS.has(type)) {
       const kind: NodeKind = type === 'SECTION' ? 'SECTION' : 'FRAME';
       const node = createNode(kind, { id: nextFigId(), name: fig.name ?? 'Frame' }) as ContainerNode;
-      node.layout = layoutOf(fig, kind, relative);
-      node.style = styleOf(fig);
+      node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (fig.visible === false) node.visible = false;
       if (fig.locked) node.locked = true;
       const auto = node.layout.mode !== 'ABSOLUTE';
@@ -566,8 +769,13 @@ export function importFig(
         node.layout.align = 'STRETCH';
       }
       node.children = pairs.map(({ node: c }) => {
-        // 自动布局容器里位置由布局决定，清掉相对坐标避免与 gap/padding 打架
-        if (auto) {
+        /**
+         * 自动布局容器里位置由布局决定，清掉相对坐标避免与 gap/padding 打架。
+         * **但自绝对定位子项例外**（`c.layout.mode === 'ABSOLUTE'`）：它在编译侧是
+         * `position: absolute`，不参与流，x/y 就是它的唯一位置来源 ——
+         * 清掉等于把它拽回流里（历史缺陷：VERTICAL 页里自由摆放的子项另存后全部堆到左上角）。
+         */
+        if (auto && c.layout.mode !== 'ABSOLUTE') {
           delete c.layout.x;
           delete c.layout.y;
         }
@@ -583,8 +791,8 @@ export function importFig(
       return null;
     }
     const node = createNode(kind, { id: nextFigId(), name: fig.name ?? type });
-    node.layout = layoutOf(fig, kind, relative);
-    node.style = { ...styleOf(fig), ...(shapeExtras(fig, kind) as Partial<StyleSchema>) };
+    node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0);
+    node.style = { ...styleOf(fig, extras[guidKey(fig.guid)]), ...(shapeExtras(fig, kind) as Partial<StyleSchema>) };
     if (fig.visible === false) node.visible = false;
     if (fig.locked) node.locked = true;
     if (kind === 'VECTOR') {
@@ -610,6 +818,16 @@ export function importFig(
   ): UINode | null => {
     const node = buildRaw(fig, parentAbs, parent.mode);
     if (!node) return node;
+    /**
+     * FR-25 组件实例从旁挂层还原。
+     *
+     * 放在这里而不是 `buildRaw` 内部：后者有 4 条 return 路径（TEXT / IMAGE / BUTTON / 容器），
+     * 逐条补容易漏一条——而漏掉的那条会让「某一类实例节点」静默降级成普通节点，
+     * 表现为「大部分实例都还在，只有某种类型的丢了」，极难排查。
+     */
+    const ex = extras[guidKey(fig.guid)];
+    if (ex?.componentId) node.componentId = ex.componentId;
+    if (ex?.instanceOverrides?.length) node.instanceOverrides = ex.instanceOverrides;
     if (parent.mode === 'ABSOLUTE') {
       // 绝对布局下导出侧固定用「STRETCH = 宽 FILL / grow = 高 FILL」，没有父容器 align 的歧义
       if (fig.stackChildAlignSelf === 'STRETCH') node.layout.widthMode = 'FILL';
@@ -646,9 +864,34 @@ export function importFig(
     if (kids.length === 0) continue;
     const page = createPage(name, 375, 812);
     page.root.name = name;
-    // 页面尺寸取子节点包围盒（Figma canvas 本身没有尺寸）
-    let maxX = 375;
-    let maxY = 812;
+    /**
+     * 还原页面根布局模式（导出侧写在 CANVAS 的 `stackMode` 上，见 export.ts 的说明）。
+     * **必须在 build 之前设**：第 695 行用 `page.root.layout.mode` 判断子项的 FILL 语义，
+     * 设晚了子项的 widthMode 会被按错误的父布局解析。
+     * 缺省（外部 `.fig` 没有这个字段）回落 VERTICAL —— 与 `createPage` 的基线一致。
+     */
+    page.root.layout.mode =
+      canvas.stackMode === 'HORIZONTAL' ? 'HORIZONTAL' : canvas.stackMode === 'VERTICAL' ? 'VERTICAL' : canvas.stackMode === 'NONE' ? 'ABSOLUTE' : page.root.layout.mode;
+    /**
+     * 页面尺寸：**优先读 CANVAS 上的 `size`**（我们导出时写的是真实视口），
+     * 外部 `.fig`（CANVAS 尺寸为 0）才回落到子项包围盒。
+     *
+     * 只取包围盒会把「画框比内容高」这件事丢掉：视口 375×1600、内容只到 812 的页面，
+     * 读回来变成 812，百分比定位的子项随之整体位移。Figma 不读 CANVAS 尺寸，
+     * 所以这个字段是我们自己的无损载体（与 `stackMode` 同理）。
+     *
+     * **必须在 build 之前设**：子项的百分比 / FILL 语义按 `contentW/contentH` 解析。
+     */
+    const canvasW = Math.round(canvas.size?.x ?? 0);
+    const canvasH = Math.round(canvas.size?.y ?? 0);
+    if (canvasW > 0 && canvasH > 0) {
+      page.root.layout.width = canvasW;
+      page.root.layout.height = canvasH;
+      page.viewport = { width: canvasW, height: canvasH };
+    }
+    // 兜底包围盒：外部文件没有尺寸，只能从子项推
+    let maxX = page.viewport.width;
+    let maxY = page.viewport.height;
     const origin = { x: 0, y: 0 };
     const children: UINode[] = [];
     for (const kid of kids) {
@@ -667,13 +910,22 @@ export function importFig(
     }
     if (children.length === 0) continue;
     page.root.children = children;
-    page.root.layout.width = Math.round(maxX);
-    page.root.layout.height = Math.round(maxY);
-    page.viewport = { width: Math.round(maxX), height: Math.round(maxY) };
+    // 没有 CANVAS 尺寸（外部文件）时，用子项包围盒兜底页面大小
+    if (!(canvasW > 0 && canvasH > 0)) {
+      page.root.layout.width = Math.round(maxX);
+      page.root.layout.height = Math.round(maxY);
+      page.viewport = { width: Math.round(maxX), height: Math.round(maxY) };
+    }
     pages.push(page);
   }
 
   if (pages.length === 0) throw new Error('.fig 里没有可导入的页面（只有内部画布或空画布）');
+
+  /**
+   * 项目级旁挂：组件表 / 样式表 / 原型流程。
+   * 早先这些整个不进 `.fig`，存盘再打开就没了——用户看到的是「组件变普通节点、命名样式失效」。
+   */
+  const project = readProjectExtras(archive.meta);
 
   return {
     pages,
@@ -684,6 +936,9 @@ export function importFig(
       byType: importedTypes,
     },
     warnings,
+    ...(project.components ? { components: project.components } : {}),
+    ...(project.tokens ? { tokens: project.tokens } : {}),
+    ...(project.flows ? { flows: project.flows } : {}),
     ...(archive.meta ? { meta: archive.meta } : {}),
   };
 }

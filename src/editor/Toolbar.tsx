@@ -12,6 +12,7 @@ import { isBooleanConvertible } from '../compiler/shapePath';
 import { presentBus } from './present/presentBus';
 import { saveProjectFig, saveProjectJson } from './saveProject';
 import { autosaveEnvelope, guard, isDirty, markSaved, requestCleanOnNextChange, subscribeDirty } from './unsaved';
+import { saveHealth, subscribeSaveHealth, type SaveHealth } from './crashRecovery';
 
 interface MenuDef {
   id: string;
@@ -58,10 +59,13 @@ export function Toolbar() {
   const [zoom, setZoom] = useState(1);
   // FR-60：脏标记（项目名右侧小圆点）—— 与未保存守卫共用同一份判定
   const [dirty, setDirty] = useState(() => isDirty());
+  // FR-60 第 4 道防线：自动保存健康度。配额满时落盘会静默失败，必须让用户看见
+  const [health, setHealth] = useState<SaveHealth>(() => saveHealth());
   const fileRef = useRef<HTMLInputElement | null>(null);
   const menuBarRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => subscribeDirty(setDirty), []);
+  useEffect(() => subscribeSaveHealth(setHealth), []);
 
   // FR-22/23 菜单项可用性：布尔需 ≥2 个可布尔节点（VECTOR 或可自动矢量化的图形，P1-05）；蒙版需容器且子项 ≥2
   const selectedNodes = state.selectedIds
@@ -447,6 +451,14 @@ export function Toolbar() {
           title="项目名称"
         />
         {dirty && <span className="title-dirty-dot" title="有未保存的改动（Ctrl+S 保存）" />}
+        {health === 'failed' && (
+          <span
+            className="title-save-warning"
+            title="自动保存失败：本机存储配额已满。请另存为工程文件（Ctrl+S），否则关闭后改动会丢失。"
+          >
+            ⚠ 自动保存失败
+          </span>
+        )}
         <div className="toolbar-spacer" />
         <div className="toolbar-group">
           <button className="btn" disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} title="Ctrl+Z">

@@ -2,8 +2,8 @@ import type { UIPage } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
 import type { GeometryMap } from '../compiler/layout';
 import { escapeHtml, collectFxDefs, type DomParts } from './html';
-import { svgOfVector } from './vector';
-import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
+import { svgOfNodeVector, svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, collectPlaceholderNodes, imagePlaceholderCss, isDarkColor, placeholderClass } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { fontFaceCss, FONT_STACK } from '../font';
 
@@ -106,7 +106,7 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
         } else {
           out.push(`${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="" />`);
         }
-      } else out.push(`${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"></div>`);
+      } else out.push(`${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></div>`);
       return;
     }
     if (node.type === 'SLICE') {
@@ -114,11 +114,7 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
     }
     if (node.type === 'VECTOR') {
       // FR-49：reference 侧同样出内联 <svg>，与 render 侧同形状方可逐像素对比
-      const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
-        className: cls,
-        border: node.style?.border,
-        fill: node.style?.background,
-      });
+      const svg = svgOfNodeVector(node, cls);
       if (svg) out.push(`${indent}${svg}`);
       return;
     }
@@ -172,7 +168,7 @@ export function generateReferenceHtml(
 <style>
 html, body { margin: 0; padding: 0; }
 body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${pageH}px; width: ${pageW}px; }
-${IMAGE_PLACEHOLDER_CSS}
+${imagePlaceholderCss(collectPlaceholderNodes(page.root), isDarkColor(page.root.style?.background))}
 </style>
 <style>
 ${fontFaceCss(options.fontsBase ?? '/fonts')}

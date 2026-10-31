@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import KonvaLib from 'konva';
 import { Arc, Arrow, Circle, Ellipse, Group, Image as KImage, Layer, Line, Path as KPath, Rect, Stage, Text as KText } from 'react-konva';
 import type Konva from 'konva';
@@ -11,7 +11,7 @@ import { recomputeChildren, type ChildStart } from './constraints';
 import { applyTextCase, arcSpec, createCanvasMeasure, effectiveLetterSpacingPx, effectiveLineHeight, flattenPx, imageAdjustCanvasParams, polygonUnitPoints, starUnitPoints, type GeometryMap } from '../compiler';
 import { parsePathD, pointsToPathD, draftBounds, rebuildFromPoints, toLocalPoints, type PenDraftPoint } from './tools/penCore';
 import { arrowHeadPoints, connectorPathD, makeNavigateInteraction, nearestFrameAncestor, pickAnchors, type ConnAnchor, type ConnGeom } from './tools/connections';
-import { useEditor, type Tool } from './store';
+import { collectSameNameSiblings, useEditor, type Tool } from './store';
 import { computeSnap, type GuideLine, type Rect as SnapRect } from './snapping';
 import { useCanvasGeometry } from './canvasContext';
 import { canvasBus } from './canvasBus';
@@ -48,20 +48,29 @@ function useKonvaImage(src?: string): [HTMLImageElement | null] {
 function useElementSize(): [(node: HTMLElement | null) => void, { w: number; h: number }] {
   const [size, setSize] = useState({ w: 800, h: 600 });
   const observer = useRef<ResizeObserver | null>(null);
-  // ref 回调必须保持稳定引用，否则每次渲染 React 都会卸载/重挂载并触发 setSize → 无限循环
-  const ref = (node: HTMLElement | null) => {
+  /**
+   * ref 回调必须是**稳定引用**（`[]` 依赖），否则每次渲染 React 都会先
+   * `ref(null)` 再 `ref(node)`：断开并重建 ResizeObserver，并**同步** `setSize`。
+   * 这把「测量」变成了 commit 阶段的状态更新 —— 一旦测出的尺寸与已提交状态不一致，
+   * 就是一次嵌套更新；React 允许 50 层，超过就抛 #185 并**卸载整棵树**。
+   *
+   * 实测（一次性 UI 探针）：恢复横幅出现时 `canvas-wrap` 高 861、关掉横幅后回到 902，
+   * 每次 commit 都重新测量 → 861/902 交替 → 画布连同整个编辑器变空白。
+   * 不是横幅的 bug，是这里缺了 `useCallback`。
+   */
+  const ref = useCallback((node: HTMLElement | null) => {
     observer.current?.disconnect();
+    observer.current = null;
     if (!node) return;
-    const update = () =>
-      setSize((prev) => {
-        const w = node.clientWidth;
-        const h = node.clientHeight;
-        return prev.w === w && prev.h === h ? prev : { w, h };
-      });
+    const update = () => {
+      const w = node.clientWidth;
+      const h = node.clientHeight;
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
     observer.current = new ResizeObserver(update);
     observer.current.observe(node);
     update();
-  };
+  }, []);
   useEffect(() => () => observer.current?.disconnect(), []);
   return [ref, size];
 }
@@ -1213,8 +1222,12 @@ export function Canvas() {
     const parent = found.parent;
     const node = found.node;
 
-    // 自由拖动：绝对定位父级 / 流父内脱流子项（子 mode=ABSOLUTE，FR-36）
-    if (parent.layout.mode === 'ABSOLUTE' || node.layout.mode === 'ABSOLUTE') {
+    // 自由拖动：绝对定位父级 / 流父内脱流子项（mode 或 position = ABSOLUTE，FR-36）
+    if (
+      parent.layout.mode === 'ABSOLUTE' ||
+      node.layout.mode === 'ABSOLUTE' ||
+      node.layout.position === 'ABSOLUTE'
+    ) {
       if (!snapOn || altKey) {
         setGuidesGated(NO_GUIDES);
         return delta;
@@ -1281,7 +1294,11 @@ export function Canvas() {
 
     // FR-36：脱流子项（Ignore auto layout）拖动不重排——落点仍在原父级（或未命中容器）时
     // 保持绝对定位、仅更新 x/y（Figma 语义）；拖入其他容器才走 MOVE_NODE（流父进流/绝对父带坐标）
-    if (node.layout.mode === 'ABSOLUTE' && (!target || target.id === parent.id)) {
+    // 脱流两种写法都算：`mode: ABSOLUTE`（老式）与 `position: ABSOLUTE`（新式）。
+    if (
+      (node.layout.mode === 'ABSOLUTE' || node.layout.position === 'ABSOLUTE') &&
+      (!target || target.id === parent.id)
+    ) {
       const pg = geometry[parent.id];
       if (!pg) return;
       const origin = contentOrigin(pg, parent.layout);
@@ -2192,6 +2209,8 @@ export function Canvas() {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
   const modKey = isMac ? '⌘' : 'Ctrl+';
   const menuNode = menu?.nodeId ? (findInTree(state.page.root, menu.nodeId)?.node ?? null) : null;
+  /** AI `repeat` 展开出的同源节点（同父级 + 基础名相同）；用于菜单里的「选中同名兄弟」 */
+  const menuSiblings = menu?.nodeId ? collectSameNameSiblings(state.page.root, menu.nodeId) : [];
   const menuItems: MenuItem[] = !menu
     ? []
     : menu.nodeId && menuNode
@@ -2209,6 +2228,15 @@ export function Canvas() {
           { label: '粘贴', shortcut: `${modKey}V`, onClick: () => dispatch({ type: 'PASTE' }) },
           { divider: true },
           { label: '成组', shortcut: `${modKey}G`, disabled: !canGroup(), onClick: doGroup },
+          {
+            /**
+             * AI `repeat` 一次展开几十个同构节点（日历 35 格、导航 4 项…），
+             * 逐个点选太慢，框选又会连标题一起选中。按「同父级 + 基础名」一次选中这一批。
+             */
+            label: menuSiblings.length > 1 ? `选中同名兄弟（${menuSiblings.length}）` : '选中同名兄弟',
+            disabled: menuSiblings.length < 2,
+            onClick: () => dispatch({ type: 'SELECT_SIBLINGS', id: menu.nodeId! }),
+          },
           {
             label: '置顶层',
             shortcut: isMac ? '⇧⌘]' : 'Ctrl+Shift+]',

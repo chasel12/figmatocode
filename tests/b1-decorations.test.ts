@@ -134,8 +134,8 @@ describe('B1 装饰 · 自包含约束（RFC §2）', () => {
   });
 });
 
-describe('B1 装饰 · .fig 往返（已报备降级）', () => {
-  it('装饰无 Figma 原语：导出丢弃、导入不还原，其余样式不受影响', async () => {
+describe('B1 装饰 · .fig 往返（旁挂层保住，不再降级）', () => {
+  it('装饰经 meta.json 旁挂层原样往返，其余样式不受影响', async () => {
     const { exportFig } = await import('../src/fig/export');
     const { importFig } = await import('../src/fig/import');
     const { loadFigCodec } = await import('../src/fig/codec');
@@ -144,8 +144,12 @@ describe('B1 装饰 · .fig 往返（已报备降级）', () => {
     const exported = await exportFig([page], codec.encode, { exportedAt: '2026-01-01T00:00:00.000Z' });
     const back = importFig(exported.bytes, codec.decode);
     const rect = (back.pages[0].root as ContainerNode).children[0];
-    // 装饰丢失（KNOWN_LOSS）
-    expect(rect.style?.decorations).toBeUndefined();
+    /**
+     * 这条原先断言「装饰丢失」—— 那是 `KNOWN_LOSS` 时代的事实。
+     * 现在走 `meta.json` 的 `ui_compiler_extras` 旁挂层，**必须原样回来**：
+     * Figma 不读这一层，所以既不污染 Figma 文件，也不牺牲我们自己的往返。
+     */
+    expect(rect.style?.decorations?.[0]?.kind).toBe('SPOTLIGHT');
     // 其余样式原样往返
     expect(rect.style?.borderRadius).toBe(8);
     expect(rect.style?.background?.toLowerCase()).toBe('#0a0a0a');

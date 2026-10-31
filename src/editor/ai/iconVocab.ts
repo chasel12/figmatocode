@@ -16,7 +16,17 @@
  * 3. **归一失败必须报错并给候选**。静默退化成默认图标，会让「模型写的」和
  *    「画布上看到的」不一致，比报错更糟。候选名喂给自修环，下一轮就能改对。
  *
- * 词表是**精选**而非全量：移动端界面 95% 的图标需求落在下面 80 个里。
+ * 4. **词表是「高频推荐」而不是「白名单」**（2026-10-31 修正）。
+ *
+ *    上一版提示词写的是「icon **只能**从下面 N 个里选」。这句话被模型严格执行，
+ *    而词表只覆盖图标库的 8%（127 / 1545）——于是零食商城的 5 个品类入口
+ *    （坚果炒货/果干蜜饯/饼干糕点/巧克力/肉干卤味）**全部画成同一个 shopping-bag**，
+ *    分类页 8 个品类栏项干脆一个图标都不画。不是模型不会画，是它被禁止写
+ *    `cookie` / `popcorn` / `candy` 这些名字——这些名字库里有，词表里没有。
+ *
+ *    现在的口径：下面这些是**推荐**，库外名字（英文）也放行，中文语义名走别名表
+ *    或标签检索。真正不相干的名字仍然报违例并给候选（保留第 3 条的理由）。
+ *
  * 清单与别名表都在 tests/ai-icons.test.ts 里对着真实图标库校验，防止库升级后漂移。
  */
 
@@ -46,6 +56,19 @@ export const ICON_VOCAB: { group: string; names: string[] }[] = [
     ],
   },
   {
+    /**
+     * 图表/数据是「数据看板」类需求的核心语义，而 lucide 0.470 把旧名
+     * `bar-chart` / `line-chart` / `pie-chart` 全部改成了 `chart-*`。
+     * 模型对旧名有很强的肌肉记忆（训练数据里旧名占多数），不单列一组 + 配别名，
+     * 生成看板类页面时必然违例——这是实测里唯一稳定复现的违例来源。
+     */
+    group: '图表/数据',
+    names: [
+      'chart-bar', 'chart-column', 'chart-line', 'chart-area', 'chart-pie', 'chart-scatter',
+      'trending-up', 'trending-down', 'activity', 'gauge', 'layout-dashboard', 'table', 'percent',
+    ],
+  },
+  {
     group: '社交/状态',
     names: ['heart', 'star', 'thumbs-up', 'message-circle', 'message-square', 'send', 'smile'],
   },
@@ -60,6 +83,22 @@ export const ICON_VOCAB: { group: string; names: string[] }[] = [
       'hotel', 'banknote', 'coins', 'smartphone', 'laptop', 'gamepad-2', 'baby', 'paw-print',
       'leaf', 'cherry', 'carrot', 'fish', 'beef', 'wine', 'ice-cream-cone', 'sandwich',
       'hospital', 'briefcase', 'graduation-cap',
+    ],
+  },
+  {
+    /**
+     * 食品/日用（2026-10-31 新增）。
+     *
+     * 零食、饮料、生鲜、日用是中文 App 里**最高频的一排宫格**，而上一版词表里
+     * 只有 cherry/carrot/fish/beef 四个食物名，凑不出「饼干糕点 / 巧克力 / 爆米花 /
+     * 坚果炒货」这类细分品类——模型只能拿 shopping-bag 顶替，5 个入口全长一样。
+     * 库里有 cookie/candy/popcorn/nut/cup-soda 等，列出来即可，成本约 50 token。
+     */
+    group: '食品/日用',
+    names: [
+      'cookie', 'candy', 'popcorn', 'nut', 'cup-soda', 'milk', 'beer', 'croissant', 'donut',
+      'egg', 'salad', 'soup', 'ham', 'dessert', 'lollipop', 'ice-cream-bowl', 'citrus', 'grape',
+      'banana', 'bean', 'wheat', 'bone', 'droplet', 'sparkles',
     ],
   },
   {
@@ -136,6 +175,32 @@ export const ICON_ALIASES: Record<string, string> = {
   delivery: 'truck',
   shipping: 'truck',
   box: 'package',
+  // 图表 / 数据（lucide 0.470 起旧名 bar-chart/line-chart/pie-chart 已不存在，全部映射到 chart-*）
+  chart: 'chart-bar',
+  graph: 'chart-line',
+  analytics: 'chart-line',
+  analysis: 'chart-line',
+  statistics: 'chart-bar',
+  stats: 'chart-bar',
+  metric: 'gauge',
+  metrics: 'gauge',
+  dashboard: 'layout-dashboard',
+  trend: 'trending-up',
+  trending: 'trending-up',
+  growth: 'trending-up',
+  'bar-chart': 'chart-bar',
+  barchart: 'chart-bar',
+  'bar-graph': 'chart-bar',
+  'line-chart': 'chart-line',
+  linechart: 'chart-line',
+  'line-graph': 'chart-line',
+  'pie-chart': 'chart-pie',
+  piechart: 'chart-pie',
+  pie: 'chart-pie',
+  'area-chart': 'chart-area',
+  'scatter-chart': 'chart-scatter',
+  'data-table': 'table',
+  datatable: 'table',
   // 内容
   photo: 'image',
   picture: 'image',
@@ -263,6 +328,43 @@ export const ICON_ALIASES: Record<string, string> = {
   帮助: 'circle-help',
   扫码: 'scan-line',
   二维码: 'qr-code',
+  // 品类细分（上一版只有「美食/超市/水果」这类粗粒度，凑不出零食商城的宫格）
+  零食: 'cookie',
+  饼干: 'cookie',
+  糕点: 'cake',
+  烘焙: 'croissant',
+  面包: 'croissant',
+  糖果: 'candy',
+  巧克力: 'candy',
+  爆米花: 'popcorn',
+  坚果: 'nut',
+  炒货: 'nut',
+  果干: 'cherry',
+  蜜饯: 'candy',
+  肉干: 'beef',
+  卤味: 'ham',
+  熟食: 'ham',
+  饮料: 'cup-soda',
+  饮品: 'cup-soda',
+  汽水: 'cup-soda',
+  牛奶: 'milk',
+  乳品: 'milk',
+  啤酒: 'beer',
+  酒水: 'wine',
+  咖啡: 'coffee',
+  海鲜: 'fish',
+  冰淇淋: 'ice-cream-cone',
+  主食: 'wheat',
+  日用: 'droplet',
+  洗护: 'droplet',
+  美妆: 'sparkles',
+  医药: 'pill',
+  家电: 'laptop',
+  运动: 'dumbbell',
+  图书: 'book-open',
+  教育: 'graduation-cap',
+  旅行: 'plane',
+  娱乐: 'gamepad-2',
 };
 
 /** 规范化：大小写/下划线/空格/前后缀（`lucide-`、`-icon`、`_icon`） */
@@ -354,5 +456,10 @@ export function resolveIconName(raw: string, icons: Record<string, unknown>): Re
 export function iconVocabPrompt(): string {
   const total = ICON_NAMES.length;
   const lines = ICON_VOCAB.map((g) => `${g.group}：${g.names.join(' ')}`);
-  return `图标（VECTOR 的 icon 只能从下面 ${total} 个里选；写了近义名会被自动纠正，写无关名字会被判违例）：\n${lines.join('\n')}`;
+  return `图标（VECTOR 的 icon）：下面 ${total} 个是**高频推荐**，优先从里面选。
+库里另有 1400+ 个没列出——需要具体品类（cookie popcorn cup-soda nut croissant …）
+直接写英文名也行；拿不准就写中文语义（零食/美妆/宠物/生鲜），会自动检索。
+近义名（home→house、cart→shopping-cart）会被自动纠正；完全不相干的名字才判违例并给候选。
+**同一排的图标不要全部相同**：5 个品类入口就该有 5 个不同图标，用 repeat 的 {{icon}} 逐项给。
+${lines.join('\n')}`;
 }

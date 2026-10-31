@@ -459,20 +459,27 @@ function compileNode(
   const groupMask = maskIdx >= 0 ? node.children[maskIdx] : null;
   let childIndex = 0;
   for (const child of node.children) {
+    /**
+     * 脱流子项的两种写法（见 `LayoutSchema.position` 注释）：
+     * - `mode: 'ABSOLUTE'`：老写法，脱流 + 内部排版也变绝对；
+     * - `position: 'ABSOLUTE'`：新写法，只脱流，内部排版照旧走 flex。
+     * 两者都要出 `position: absolute` 且不占父的流序号（`childIndex` 不前进）。
+     */
+    const childOutOfFlow = child.layout.mode === 'ABSOLUTE' || child.layout.position === 'ABSOLUTE';
     compileNode(child, classNames, out, {
       isRoot: false,
       parentMode: L.mode,
       parentContentW: contentW != null && !Number.isNaN(contentW) ? contentW : null,
       parentContentH: contentH,
       parentPadding: L.padding ?? [0, 0, 0, 0],
-      parentIsAbsoluteContainer: L.mode === 'ABSOLUTE' || child.layout.mode === 'ABSOLUTE',
+      parentIsAbsoluteContainer: L.mode === 'ABSOLUTE' || childOutOfFlow,
       parentNegGap: negGap,
-      childIndex: child.layout.mode === 'ABSOLUTE' ? 0 : childIndex,
+      childIndex: childOutOfFlow ? 0 : childIndex,
       maskNode: child === groupMask ? null : groupMask,
       viewport: ctx.viewport,
       rules: ctx.rules,
     });
-    if (child.layout.mode !== 'ABSOLUTE') childIndex += 1;
+    if (!childOutOfFlow) childIndex += 1;
   }
 }
 
@@ -524,8 +531,14 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       css['flex-direction'] = 'row';
     }
 
-    // B3 滚动定位：仅出码侧（画布无滚动概念）；与 ABSOLUTE 互斥，ABS 已出 position: absolute
-    if (L.position && L.mode !== 'ABSOLUTE') {
+    /**
+     * B3 滚动定位：仅出码侧（画布无滚动概念）。
+     *
+     * `position: 'ABSOLUTE'` **不在这里处理**——它由下面的 `absChild` 分支统一出
+     * `position: absolute` + `left/top`。这里若按 `L.position` 真值直接判，会把它
+     * 写成 `position: sticky`（旧代码的三元只分 FIXED / 其余），把角标钉在滚动边界上。
+     */
+    if ((L.position === 'FIXED' || L.position === 'STICKY') && L.mode !== 'ABSOLUTE') {
       css['position'] = L.position === 'FIXED' ? 'fixed' : 'sticky';
       const top = L.stickyTop ?? (L.stickyBottom != null ? undefined : 0);
       if (top != null) css['top'] = px(top);

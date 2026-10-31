@@ -19,7 +19,7 @@
  * 优先级：调用方（`specToPage`）让显式 `layout` / `style` 字段**覆盖**本文件的产出，
  * 这样「class 给默认，显式字段做精确控制」。
  */
-import type { BorderSchema, LayoutSchema, StyleSchema } from '../../schema/types';
+import type { BorderSchema, Effect, LayoutSchema, StyleSchema } from '../../schema/types';
 
 export interface ClassParseResult {
   layout: Partial<LayoutSchema>;
@@ -41,7 +41,8 @@ const RADIUS: Record<string, number> = {
 };
 
 const FONT_WEIGHT: Record<string, number> = {
-  thin: 100, light: 300, normal: 400, medium: 500, semibold: 600, bold: 700, extrabold: 800,
+  thin: 100, light: 300, normal: 400, medium: 500, semibold: 600, bold: 700,
+  extrabold: 800, black: 900,
 };
 
 const ALIGN: Record<string, LayoutSchema['align']> = {
@@ -55,6 +56,93 @@ const JUSTIFY: Record<string, LayoutSchema['justify']> = {
 /** 无颜色档位的具名色（项目令牌里没有 white/black，直接给字面量） */
 const NAMED_COLOR: Record<string, string> = {
   white: '#FFFFFF', black: '#000000', transparent: 'transparent',
+};
+
+/**
+ * Tailwind 默认阴影档位（x 恒为 0，只列 y / blur / spread / color）。
+ *
+ * 为什么必须补：`StyleSchema.effects` 从 FR-19 起就完整支持 8 种效果，
+ * `compile.ts:890` 一直在出 `box-shadow` 链，**唯独 className 通道里没有 shadow 这一行**。
+ * 模型写 `shadow-md`（Tailwind 里最高频的类之一）→ 进 unknown → 违例 → 阴影消失。
+ *
+ * 实测（2026-10-29，20 份 StyleKit 风格规格）：`shadow-*` 累计被拒 **51 次**，
+ * 是单一最大缺口。而阴影是区分设计层次的唯一手段，没有它所有卡片都是平的。
+ *
+ * 与 Tailwind v3 默认值的差异：`md` 及以上在 Tailwind 里是**两层**阴影，
+ * 这里只取主层。第二层是 `0 2px 4px -2px` 这类极淡的补边，视觉差在 1px 级，
+ * 换来的是一条 effects 而不是两条（AST 每节点固定开销 60~80 字符，体积税要算）。
+ * 需要精确多层时走显式 `style.effects`，那条路径不受影响。
+ */
+const SHADOW: Record<string, { y: number; blur: number; spread: number; color: string }> = {
+  sm: { y: 1, blur: 2, spread: 0, color: 'rgba(0,0,0,0.05)' },
+  '': { y: 1, blur: 3, spread: 0, color: 'rgba(0,0,0,0.1)' },
+  md: { y: 4, blur: 6, spread: -1, color: 'rgba(0,0,0,0.1)' },
+  lg: { y: 10, blur: 15, spread: -3, color: 'rgba(0,0,0,0.1)' },
+  xl: { y: 20, blur: 25, spread: -5, color: 'rgba(0,0,0,0.1)' },
+  '2xl': { y: 25, blur: 50, spread: -12, color: 'rgba(0,0,0,0.25)' },
+};
+
+/**
+ * 字距档位：Tailwind 给的是 **em 倍数**，AST 的 `letterSpacingMode: 'PERCENT'` 正好是
+ * 「值 / 100 = em」，所以直接 ×100 落 PERCENT。
+ *
+ * 不走 PIXELS 的原因：em→px 需要字号，而字号可能来自 `text-2xl` 这类同批 class，
+ * 解析顺序不保证。PERCENT 不需要字号，一步到位，也不会被 `normalizeLineHeight` 误判。
+ */
+const TRACKING: Record<string, number> = {
+  tighter: -5, tight: -2.5, normal: 0, wide: 2.5, wider: 5, widest: 10,
+};
+
+/** 行高档位：Tailwind 给的是**倍数**，同样 ×100 落 `lineHeightMode: 'PERCENT'` */
+const LEADING: Record<string, number> = {
+  none: 100, tight: 125, snug: 137.5, normal: 150, relaxed: 162.5, loose: 200,
+};
+
+/**
+ * 字体家族类：**静默丢弃**，不进 `unknown`。
+ *
+ * `fontFamily` 是 AI 契约里**故意不给**的（由风格包锁死，见 `types.ts`），
+ * 所以模型写 `font-mono` / `font-sans` 是「写了我们主动不提供的能力」。
+ * 为主动不给的东西报违例，等于惩罚模型写对的东西——只会白烧一轮自修，产物完全一样。
+ * 与 `normalizeLineHeight` 同原则：转换层负责翻译方言，翻译不了就静默降级，不报错。
+ *
+ * 实测：20 份 StyleKit 规格里 `font-mono` 出现 19 次、`font-sans` 8 次、`font-serif` 4 次。
+ */
+/**
+ * `font-*` 里**只表示字体族**的那几个 → 受控别名。
+ *
+ * 与字重共用 `font-` 前缀是 Tailwind 的设计（`font-bold` 是字重，`font-serif` 是族）。
+ * 早期版本把这几个静默丢弃，理由是「fontFamily 由风格包锁死」——**那个理由在
+ * 注入风格 skill 的场景下是错的**：skill 说「宋体/书法体」，通道不给就只能出黑体，
+ * 用户肉眼看到的是「字体死板」（2026-10-29 s2 实测）。
+ * 现在映射到受控别名，再由 `specToPage.resolveFontFamily` 展开成跨平台字体栈。
+ *
+ * `font-system` / `font-display` / `font-body` 仍静默丢弃：它们没有确定的族含义，
+ * 落到哪个字体取决于实现，属于「说了等于没说」。
+ */
+const FONT_FAMILY_ALIAS: Record<string, string> = {
+  'font-sans': 'sans',
+  'font-serif': 'serif',
+  'font-mono': 'mono',
+  'font-kai': 'kai',
+  'font-round': 'round',
+};
+
+/** 没有确定族含义的 `font-*`：静默丢弃，不报违例（报了也改不出结果） */
+const FONT_FAMILY_IGNORED = new Set(['font-system', 'font-display', 'font-body']);
+
+/** 大小写变换（中文无效果，只对西文眉标有意义） */
+const TEXT_CASE: Record<string, 'UPPER' | 'LOWER' | 'TITLE' | 'SMALL_CAPS'> = {
+  uppercase: 'UPPER',
+  lowercase: 'LOWER',
+  capitalize: 'TITLE',
+  'small-caps': 'SMALL_CAPS',
+};
+
+/** 文字装饰线。`no-underline` 单独处理（清空而非设值） */
+const TEXT_DECORATION: Record<string, 'UNDERLINE' | 'STRIKETHROUGH'> = {
+  underline: 'UNDERLINE',
+  'line-through': 'STRIKETHROUGH',
 };
 
 /**
@@ -73,6 +161,18 @@ const PAD_SIDES: Record<string, number[]> = {
   p: [0, 1, 2, 3], px: [1, 3], py: [0, 2], pt: [0], pr: [1], pb: [2], pl: [3],
 };
 
+/**
+ * 单边 margin 的下标（与 padding 同构）。
+ *
+ * 补这块的原因：`LayoutSchema.margin` 一直存在、`compile.ts` 一直在出码，
+ * 但 AI 通道的两个入口（className / `AiLayoutSpec`）都没有它 ——
+ * 模型写 `mt-4 mx-4` 就进违例清单，而这是 Tailwind 里最高频的几个类之一。
+ * 实测（`docs/ai-ab-report.md` 附录 C）首轮 4 条违例里 3 条都是它。
+ */
+const MARGIN_SIDES: Record<string, number[]> = {
+  m: [0, 1, 2, 3], mx: [1, 3], my: [0, 2], mt: [0], mr: [1], mb: [2], ml: [3],
+};
+
 /** `12` → 48；`0.5` → 2；`[12px]` → 12；`auto`/`full` 等关键字 → null */
 function sizeOf(token: string): number | null {
   const arb = /^\[(\d+(?:\.\d+)?)px\]$/.exec(token);
@@ -82,6 +182,54 @@ function sizeOf(token: string): number | null {
   const n = Number(token);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * UNIT);
+}
+
+/**
+ * 任意值阴影 `shadow-[…]` → 一条 `Effect`。解析失败返回 null（进 unknown）。
+ *
+ * 支持的形式（Tailwind 里空格用 `_` 表示）：
+ * - `shadow-[0_4px_8px_rgba(0,0,0,0.1)]`        3 段长度，spread 缺省 0
+ * - `shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`    4 段长度 —— neo-brutalist 的硬边阴影
+ * - `shadow-[inset_0_2px_4px_rgba(0,0,0,0.06)]` 内阴影
+ *
+ * 两个解析陷阱：
+ * ① 颜色必须**先抽走**再分词。`rgba(0 0 0 / 0.1)` 里的空格会把分词切碎，
+ *    抽走后剩余部分才是干净的长度序列。颜色本身保留原样（`rgb(0 0 0 / .1)` 是合法 CSS，
+ *    去掉内部空格反而会拼成 `rgb(000/.1)`）。
+ * ② 负值合法（`-1px` 的 spread 是 Tailwind md 以上的标配），所以不能复用 `sizeOf`
+ *    ——它按间距语义把负数当非法。
+ */
+function shadowArbitrary(spec: string): Effect | null {
+  let rest = spec.replace(/_/g, ' ').trim();
+  let color = 'rgba(0,0,0,0.2)';
+
+  const fn = /rgba?\([^)]*\)/.exec(rest);
+  if (fn) {
+    color = fn[0].trim();
+    rest = rest.replace(fn[0], ' ');
+  } else {
+    const hex = /#[0-9a-fA-F]{3,8}/.exec(rest);
+    if (hex) {
+      color = hex[0];
+      rest = rest.replace(hex[0], ' ');
+    }
+  }
+
+  const parts = rest.trim().split(/\s+/).filter(Boolean);
+  const inset = parts[0] === 'inset';
+  const lens = inset ? parts.slice(1) : parts;
+  if (lens.length < 1 || lens.length > 4) return null;
+
+  const toPx = (t: string): number | null => {
+    if (t === '0') return 0;
+    const m = /^(-?\d+(?:\.\d+)?)px$/.exec(t);
+    return m ? Number(m[1]) : null;
+  };
+  const nums = lens.map(toPx);
+  if (nums.some((n) => n == null)) return null;
+
+  const [x = 0, y = 4, blur = 4, spread = 0] = nums as number[];
+  return { kind: inset ? 'INNER_SHADOW' : 'DROP_SHADOW', x, y, blur, spread, color };
 }
 
 /**
@@ -230,6 +378,8 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
 
   const pad: [number, number, number, number] = [0, 0, 0, 0];
   const padSet = [false, false, false, false];
+  const mrg: [number, number, number, number] = [0, 0, 0, 0];
+  const mrgSet = [false, false, false, false];
   const border: Partial<BorderSchema> = {};
   let hasBorder = false;
   let flex1 = false;
@@ -286,6 +436,24 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
       for (const i of PAD_SIDES[m[1]]) {
         pad[i] = px;
         padSet[i] = true;
+      }
+      continue;
+    }
+
+    // ---- 外边距（与 padding 同构，累积不覆盖）----
+    // 长前缀优先（mx/my/mt...），否则 `mb-4` 会被 `m` 抢先匹配后失败回溯
+    m = /^(mx|my|mt|mr|mb|ml|m)-(.+)$/.exec(cls);
+    if (m) {
+      const px = sizeOf(m[2]);
+      // `m*-auto` 走这里：BoxPadding 是纯数值四元组，表达不了 auto。
+      // 进 unknown 让自修环看到，错误提示里会给出替代写法（items-center）。
+      if (px == null) {
+        unknown.push(cls);
+        continue;
+      }
+      for (const i of MARGIN_SIDES[m[1]]) {
+        mrg[i] = px;
+        mrgSet[i] = true;
       }
       continue;
     }
@@ -412,12 +580,119 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
       continue;
     }
 
-    // ---- 字重 ----
+    // ---- 字重 / 字体家族 ----
     m = /^font-(.+)$/.exec(cls);
     if (m) {
       const w = FONT_WEIGHT[m[1]];
       if (w != null) style.fontWeight = w;
-      else unknown.push(cls);
+      else if (FONT_FAMILY_ALIAS[cls]) style.fontFamily = FONT_FAMILY_ALIAS[cls];
+      else if (!FONT_FAMILY_IGNORED.has(cls)) unknown.push(cls);
+      // font-system / font-display / font-body：没有确定族含义，静默丢弃不报违例
+      continue;
+    }
+
+    // ---- 大小写与装饰线（compile.ts 早已出码，此前只缺方言入口）----
+    if (TEXT_CASE[cls]) {
+      style.textCase = TEXT_CASE[cls];
+      continue;
+    }
+    if (cls === 'normal-case') {
+      // 显式回到原样：删掉可能来自别处的 textCase（成对字段语义，与 leading-none 同策略）
+      delete style.textCase;
+      continue;
+    }
+    if (TEXT_DECORATION[cls]) {
+      style.textDecoration = TEXT_DECORATION[cls];
+      continue;
+    }
+    if (cls === 'no-underline') {
+      delete style.textDecoration;
+      continue;
+    }
+
+    // ---- 阴影（effects → box-shadow 链，编译层早已完整支持）----
+    if (cls === 'shadow') {
+      const s = SHADOW[''];
+      style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: s.color }];
+      continue;
+    }
+    if (cls === 'shadow-inner') {
+      // Tailwind: inset 0 2px 4px 0 rgb(0 0 0 / 0.05)
+      style.effects = [{ kind: 'INNER_SHADOW', x: 0, y: 2, blur: 4, spread: 0, color: 'rgba(0,0,0,0.05)' }];
+      continue;
+    }
+    if (cls.startsWith('shadow-')) {
+      const suffix = cls.slice('shadow-'.length);
+      if (suffix === 'none') {
+        style.effects = []; // 显式清空：box-shadow: none
+        continue;
+      }
+      const arb = /^\[(.+)\]$/.exec(suffix);
+      if (arb) {
+        const e = shadowArbitrary(arb[1]);
+        if (e) style.effects = [e];
+        else unknown.push(cls);
+        continue;
+      }
+      const s = SHADOW[suffix];
+      if (s) {
+        style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: s.color }];
+      } else {
+        // shadow-red-500 之类的彩色阴影：颜色来自 Tailwind 调色板，项目只认语义令牌 → 不猜
+        unknown.push(cls);
+      }
+      continue;
+    }
+
+    // ---- 字距（em 倍数 → letterSpacingMode: PERCENT，值 = em × 100）----
+    m = /^tracking-(.+)$/.exec(cls);
+    if (m) {
+      const t = m[1];
+      const arbEm = /^\[(-?\d+(?:\.\d+)?)em\]$/.exec(t);
+      if (arbEm) {
+        style.letterSpacing = Number(arbEm[1]) * 100;
+        style.letterSpacingMode = 'PERCENT';
+        continue;
+      }
+      const arbPx = /^\[(-?\d+(?:\.\d+)?)px\]$/.exec(t);
+      if (arbPx) {
+        style.letterSpacing = Number(arbPx[1]);
+        style.letterSpacingMode = 'PIXELS';
+        continue;
+      }
+      const v = TRACKING[t];
+      if (v != null) {
+        style.letterSpacing = v;
+        style.letterSpacingMode = 'PERCENT';
+      } else {
+        unknown.push(cls);
+      }
+      continue;
+    }
+
+    // ---- 行高（倍数 → lineHeightMode: PERCENT，值 = 倍数 × 100）----
+    m = /^leading-(.+)$/.exec(cls);
+    if (m) {
+      const t = m[1];
+      const arbPx = /^\[(\d+(?:\.\d+)?)px\]$/.exec(t);
+      if (arbPx) {
+        style.lineHeight = Number(arbPx[1]);
+        style.lineHeightMode = 'PIXELS';
+        continue;
+      }
+      const arbNum = /^\[(\d+(?:\.\d+)?)\]$/.exec(t);
+      if (arbNum) {
+        style.lineHeight = Number(arbNum[1]) * 100;
+        style.lineHeightMode = 'PERCENT';
+        continue;
+      }
+      const v = LEADING[t];
+      if (v != null) {
+        style.lineHeight = v;
+        style.lineHeightMode = 'PERCENT';
+      } else {
+        unknown.push(cls);
+      }
       continue;
     }
 
@@ -447,6 +722,15 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
       continue;
     }
     m = /^border-(\d+)$/.exec(cls);
+    if (m) {
+      border.width = Number(m[1]);
+      hasBorder = true;
+      continue;
+    }
+    // 任意值宽度 `border-[2px]`：不补这条会掉进下面的 `border-(.+)` 分支，
+    // 被当成颜色交给 colorOf('[2px]') → null → 违例。模型写 `border-2` 和
+    // `border-[2px]` 的概率一样高，两种都得认。
+    m = /^border-\[(\d+(?:\.\d+)?)px\]$/.exec(cls);
     if (m) {
       border.width = Number(m[1]);
       hasBorder = true;
@@ -487,6 +771,7 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
   }
 
   if (padSet.some(Boolean)) layout.padding = pad;
+  if (mrgSet.some(Boolean)) layout.margin = mrg;
   if (hasBorder) {
     style.border = {
       width: border.width ?? 1,

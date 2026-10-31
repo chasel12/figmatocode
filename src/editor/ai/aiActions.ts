@@ -9,12 +9,20 @@
  *    也保证真正 dispatch 时不会半途失败留下脏状态。
  *  - 白名单外一律不执行（plan §8.4）：本文件不 import 任何其他 action 类型。
  */
-import type { UINode, UIPage, UIProject } from '../../schema/types';
+import type { ContainerNode, UINode, UIPage, UIProject } from '../../schema/types';
 import { isContainer } from '../../schema/types';
-import { clonePage, findById } from '../../schema/factory';
+import { clonePage, createNode, findById, nextId } from '../../schema/factory';
 import type { EditorAction } from '../store';
 import type { AiEditOp, AiEditPlan, AiViolation } from './types';
-import { buildLayout, buildNodeFromSpec, buildStyle, classPatch, normalizePage, type BuildContext } from './specToPage';
+import {
+  buildLayout,
+  buildNodeFromSpec,
+  buildStyle,
+  classPatch,
+  expandRepeats,
+  normalizePage,
+  type BuildContext,
+} from './specToPage';
 
 /**
  * `updateLayout` / `updateStyle` 的补丁来源：className 先落地，显式字段再覆盖同名。
@@ -63,6 +71,28 @@ function countNodes(node: UINode): number {
 }
 
 /**
+ * 一条 update 指令的目标集合：`targetId` 与 `targetIds` 合并去重。
+ *
+ * 两个字段并存是为了兼容：旧提示词/旧样例只写 `targetId`，批量场景写 `targetIds`。
+ * 合并而不是二选一，避免模型「两个都写了」时静默丢掉一半目标。
+ */
+function opTargets(op: Extract<AiEditOp, { op: 'updateStyle' | 'updateLayout' }>): string[] {
+  const ids = [...(op.targetId ? [op.targetId] : []), ...(op.targetIds ?? [])];
+  return [...new Set(ids)];
+}
+
+/** 深拷贝并给整棵子树重新分配 id（复制出来的节点不能与原件共用 id） */
+function cloneWithNewIds(node: UINode): UINode {
+  const copy = JSON.parse(JSON.stringify(node)) as UINode;
+  const visit = (n: UINode): void => {
+    n.id = nextId(n.type.toLowerCase());
+    if (isContainer(n)) n.children.forEach(visit);
+  };
+  visit(copy);
+  return copy;
+}
+
+/**
  * 干跑：在克隆页上按序执行指令，返回结果页 + 逐条说明 + 违例。
  * 纯函数（无 store / 无 DOM），与 `opsToStoreActions` 共用同一套语义。
  */
@@ -80,10 +110,110 @@ export function applyEditOps(page: UIPage, plan: AiEditPlan, ctx: BuildContext):
         violations.push({ path: `${path}.parentId`, kind: 'ref', message: `父容器 "${op.parentId}" 不存在或不可容纳子节点` });
         return;
       }
-      const node = buildNodeFromSpec(op.node, ctx, `${path}.node`, violations);
+      // repeat 与生成侧同口径：先展开再落地，否则 add 一个 repeat 节点只会插进去一个模板
+      const specs = expandRepeats([op.node], `${path}.node`, violations);
+      if (!specs.length) return;
+      const built = specs.map((n, k) => buildNodeFromSpec(n, ctx, `${path}.node[${k}]`, violations));
       const index = Math.max(0, Math.min(op.index ?? parent.node.children.length, parent.node.children.length));
-      parent.node.children.splice(index, 0, node);
-      report.push({ op: 'add', targetId: op.parentId, text: `在「${nodeLabel(parent.node)}」插入 ${nodeLabel(node)}` });
+      parent.node.children.splice(index, 0, ...built);
+      report.push({
+        op: 'add',
+        targetId: op.parentId,
+        text: `在「${nodeLabel(parent.node)}」插入 ${built.map((b) => nodeLabel(b)).join('、')}`,
+      });
+      return;
+    }
+
+    /**
+     * 批量 update：目标可能多个，且 `targetId` 可能缺省（只给 `targetIds`）。
+     * 放在 `findById(op.targetId)` 之前，否则单目标版本会先因为「没有 targetId」被判死。
+     */
+    if (op.op === 'updateStyle' || op.op === 'updateLayout') {
+      const targets = opTargets(op);
+      if (!targets.length) {
+        violations.push({ path, kind: 'schema', message: 'updateStyle / updateLayout 必须给 targetId 或 targetIds' });
+        return;
+      }
+      /**
+       * kind 固定传 'FRAME'：`buildLayout` 只在 kind 是 TEXT/OVAL/IMAGE 时补 widthMode 缺省值，
+       * 而这里是在打**补丁**，不该凭空塞一个 widthMode（会把用户原有设置改掉）。
+       * 同时这样与 `opsToStoreActions` 完全一致——那边拿不到节点类型，只能传 'FRAME'。
+       */
+      const patch = updatePatch(op, 'FRAME', ctx, path, violations);
+      const labels: string[] = [];
+      for (const id of targets) {
+        const f = findById(next.root, id);
+        if (!f) {
+          violations.push({ path: `${path}.targetIds`, kind: 'ref', message: `目标节点 "${id}" 不存在` });
+          continue;
+        }
+        Object.assign(f.node.layout, patch.layout);
+        f.node.style = { ...(f.node.style ?? {}), ...patch.style };
+        labels.push(nodeLabel(f.node));
+      }
+      if (!labels.length) return;
+      if (Object.keys(patch.style).length) stats.styleChanges += 1;
+      const keys = [...Object.keys(patch.layout), ...Object.keys(patch.style)];
+      report.push({
+        op: op.op,
+        targetId: targets[0],
+        text: `改${op.op === 'updateLayout' ? '布局' : '样式'}「${labels.join('、')}」：${keys.join('/') || '（无变化）'}`,
+      });
+      return;
+    }
+
+    if (op.op === 'duplicate') {
+      const target = findById(next.root, op.targetId);
+      if (!target?.parent) {
+        violations.push({ path: `${path}.targetId`, kind: 'ref', message: `目标节点 "${op.targetId}" 不存在或没有父容器` });
+        return;
+      }
+      // 上限 20：防止一条指令把画布撑爆（与 repeat 的 count 上限同一考虑）
+      const count = Math.max(1, Math.min(Math.floor(op.count ?? 1), 20));
+      const parent = target.parent;
+      const at = parent.children.findIndex((c) => c.id === op.targetId);
+      const copies = Array.from({ length: count }, () => cloneWithNewIds(target.node));
+      parent.children.splice(at + 1, 0, ...copies);
+      report.push({ op: 'duplicate', targetId: op.targetId, text: `复制「${nodeLabel(target.node)}」×${count}` });
+      return;
+    }
+
+    if (op.op === 'group') {
+      const ids = (op.targetIds ?? []).filter((id) => id !== next.root.id);
+      const first = ids.length ? findById(next.root, ids[0]) : null;
+      if (!first?.parent) {
+        violations.push({ path: `${path}.targetIds`, kind: 'ref', message: '成组需要至少一个存在的节点' });
+        return;
+      }
+      const parent = first.parent;
+      const members = parent.children.filter((c) => ids.includes(c.id));
+      if (members.length < 2) {
+        violations.push({ path: `${path}.targetIds`, kind: 'ref', message: '成组需要**同一父级**下的至少 2 个节点' });
+        return;
+      }
+      const frame = createNode('FRAME') as ContainerNode;
+      frame.name = op.name ?? '分组';
+      /**
+       * 与 store 的 `GROUP` 同口径：跟随父容器的排版模式。
+       * 尺寸用 HUG 让分组自适应内容——AI 没有画布几何，给不出精确包围盒。
+       */
+      frame.layout = {
+        ...frame.layout,
+        mode: parent.layout.mode === 'ABSOLUTE' ? 'ABSOLUTE' : parent.layout.mode,
+        widthMode: 'HUG',
+        heightMode: 'HUG',
+        gap: parent.layout.gap ?? 0,
+        padding: [0, 0, 0, 0],
+      };
+      const insertAt = parent.children.findIndex((c) => ids.includes(c.id));
+      parent.children = parent.children.filter((c) => !ids.includes(c.id));
+      frame.children = members;
+      parent.children.splice(Math.max(0, insertAt), 0, frame);
+      report.push({
+        op: 'group',
+        targetId: frame.id,
+        text: `成组「${frame.name}」：${members.map((m) => nodeLabel(m)).join('、')}`,
+      });
       return;
     }
 
@@ -133,25 +263,6 @@ export function applyEditOps(page: UIPage, plan: AiEditPlan, ctx: BuildContext):
         report.push({ op: 'setText', targetId: op.targetId, text: `改文案「${op.text.slice(0, 16)}」` });
         return;
       }
-      case 'updateStyle':
-      case 'updateLayout': {
-        /**
-         * kind 固定传 'FRAME'：`buildLayout` 只在 kind 是 TEXT/OVAL/IMAGE 时补 widthMode 缺省值，
-         * 而这里是在打**补丁**，不该凭空塞一个 widthMode（会把用户原有设置改掉）。
-         * 同时这样与 `opsToStoreActions` 完全一致——那边拿不到节点类型，只能传 'FRAME'。
-         */
-        const patch = updatePatch(op, 'FRAME', ctx, path, violations);
-        Object.assign(found.node.layout, patch.layout);
-        found.node.style = { ...(found.node.style ?? {}), ...patch.style };
-        if (Object.keys(patch.style).length) stats.styleChanges += 1;
-        const keys = [...Object.keys(patch.layout), ...Object.keys(patch.style)];
-        report.push({
-          op: op.op,
-          targetId: op.targetId,
-          text: `改${op.op === 'updateLayout' ? '布局' : '样式'}「${nodeLabel(found.node)}」：${keys.join('/') || '（无变化）'}`,
-        });
-        return;
-      }
       default:
         violations.push({ path, kind: 'schema', message: `不支持的指令（白名单外）：${(op as { op: string }).op}` });
     }
@@ -190,8 +301,12 @@ export function opsToStoreActions(plan: AiEditPlan, ctx: BuildContext, violation
   plan.actions.forEach((op, i) => {
     switch (op.op) {
       case 'add': {
-        const node = buildNodeFromSpec(op.node, ctx, `actions[${i}].node`, violations);
-        actions.push({ type: 'INSERT_NODE', node, parentId: op.parentId, index: op.index });
+        const specs = expandRepeats([op.node], `actions[${i}].node`, violations);
+        // 逐个递增 index，否则展开出来的多个节点会按倒序落位
+        specs.forEach((n, k) => {
+          const node = buildNodeFromSpec(n, ctx, `actions[${i}].node[${k}]`, violations);
+          actions.push({ type: 'INSERT_NODE', node, parentId: op.parentId, index: (op.index ?? 0) + k });
+        });
         break;
       }
       case 'remove':
@@ -203,6 +318,19 @@ export function opsToStoreActions(plan: AiEditPlan, ctx: BuildContext, violation
       case 'setText':
         actions.push({ type: 'UPDATE_TEXT', id: op.targetId, text: op.text });
         break;
+      case 'duplicate': {
+        /**
+         * store 的 `DUPLICATE` 一次只复制一份（且以 `ids` 为准，不依赖选中态）。
+         * `count` 份就 dispatch 多次——它们会依次插在同一位置，最终顺序与原节点相邻。
+         */
+        const count = Math.max(1, Math.min(Math.floor(op.count ?? 1), 20));
+        for (let k = 0; k < count; k += 1) actions.push({ type: 'DUPLICATE', ids: [op.targetId] });
+        break;
+      }
+      case 'group':
+        // 与人工「成组」走同一个 action：结构动作在 reducer 完成，frameLayout 缺省由它推
+        actions.push({ type: 'GROUP', ids: op.targetIds });
+        break;
       case 'updateStyle':
       case 'updateLayout': {
         /**
@@ -210,13 +338,34 @@ export function opsToStoreActions(plan: AiEditPlan, ctx: BuildContext, violation
          * 不是一回事（历史上这里给 buildLayout 传死 'FRAME'，而干跑传的是真实 kind，已经分叉）。
          */
         const patch = updatePatch(op, 'FRAME', ctx, `actions[${i}]`, violations);
-        if (op.op === 'updateLayout') {
-          actions.push({ type: 'UPDATE_LAYOUT', id: op.targetId, patch: patch.layout });
-          // className 里的外观部分（bg-*/rounded-* 等）单独出一条 style 动作，不能吞掉
-          if (Object.keys(patch.style).length) actions.push({ type: 'UPDATE_STYLE', id: op.targetId, patch: patch.style });
+        const targets = opTargets(op);
+        if (!targets.length) break;
+        const hasStyle = Object.keys(patch.style).length > 0;
+        const hasLayout = Object.keys(patch.layout).length > 0;
+        if (targets.length === 1) {
+          const id = targets[0];
+          if (op.op === 'updateLayout') {
+            actions.push({ type: 'UPDATE_LAYOUT', id, patch: patch.layout });
+            // className 里的外观部分（bg-*/rounded-* 等）单独出一条 style 动作，不能吞掉
+            if (hasStyle) actions.push({ type: 'UPDATE_STYLE', id, patch: patch.style });
+          } else {
+            actions.push({ type: 'UPDATE_STYLE', id, patch: patch.style });
+            if (hasLayout) actions.push({ type: 'UPDATE_LAYOUT', id, patch: patch.layout });
+          }
         } else {
-          actions.push({ type: 'UPDATE_STYLE', id: op.targetId, patch: patch.style });
-          if (Object.keys(patch.layout).length) actions.push({ type: 'UPDATE_LAYOUT', id: op.targetId, patch: patch.layout });
+          /**
+           * 批量走 MULTI：一条动作 = 一次撤销。
+           * 逐节点 dispatch 会让「改 5 张卡」变成 5 步撤销，用户体验上等于没有撤销。
+           */
+          const stylePatches = targets.map((id) => ({ id, patch: patch.style }));
+          const layoutPatches = targets.map((id) => ({ id, patch: patch.layout }));
+          if (op.op === 'updateLayout') {
+            actions.push({ type: 'UPDATE_LAYOUT_MULTI', patches: layoutPatches });
+            if (hasStyle) actions.push({ type: 'UPDATE_STYLE_MULTI', patches: stylePatches });
+          } else {
+            actions.push({ type: 'UPDATE_STYLE_MULTI', patches: stylePatches });
+            if (hasLayout) actions.push({ type: 'UPDATE_LAYOUT_MULTI', patches: layoutPatches });
+          }
         }
         break;
       }
@@ -242,5 +391,53 @@ export function projectWithNewPage(
     components: state.components,
     tokens: state.tokens,
     flows: [],
+  };
+}
+
+/**
+ * 采纳整站：**同名页替换、新页追加**（不是无脑追加）。
+ *
+ * 为什么同名要替换：用户改了需求重新生成，无脑追加会得到「首页」和「首页 2」两份，
+ * 而整站的导航是按**页面名**连的（`wireNavigation` 取第一个同名页），
+ * 于是点导航永远跳到旧那份——用户改了需求却看不到变化，这是最坏的一种 bug。
+ * 替换的语义与「重新生成一个 Frame」一致，符合直觉。
+ */
+export function projectWithSite(
+  state: {
+    projectName: string;
+    pages: UIPage[];
+    components: UIProject['components'];
+    tokens: UIProject['tokens'];
+    /** 编辑器 state 里没有 flows（只在 UIProject 上）；缺省按空表 */
+    flows?: UIProject['flows'];
+  },
+  pages: UIPage[],
+): { project: UIProject; replaced: number; added: number } {
+  const incoming = new Map(pages.map((p) => [(p.name ?? '').trim(), p]));
+  const kept: UIPage[] = [];
+  let replaced = 0;
+  for (const old of state.pages) {
+    const key = (old.name ?? '').trim();
+    const next = incoming.get(key);
+    if (next) {
+      kept.push(next);
+      incoming.delete(key);
+      replaced += 1;
+    } else {
+      kept.push(old);
+    }
+  }
+  const added = [...incoming.values()];
+  return {
+    project: {
+      version: 2,
+      name: state.projectName,
+      pages: [...kept, ...added],
+      components: state.components,
+      tokens: state.tokens,
+      flows: state.flows ?? [],
+    },
+    replaced,
+    added: added.length,
   };
 }

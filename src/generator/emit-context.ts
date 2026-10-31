@@ -20,6 +20,7 @@
  */
 import type { UINode, UIPage } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
+import type { NavGraph } from './navigation';
 import { collectDataUrls, assetFor } from './zipKit';
 
 /** 生成产物文件（多出口共用；encoding=base64 表示 content 是 base64 载荷，写盘时按字节落） */
@@ -68,6 +69,15 @@ export interface EmitContext {
   tag: (n: UINode) => string;
   assets: AssetRef[];
   meta: PageMeta;
+  /**
+   * 页面间导航图（`node.interactions` 的投影）。
+   *
+   * 类型导入而非值导入：`navigation.ts` 反向依赖本文件的 `pagePathOf`，
+   * 用 `import type` 让它在运行时被擦除，不成环。
+   *
+   * 缺省 undefined 表示「单页出码，不发射跳转」——单页场景本来也没有目标页。
+   */
+  nav?: NavGraph;
 }
 
 /** 框架标签表：语义标签 → 框架实际标签（缺省 identity，即 HTML 原生） */
@@ -166,6 +176,33 @@ export function deriveTabBar(pages: UIPage[]): TabBarItem[] | undefined {
   return hits.slice(0, 5).map((h) => h.item);
 }
 
+/**
+ * 设计稿是否自带「产品外壳」（固定底栏 / 工具栏）。
+ *
+ * 判据只看 `position: FIXED`，不看名字——名字是模型起的，随时会变；
+ * 而「页面里画了固定定位的东西」本身就是「这一页有自己的外壳」的确定性证据。
+ *
+ * 为什么需要这个：小程序端的 `tabBar` 是**框架原生**的，设计稿若已经画了底栏，
+ * 两者会叠成两个导航（实测 uni-app H5 截图里就是两条：native tabBar + 设计稿底栏），
+ * 而且 native 导航栏还会把整页内容下推 47px，像素关必挂。
+ * 有自带外壳时一律：`navigationStyle: custom` + 不出框架 tabBar。
+ *
+ * 既有 19 页 demo 的 FIXED 节点数为 0，所以这条规则不动历史基线。
+ */
+export function hasFixedChrome(pages: UIPage[]): boolean {
+  let found = false;
+  const visit = (n: UINode): void => {
+    if (found) return;
+    if (n.layout?.position === 'FIXED') {
+      found = true;
+      return;
+    }
+    for (const c of (n as { children?: UINode[] }).children ?? []) visit(c);
+  };
+  for (const p of pages) visit(p.root);
+  return found;
+}
+
 export interface MakeContextOptions {
   /** 页面在工程中的序号（决定输出路径） */
   index?: number;
@@ -176,6 +213,8 @@ export interface MakeContextOptions {
   meta?: Partial<PageMeta>;
   /** 显式覆盖资产清单（避免每页重算） */
   assets?: AssetRef[];
+  /** 页面间导航图（多页出码时由装配方传入；缺省不发射跳转） */
+  nav?: NavGraph;
 }
 
 /** 装配一页的 EmitContext（三个出口的唯一入口） */
@@ -197,5 +236,6 @@ export function makeEmitContext(
       title: opts.meta?.title ?? page.name,
       ...(tabBar ? { tabBar } : {}),
     },
+    ...(opts.nav ? { nav: opts.nav } : {}),
   };
 }

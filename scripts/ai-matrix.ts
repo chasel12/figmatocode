@@ -25,7 +25,7 @@ import { buildPrompt, pickFewShots, type FewShotEntry } from '../src/editor/ai/p
 import { validateAiOutput, summarizeViolations } from '../src/editor/ai/contract';
 import { applyEditOps } from '../src/editor/ai/aiActions';
 import { runPageGeneration } from '../src/editor/ai/generate';
-import { createLlmClient, DEFAULT_MODEL, estimateCostCny, providerDef, PROVIDERS, supportsJsonSchema, type ProviderId } from '../src/editor/ai/client';
+import { createLlmClient, DEFAULT_MODEL, estimateCostCny, providerDef, PROVIDERS, structuredOutputFor, type ProviderId } from '../src/editor/ai/client';
 import { getPack, PACKS, packTokens } from '../src/tokens/packs';
 import { LUCIDE_ICONS } from '../src/assets/icons/lucide';
 import { createPage } from '../src/schema/factory';
@@ -177,7 +177,8 @@ const GOLDEN = [
 {
   const iconCount = Object.keys(LUCIDE_ICONS).length;
   const tokenCounts = PACKS.map((p) => packTokens(p).length).join('/');
-  add('A8', '风格包 3 套 + 图标库齐备', PACKS.length === 3 && iconCount >= 1500, `包 ${PACKS.map((p) => p.id).join(',')}；样式条数 ${tokenCounts}；图标 ${iconCount}`);
+  // 包是可扩展的（第 4 套 blackgreen 就是后加的），断言写死数量只会变成假红
+  add('A8', '风格包 ≥3 套 + 图标库齐备', PACKS.length >= 3 && iconCount >= 1500, `包 ${PACKS.map((p) => p.id).join(',')}；样式条数 ${tokenCounts}；图标 ${iconCount}`);
 }
 
 /* ---------------- 9. 成本量级（§7 单页 ¥0.3–1.5） ---------------- */
@@ -230,11 +231,12 @@ const liveDef = live ? providerDef(live.provider) : undefined;
 // 端点：显式 AI_BASE_URL 覆盖 > 供应商表默认端点（官方 anthropic 为 undefined，SDK 自己取）
 const baseURL = process.env.AI_BASE_URL || liveDef?.baseURL;
 const liveModel = process.env.AI_MODEL || process.env.ANTHROPIC_MODEL || liveDef?.defaultModel || DEFAULT_MODEL;
-// 结构化输出能力：OpenAI 协议看表里声明的能力；Anthropic 协议沿用按端点推断（DeepSeek 兼容层不认 json_schema）
+// 结构化输出能力：走 `structuredOutputFor`（唯一权威），别再按协议各判一套 ——
+// 那正是「表里写了 jsonSchema:false 但没人读」的成因。
 const jsonSchemaSupported = liveDef
   ? liveDef.protocol === 'openai'
     ? liveDef.jsonSchema === true
-    : supportsJsonSchema(baseURL)
+    : structuredOutputFor(liveDef.id, baseURL)
   : false;
 
 if (live) {

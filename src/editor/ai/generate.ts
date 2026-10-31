@@ -10,7 +10,7 @@
  */
 import type { UIPage } from '../../schema/types';
 import type { StylePack } from '../../tokens/packs/types';
-import type { LlmClient, AiUsage } from './client';
+import type { LlmClient, AiUsage, LlmResult } from './client';
 import { DEFAULT_MODEL, estimateCostCny } from './client';
 import { buildPrompt, buildRepairPrompt, outlineOf, type FewShotEntry, type SelectionContext } from './promptPack';
 import { extractJson, summarizeViolations, validateAiOutput } from './contract';
@@ -39,8 +39,15 @@ export interface PipelineOptions {
   onDelta?: (chunk: string) => void;
   /** 自修轮数上限（plan §4-W3：≤2） */
   maxRepair?: number;
+  /** 整站生成时每页都必须出现的导航文案（= 全部页面名）；单页生成时缺省 */
+  navItems?: string[];
   /** 成本估算用的模型档位（缺省 opus 档） */
   model?: string;
+  /**
+   * 用户上传的设计参考正文（已合成）。两条管线都要透传 ——
+   * 只在「生成新页」生效、编辑时不带，会让用户改同一页时风格突然跑掉。
+   */
+  designRef?: string;
 }
 
 export interface PipelineResult<T> {
@@ -60,6 +67,22 @@ export interface PipelineResult<T> {
 
 const emptyUsage = (): AiUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
 
+/**
+ * 输出被截断（`finish_reason=length`）→ 一条 `limit` 违例，且**原文不进自修提示词**。
+ *
+ * 实测：把半截 JSON 喂回去之后模型会沿着断口继续写，产出 `"kind" , "kind" , …`
+ * 这种退化文本，输出量反而翻倍（9K → 21K tokens），越修越烂。
+ * 正确做法是当成「这一版没写完」：清空原文，让它重新完整输出。
+ */
+function truncatedViolation(res: LlmResult): AiViolation | null {
+  if (res.finishReason !== 'length') return null;
+  return {
+    path: '(根)',
+    kind: 'limit',
+    message: `输出被截断（finish_reason=length，已写 ${res.usage.outputTokens} tokens）；请更精简地重新输出完整 JSON`,
+  };
+}
+
 const addUsage = (a: AiUsage, b: AiUsage): AiUsage => ({
   inputTokens: a.inputTokens + b.inputTokens,
   outputTokens: a.outputTokens + b.outputTokens,
@@ -77,6 +100,8 @@ export async function runPageGeneration(opts: PipelineOptions): Promise<Pipeline
     userPrompt: opts.userPrompt,
     viewport: opts.viewport,
     fewShots: opts.fewShots,
+    designRef: opts.designRef,
+    navItems: opts.navItems,
   });
   opts.onProgress?.({ stage: 'prompt', attempt: 0, message: `提示词就绪（${Math.round((system.length + user.length) / 1000)}K 字符）` });
 
@@ -103,6 +128,14 @@ export async function runPageGeneration(opts: PipelineOptions): Promise<Pipeline
     usage = addUsage(usage, res.usage);
     lastRaw = res.text;
 
+    const trunc = truncatedViolation(res);
+    if (trunc) {
+      lastViolations = [trunc];
+      lastRaw = '';
+      opts.onProgress?.({ stage: 'validate', attempt, message: trunc.message });
+      continue;
+    }
+
     const parsed = extractJson(res.text);
     if (!parsed.ok) {
       lastViolations = [{ path: '(根)', kind: 'schema', message: parsed.error }];
@@ -119,14 +152,27 @@ export async function runPageGeneration(opts: PipelineOptions): Promise<Pipeline
 
     const draft = checked.data as AiPageDraft;
     const built = draftToPage(draft, { pack: opts.pack, icons: opts.icons } satisfies BuildContext);
-    lastViolations = built.violations;
-    if (built.violations.length) {
-      opts.onProgress?.({ stage: 'validate', attempt, message: `转换阶段 ${built.violations.length} 条违例` });
+    /**
+     * 只把**需要模型改**的违例算作失败。
+     *
+     * 归一化顺手改对的那些（`autoFixed`）已经体现在产物里了，再让模型重写一遍
+     * 只会得到同一份产物、多烧一次调用；而自修用尽后是**抛异常**，整站生成会连坐
+     * （实测：商品详情页 3 条 autoFixed 违例让前 5 页全部白跑）。详见 `AiViolation.autoFixed`。
+     */
+    const fatal = built.violations.filter((v) => !v.autoFixed);
+    const fixedCount = built.violations.length - fatal.length;
+    lastViolations = fatal;
+    if (fatal.length) {
+      opts.onProgress?.({ stage: 'validate', attempt, message: `转换阶段 ${fatal.length} 条违例` });
       continue;
     }
 
     firstPass = attempt === 0;
-    opts.onProgress?.({ stage: 'done', attempt, message: `生成完成（${attempt + 1} 轮）` });
+    opts.onProgress?.({
+      stage: 'done',
+      attempt,
+      message: `生成完成（${attempt + 1} 轮${fixedCount ? `，自动修复 ${fixedCount} 处` : ''}）`,
+    });
     return {
       data: built.page,
       attempts: attempt + 1,
@@ -156,6 +202,7 @@ export async function runEditPlan(
     viewport: opts.viewport,
     selection: opts.selection,
     fewShots: opts.fewShots,
+    designRef: opts.designRef,
   });
   opts.onProgress?.({ stage: 'prompt', attempt: 0, message: '编辑提示词就绪' });
 
@@ -175,6 +222,14 @@ export async function runEditPlan(
     const res = await opts.client.run({ kind: 'edit', system, user: userMessage, onDelta: opts.onDelta, signal: opts.signal });
     usage = addUsage(usage, res.usage);
     lastRaw = res.text;
+
+    const trunc = truncatedViolation(res);
+    if (trunc) {
+      lastViolations = [trunc];
+      lastRaw = '';
+      opts.onProgress?.({ stage: 'validate', attempt, message: trunc.message });
+      continue;
+    }
 
     const parsed = extractJson(res.text);
     if (!parsed.ok) {

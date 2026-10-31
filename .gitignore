@@ -10,6 +10,10 @@ preview-dbg.log
 # 临时构建目录（esbuild/Playwright 的 TEMP 旁路；见 HANDOFF §3/§9）
 .tmp-esbuild/
 .esbuild-tmp/
+.vitest-tmp/
+
+# Vite 热更新留下的临时配置快照（每次启动一个，不该入库）
+vite.config.ts.timestamp-*.mjs
 
 # Agent 工作区残留（执行者/规划师回报，非产品资产）
 .zwork/

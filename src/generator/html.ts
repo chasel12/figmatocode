@@ -3,8 +3,8 @@ import { isContainer } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
-import { svgOfVector } from './vector';
-import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
+import { svgOfNodeVector, svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, collectPlaceholderNodes, imagePlaceholderCss, isDarkColor, placeholderClass } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 
 export function escapeHtml(text: string): string {
@@ -39,18 +39,16 @@ function makeRenderer(classNames: Map<string, string>, indentUnit = '  ', startD
         }
         return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="" />`;
       }
-      return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"></div>`;
+      // P3-4：按图层名给确定性色调（同名同色；只改 background，不动盒子）
+      return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></div>`;
     }
     if (node.type === 'SLICE') {
       return ''; // FR-14：Slice 不生成出码 DOM（compileNode 同步跳过——classNames 缺失会出无样式 div）
     }
     if (node.type === 'VECTOR') {
       // FR-49：矢量走内联 <svg>（唯一权威表达）；空 d 不产物流
-      const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
-        className: cls,
-        border: node.style?.border,
-        fill: node.style?.background,
-      });
+      // 渲染尺寸由 svgOfNodeVector 统一决定（图标按布局缩放），五端必须同口径
+      const svg = svgOfNodeVector(node, cls);
       return svg ? `${indent}${svg}` : '';
     }
     if (isShapeSvgNode(node)) {
@@ -144,7 +142,7 @@ export function generateHtml(page: UIPage, compiled: CompiledPage, options: { ti
 <style>
 html, body { margin: 0; padding: 0; }
 body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${minH === '100vh' ? '812px' : minH.replace('max(', '').replace(/, 100vh\)/, '')}; }
-${IMAGE_PLACEHOLDER_CSS}
+${imagePlaceholderCss(collectPlaceholderNodes(page.root), isDarkColor(page.root.style?.background))}
 </style>
 <style>
 ${fontFaceCss(options.fontsBase ?? '/fonts')}

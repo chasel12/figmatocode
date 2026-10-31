@@ -178,9 +178,14 @@ describe('M7 W1 JSON 抠取（容忍围栏与寒暄）', () => {
 });
 
 describe('M7 W1 风格包注册表', () => {
-  it('三套包齐备且许可证在白名单内（红线③）', () => {
-    expect(PACKS.map((p) => p.id)).toEqual(['shadcn', 'openprops', 'daisy-dark']);
-    const allowed = ['MIT', 'Apache-2.0', 'ISC', 'OFL'];
+  it('四套包齐备且许可证在白名单内（红线③）', () => {
+    /**
+     * `blackgreen` 是**手写**包（三个抽取包的主色是紫/蓝/蓝，没有绿色，
+     * 而提示词硬规则禁止包外色值 —— 不补包就做不出「黑绿色」这类显式要求）。
+     * 它用 CC0-1.0：自己写的，放弃版权，比 MIT 更宽松，故白名单同步加 `CC0`。
+     */
+    expect(PACKS.map((p) => p.id)).toEqual(['shadcn', 'openprops', 'daisy-dark', 'blackgreen']);
+    const allowed = ['MIT', 'Apache-2.0', 'ISC', 'OFL', 'CC0'];
     for (const p of PACKS) {
       expect(allowed.some((a) => p.license.includes(a)), `${p.id} license=${p.license}`).toBe(true);
     }

@@ -13,8 +13,8 @@ import { isContainer } from '../schema/types';
 import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { escapeHtml } from './html';
-import { svgOfVector } from './vector';
-import { IMAGE_PLACEHOLDER_CLASS, IMAGE_PLACEHOLDER_CSS } from './imagePlaceholder';
+import { svgOfNodeVector, svgOfVector } from './vector';
+import { IMAGE_PLACEHOLDER_CLASS, collectPlaceholderNodes, imagePlaceholderCss, isDarkColor, placeholderClass } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { buildRuntimeJs, buildRuntimeCss, RUNTIME_FILE } from './runtime';
 
@@ -105,7 +105,7 @@ function renderNode(node: UINode, classNames: Map<string, string>, depth: number
     return `${indent}<button class="${cls}" type="button"${anchor}${inter}>${escapeHtml(node.text)}</button>`;
   if (node.type === 'IMAGE') {
     const src = node.src || '';
-    if (!src) return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS}"${anchor}${inter}></div>`;
+    if (!src) return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"${anchor}${inter}></div>`;
     if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE')
       return `${indent}<div class="${cls}" style="background-image:url('${escapeHtml(src)}');background-repeat:repeat;"${anchor}${inter}></div>`;
     return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt=""${anchor}${inter} />`;
@@ -113,11 +113,7 @@ function renderNode(node: UINode, classNames: Map<string, string>, depth: number
   if (node.type === 'SLICE') return ''; // FR-14：Slice 无出码 DOM
   if (node.type === 'VECTOR') {
     // FR-49：矢量走内联 <svg>（与 html.ts/reference.ts 同口径）
-    const svg = svgOfVector(node.vector, node.layout.width ?? 0, node.layout.height ?? 0, {
-      className: cls,
-      border: node.style?.border,
-      fill: node.style?.background,
-    });
+    const svg = svgOfNodeVector(node, cls);
     if (!svg) return '';
     // data-node / data-interaction 挂在 svg 外层包装上（svg 自身不吃自定义属性语义）
     return `${indent}<span${anchor}${inter}>${svg}</span>`;
@@ -173,7 +169,7 @@ export function generatePrototypeProject(project: UIProject): PrototypeFile[] {
   const css = [
     ...compiledAll.map(({ compiled }) => scssFromPage(compiled)),
     // 原型产物此前完全没有占位规则，空图片在预览里是一块透明区域——与 html/react/vue 对齐
-    IMAGE_PLACEHOLDER_CSS,
+    imagePlaceholderCss(pages.flatMap((p) => collectPlaceholderNodes(p.root)), isDarkColor(pages[0]?.root.style?.background)),
     needsRuntime ? buildRuntimeCss() : '',
   ]
     .filter(Boolean)

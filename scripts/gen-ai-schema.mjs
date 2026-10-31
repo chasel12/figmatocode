@@ -25,6 +25,7 @@ const SRC = 'src/editor/ai/types.ts';
 
 const targets = [
   { type: 'AiPageDraft', out: 'src/editor/ai/contract.page.schema.json', title: 'UI Compiler AI · 页面草稿契约' },
+  { type: 'AiSiteDraft', out: 'src/editor/ai/contract.site.schema.json', title: 'UI Compiler AI · 整站规划契约' },
   { type: 'AiEditPlan', out: 'src/editor/ai/contract.edit.schema.json', title: 'UI Compiler AI · 编辑指令契约' },
 ];
 

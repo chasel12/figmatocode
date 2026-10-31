@@ -18,7 +18,18 @@ import { PresentOverlay, isPresenting } from './present/PresentOverlay';
 import { presentBus } from './present/presentBus';
 import { AiDock } from './ai/AiDock';
 import { UnsavedDialog } from './UnsavedDialog';
+import { RecoveryBanner } from './RecoveryBanner';
 import { saveProjectJson } from './saveProject';
+import {
+  beginSession,
+  dropOldestSnapshot,
+  heartbeat,
+  installSessionLifecycle,
+  reportSaveResult,
+  shouldSnapshot,
+  writeSnapshot,
+  type RecoveryHint,
+} from './crashRecovery';
 import {
   AUTOSAVE_KEY,
   autosaveEnvelope,
@@ -90,6 +101,8 @@ export function Editor() {
   const [previewStartId, setPreviewStartId] = useState<string | null>(null);
   // FR-60：被未保存守卫挂起的破坏性意图（新建/打开/关闭）；非 null 即弹三按钮弹窗
   const [pendingIntent, setPendingIntent] = useState<PendingIntent | null>(null);
+  // FR-60 第 4 道防线：上次非正常退出的线索（null = 正常启动，不显示横幅）
+  const [recovery, setRecovery] = useState<RecoveryHint | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -150,24 +163,54 @@ export function Editor() {
         return; // 序列化失败（循环引用等）不该拖垮编辑
       }
       lastFlushAtRef.current = Date.now();
-      flushSnapshot(json);
+      /**
+       * FR-60 第 4 道防线：落盘 → 报健康度 → 心跳 → 里程碑快照。
+       *
+       * 配额满时的处置顺序是**明确的优先级**：
+       * `flushSnapshot` 自己先丢回滚点；还不行就由这里逐份丢最旧的快照。
+       * 「当前工程存不下来」比「5 分钟前的历史快照」严重得多，所以宁可牺牲历史。
+       */
+      let ok = flushSnapshot(json);
+      while (!ok && dropOldestSnapshot()) ok = flushSnapshot(json);
+      reportSaveResult(ok);
+      if (ok) {
+        heartbeat(stateRef.current.projectName);
+        if (shouldSnapshot()) writeSnapshot(json, stateRef.current.projectName);
+      }
       if (cleanRequested) markSaved(json);
       else recomputeDirty(json);
     }, delay);
     return () => clearTimeout(timer);
   }, [state.pages, state.currentPageId, state.projectName, state.components, state.tokens]);
 
-  // FR-60：把「当前工程 → JSON」与「重算脏标记」交给守卫模块；装 beforeunload / pagehide /
-  // visibilitychange 钩子（关闭时同步落盘，这是强制关闭场景里唯一保证完成的写）
+  /**
+   * FR-60 第 4 道防线：会话标记 + 生命周期钩子。
+   *
+   * **必须挂在这个 `[]` effect 里，不能单独写一个 `[restored]` 的 effect。**
+   * 实测（一次性 UI 探针）：写在 `[restored]` 里时，恢复历史快照那一步会触发
+   * cleanup → `pagehide` 监听器被摘掉 → 之后正常刷新不再清标记 → 下次启动误报
+   * 「上次未正常关闭」。这里和未保存守卫共用同一个「装一次、卸一次」的 effect，
+   * 后者已被 `npm run fr60` 9/9 锁定，稳定性有据。
+   *
+   * 顺序很关键 —— `beginSession` **先读旧标记再写新标记**，读到的旧标记还在就说明
+   * 上次连 `pagehide` 都没跑到（进程被杀 / 断电 / 蓝屏），那才叫非正常退出。
+   * 只有「确实恢复出了内容」时才提示：本地什么都没有的干净启动不该弹横幅。
+   */
   useEffect(() => {
     registerSnapshotSource(() => autosaveEnvelope(stateRef.current));
     registerRevalidator(() => recomputeDirty(autosaveEnvelope(stateRef.current)));
-    const dispose = installLifecycleGuard();
+    const hint = beginSession(stateRef.current.projectName);
+    if (hint.unclean && hint.lastAt !== null && restored) setRecovery(hint);
+    const disposeGuard = installLifecycleGuard();
+    const disposeSession = installSessionLifecycle(() => stateRef.current.projectName);
     return () => {
       registerSnapshotSource(null);
       registerRevalidator(null);
-      dispose();
+      disposeGuard();
+      disposeSession();
     };
+    // restored 只在这里读一次（useMemo 稳定），不作为依赖 —— 见上面的说明
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // FR-60：守卫挂起意图 → 本层渲染三按钮弹窗
@@ -205,6 +248,26 @@ export function Editor() {
     const json = autosaveEnvelope(stateRef.current);
     markSaved(json);
     flushSnapshot(json);
+  };
+
+  /**
+   * 从历史快照恢复（横幅里点某一份）。
+   *
+   * 返回错误文案而不是抛异常：失败要显示在横幅里，让用户知道「点了但没成」，
+   * 而不是静默什么也没发生。成功则返回 null 并收起横幅。
+   *
+   * 注意 `LOAD_PROJECT` 会清空撤销栈（跨工程语义），所以这一步**不可撤销** ——
+   * 横幅里已经把这句话写给用户了。
+   */
+  const restoreFromSnapshot = (json: string): string | null => {
+    try {
+      const { project } = parseProject(json);
+      dispatch({ type: 'LOAD_PROJECT', project });
+      setRecovery(null);
+      return null;
+    } catch (e) {
+      return `这份快照解析失败：${(e as Error).message}`;
+    }
   };
 
   useEffect(() => {
@@ -336,6 +399,16 @@ export function Editor() {
       <CanvasGeometryContext.Provider value={geometry}>
         <div className="editor">
           <Toolbar />
+          {/* FR-60 第 4 道防线：上次非正常关闭的提示（内容已自动恢复，这里只告知 + 给退路） */}
+          {recovery && recovery.lastAt !== null && (
+            <RecoveryBanner
+              lastAt={recovery.lastAt}
+              projectName={recovery.projectName}
+              currentProjectName={state.projectName}
+              onRestore={restoreFromSnapshot}
+              onDismiss={() => setRecovery(null)}
+            />
+          )}
           <div className="editor-body">
             <nav className="nav-rail" aria-label="导航">
               <button type="button" className="nav-btn" disabled title="主菜单（M3 对照 UI3 完善）">

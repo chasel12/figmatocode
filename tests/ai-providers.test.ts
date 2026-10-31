@@ -25,6 +25,8 @@ import {
   setBaseURL,
   setModel,
   setProvider,
+  structuredOutputFor,
+  supportsJsonSchema,
 } from '../src/editor/ai/client';
 
 /** node 环境没有 localStorage：装一个最小实现，测试后恢复 */
@@ -74,6 +76,30 @@ describe('供应商表', () => {
   it('自定义端点可编辑 baseURL，本地端点不需要 key', () => {
     expect(providerDef('custom').baseURLEditable).toBe(true);
     expect(providerDef('ollama').keyOptional).toBe(true);
+  });
+
+  /**
+   * 漂移守卫：anthropic 协议的结构化输出能力有**两个判定源** ——
+   * 供应商表的 `jsonSchema` 字段，和 `supportsJsonSchema(baseURL)` 这个 URL 正则。
+   *
+   * 历史上 anthropic 那条路径只读正则、从不读表，于是「表里写 false、正则判 true」时
+   * 会向端点发 `output_config`，而端点**静默忽略**（不报错、不生效）—— 比明确不支持更糟。
+   * `structuredOutputFor()` 已把顺序定成「表优先、正则兜底」，这条断言锁住两者不许分叉。
+   */
+  it('anthropic 协议供应商：表里的 jsonSchema 与 URL 启发式必须一致', () => {
+    for (const p of PROVIDERS) {
+      if (p.protocol !== 'anthropic' || p.jsonSchema === undefined) continue;
+      expect(supportsJsonSchema(p.baseURL), `${p.label} 的两个判定源分叉了`).toBe(p.jsonSchema);
+      expect(structuredOutputFor(p.id, p.baseURL)).toBe(p.jsonSchema);
+    }
+  });
+
+  it('structuredOutputFor：表优先，表里没写才退回 URL 启发式', () => {
+    // 官方 Anthropic：表里 true
+    expect(structuredOutputFor('anthropic', undefined)).toBe(true);
+    // DeepSeek 兼容端点：表里 false（哪怕调用方传了个不含 deepseek 的自定义端点也不改口）
+    expect(structuredOutputFor('deepseek', undefined)).toBe(false);
+    expect(structuredOutputFor('deepseek', 'https://example.com/anthropic')).toBe(false);
   });
 });
 
