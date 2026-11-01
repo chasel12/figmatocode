@@ -411,3 +411,23 @@ circle，`draft` 组扫的根本不是 `ui-gen` 的产物。修法：改正则 +
 两个脚本的定位因此明确为**回归看板**：改规则前后各跑一遍，看数字往哪边走，人工判断。
 `npm run ui:gen` → `ui:shots` → `ui:measure` → `ui:expect` → `ui:audit` 是这条看板的完整顺序，
 **必须按顺序跑**（`ui:measure` 现在会因为 HTML 不同源而跳过）。
+
+### 9.8 编辑器面板端到端（此前唯一没验过的路径）
+
+所有 45 场景都是走**脚本轨**（`scripts/ui-gen.ts` → node fetch）。编辑器面板里走的是另一条：
+key 从 `localStorage` 读 → 浏览器直接 `fetch`（`dangerouslyAllowBrowser`）→ 结果经 store 落画布。
+脚本能通**不代表**这条能通：CORS、key 读取、store 接线、进度渲染是四个独立环节。
+
+分两步验：
+
+1. **网络层**（先单独测，避免把 CORS 问题和 UI 问题混在一起）：在真浏览器里从
+   `http://127.0.0.1:<port>` 直接 POST 到 `…/compatible-mode/v1/chat/completions`
+   → **200**，没有 CORS 拦截。qianwen 这个端点允许跨源，所以浏览器直连可行。
+2. **面板全链路**（playwright 驱动 dev server）：预置 `localStorage` 的 provider / key / model
+   → 左侧切到「AI」→ 填 `.ai-prompt` → 点 `button.ai-run` → 等回「生成」→ 点「采纳为新页面」。
+
+结果：**一次通过**（¥0.009，输入 1159 / 输出 1926，1 轮无自修），画布上出现完整页面
+（「今日训练」+ 3 张训练卡 + 主色「开始训练」按钮），左侧日志「已采纳为新页面「今日训练」」。
+
+**这一步同时暴露了一个流程事实**：生成完只是**预览**，必须点「采纳为新页面」才落画布。
+第一次跑没点采纳，画布是空的 —— 当时差点误判成「接线断了」。
