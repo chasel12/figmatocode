@@ -69,7 +69,14 @@ const GOLDEN = [
   const before = files.map((f) => fs.readFileSync(path.join(root, f), 'utf8'));
   execFileSync(process.execPath, [path.join(root, 'scripts/gen-ai-schema.mjs')], { cwd: root, stdio: 'ignore' });
   const after = files.map((f) => fs.readFileSync(path.join(root, f), 'utf8'));
-  const drift = before.filter((b, i) => b !== after[i]).length;
+  /**
+   * 按行尾归一后比较：`gen-ai-schema.mjs` 写 LF，Windows checkout 出来的工作区是 CRLF，
+   * 逐字节比会让**第一次运行必然 FAIL**（第二次文件已是 LF 就 PASS）——
+   * 这是假红，会让人以为 schema 真的不同步。A1 要判的是「内容与 types 脱节」，
+   * 不是「行尾符一致」。
+   */
+  const norm = (s: string): string => s.replace(/\r\n/g, '\n');
+  const drift = before.filter((b, i) => norm(b) !== norm(after[i])).length;
   add('A1', '契约 schema 与 types.ts 同步', drift === 0, drift === 0 ? '重新生成后字节一致' : `${drift} 份 schema 已过期，已自动重生成（请提交）`);
 }
 

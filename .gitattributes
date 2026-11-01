@@ -1,0 +1,7 @@
+# AI 契约 schema 由 `scripts/gen-ai-schema.mjs` 生成，写的是 LF。
+# Windows 的 `core.autocrlf=true` 会把它 checkout 成 CRLF，于是脚本一跑文件就变脏
+# （`git status` 显示 M 但 `git diff` 无内容），`ai-matrix` A1 也会误判「schema 不同步」。
+# 强制这三个文件在工作区也用 LF，生成物与检出物逐字节一致。
+src/editor/ai/contract.page.schema.json text eol=lf
+src/editor/ai/contract.edit.schema.json text eol=lf
+src/editor/ai/contract.site.schema.json text eol=lf

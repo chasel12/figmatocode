@@ -26,6 +26,8 @@ import type {
 } from '../../schema/types';
 import { createNode, createPage, nextId } from '../../schema/factory';
 import { isContainer } from '../../schema/types';
+import { contrastRatio, parseColor, relativeLuminance } from '../../standards/color';
+import { ownBackground } from '../../standards/context';
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiBorderSpec, AiFillSpec, AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStatesSpec, AiStyleSpec, AiViolation } from './types';
 import { parseClassNames } from './tailwind';
@@ -1216,6 +1218,9 @@ export function normalizePage(root: UINode, violations: AiViolation[], notes: st
   // 必须在 normalizeFill 之后：那条规则会把「父 HUG 的子项 FILL」降回 HUG，
   // 而等分网格的子项必须是 FILL，否则同排宽度不齐。后跑的规则优先。
   normalizeGridItems(root, violations);
+  // 必须最后跑：前面几条可能改掉背景（normalizeFill 会把父 HUG 的子项 FILL 降回 HUG，
+  // 也可能动 fills），对比度要按**最终**背景算，早算等于拿旧背景判新文字色。
+  normalizeInvisibleText(root, root.style?.background ?? '#FFFFFF');
 }
 
 /**
@@ -1261,6 +1266,85 @@ function normalizeHugSize(root: UINode): void {
     if (isContainer(node)) node.children.forEach(visit);
   };
   visit(root);
+}
+
+/**
+ * 文字与背景几乎同色 → 换成可读色（转换层兜底，静默）。
+ *
+ * ## 为什么阈值是 1.5 而不是 4.5
+ *
+ * 4.5 是 WCAG 正文标准，但**大量「刻意的次要文字」落在 2.5~3.5**
+ * （`#999999` 压白底 = 2.85，全站 25 页里 50 处）。那是设计选择，不是错误——
+ * 自动加深会把「辅助信息的视觉重量」改掉，属于改设计。
+ *
+ * 1.5 以下才是**几乎不可能是有意为之**：文字等于消失了。2026-11-01 全站扫描
+ * （demo 19 页 + 商城 6 页）对比度 < 1.5 的真实命中只有 1 处：
+ *
+ * ```
+ * BUTTON「立即购买」 background:#1677FF（蓝） color:#CC785C（棕橙） → 1.25:1
+ * ```
+ *
+ * 典型的**色系混用**：显式 hex 与风格包令牌撞在一起。这种页面用户直接看不见字。
+ *
+ * ## 为什么背景不可判定时必须跳过
+ *
+ * 用 `ownBackground` 的三态：`inherit` 继续往上找、`color` 用它算、`unknown`（渐变 /
+ * 图片 / 半透明叠层）**整个子树都不判**。2026-11-01 第一版诊断脚本把渐变头部当成
+ * 继承了根白底，于是 12 条「白字压在紫蓝渐变上」全被误报成 1.08:1——**误报的代价
+ * 是自动改色，比不修更糟**（把设计好的白字改黑，渐变上直接糊成一片）。
+ *
+ * ## 为什么静默
+ *
+ * 这修的是「字看不见」，不是「配色不合规范」。报违例只会让模型重画一遍，
+ * 而它重画时并不知道哪两个色撞了（违例文案说不清），产物大概率还是撞。
+ * 与 `normalizeHugSize` / `normalizeLineHeight` 同一取舍：能改对就改对。
+ */
+function normalizeInvisibleText(root: UINode, pageBg: string): void {
+  const visit = (node: UINode, inherited: string | null): void => {
+    const own = ownBackground(node);
+    const bg = own.state === 'color' ? own.value : own.state === 'unknown' ? null : inherited;
+    const S = node.style;
+    if ((node.type === 'TEXT' || node.type === 'BUTTON') && S?.color && bg) {
+      const ratio = contrastRatio(S.color, bg);
+      if (ratio != null && ratio < 1.5) S.color = readableOn(bg);
+    }
+    if (!isContainer(node)) return;
+    /**
+     * 背景画在**同级兄弟**上的情况：一个 `position:ABSOLUTE` + 铺满宽高的矩形
+     * 当作背景层（demo「13 绝对定位页」的海报就是这样，白字压在它的渐变上）。
+     * 这种结构从 AST 看不出「文字实际压在什么色上」，必须当不可判定。
+     */
+    const covered = own.state === 'inherit' && hasBackdropLayer(node);
+    node.children.forEach((c) => visit(c, covered ? null : bg));
+  };
+  visit(root, pageBg);
+}
+
+/**
+ * 该容器是否有「铺满的背景层」子节点。
+ *
+ * 判据三件齐：`ABSOLUTE`（脱流不占位）+ `FILL` 宽度 + 高度 ≥ 父高 80% + 有可见填充。
+ * 加高度比例是为了不把**角标**当成背景层——角标也是 ABSOLUTE，但只有 18×18。
+ */
+function hasBackdropLayer(parent: UINode): boolean {
+  if (!isContainer(parent)) return false;
+  const ph = parent.layout.height ?? 0;
+  return parent.children.some((c) => {
+    const L = c.layout;
+    const S = c.style;
+    if (L.position !== 'ABSOLUTE' || L.widthMode !== 'FILL') return false;
+    if (!S?.fills?.length && !S?.background) return false;
+    const ch = L.height ?? 0;
+    return ph > 0 ? ch >= ph * 0.8 : ch > 0;
+  });
+}
+
+/** 在给定底色上取黑或白——不是「最好看」，是「一定读得出来」 */
+function readableOn(bg: string): string {
+  const c = parseColor(bg);
+  // 相对亮度 0.35 是黑白两种文字都能达标的临界点附近，取整档更稳
+  const lum = c ? relativeLuminance(c) : 1;
+  return lum > 0.35 ? '#000000' : '#FFFFFF';
 }
 
 /** AiPageDraft → 全新 UIPage（页面 id/root id 唯一，避免与既有页冲突） */
