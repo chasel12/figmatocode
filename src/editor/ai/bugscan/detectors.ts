@@ -87,7 +87,11 @@ const badgeInline: BugDetector = {
   title: '角标被排进流里（应脱流挂角）',
   severity: 'bug',
   rationale: '计数角标必须 position:ABSOLUTE 挂在图标右上角，不能参与父容器的横排',
-  coveredBy: 'normalizeAbsolute 规则 4',
+  /**
+   * 规则 4 只覆盖「给了 x/y 却没声明定位」那一半。
+   * **完全没给坐标的角标它管不了**（不敢替模型编 x/y），所以这条仍会命中 —— 不是回归。
+   */
+  coveredBy: 'normalizeAbsolute 规则 4（只覆盖「有坐标没声明」的一半）',
   check(page) {
     const hits: BugHit[] = [];
     for (const { node, path } of walk(page)) {
@@ -220,7 +224,15 @@ const emptyFrame: BugDetector = {
  * ============================================================= */
 
 /**
- * 判据：`position/mode === ABSOLUTE` + `heightMode === 'HUG'` + 无 `height` + 有子节点。
+ * 判据：`mode === 'ABSOLUTE'` + `heightMode === 'HUG'` + 无 `height` + 有子节点。
+ *
+ * **只判 `mode`，不判 `position`** —— 这一条被实测纠正过一次（2026-11-01）：
+ * 原判据写成 `position === 'ABSOLUTE' || mode === 'ABSOLUTE'`，于是 `overlay-menu` 的
+ * 下拉菜单（`mode: VERTICAL` + `position: ABSOLUTE` + HUG）被报成「高度会塌 0」，
+ * 而截图里它明明正常显示。原因是 `position: ABSOLUTE` 仍会发射 `height: fit-content`，
+ * 绝对定位元素的 fit-content 按内容算，不会塌；真正塌 0 的是 `mode: ABSOLUTE`
+ * （那条路径下编译层不输出内部排版，高度没有来源）。
+ * `normalizeAbsolute` 规则 3 也只处理 `mode`，检测器必须与它同口径，否则「回归基线」是假的。
  *
  * `normalizeAbsolute` 已经会补 `heightMode: 'FIXED'`，所以**存量应为 0 命中**。
  * 留着它的作用不是「找 bug」，是「证明那条 normalize 真的在跑」——
@@ -230,13 +242,12 @@ const absNoSize: BugDetector = {
   id: 'abs-no-size',
   title: '脱流容器缺省 HUG（高度会塌 0）',
   severity: 'bug',
-  rationale: 'position:ABSOLUTE 的容器若 heightMode 仍是 HUG，父级不提供高度参考，实际渲染为 0 高',
+  rationale: 'mode:ABSOLUTE 的容器若 heightMode 仍是 HUG，父级不提供高度参考，实际渲染为 0 高',
   coveredBy: 'normalizeAbsolute 规则 3',
   check(page) {
     const hits: BugHit[] = [];
     for (const { node, path } of walk(page)) {
-      const abs = node.layout.position === 'ABSOLUTE' || node.layout.mode === 'ABSOLUTE';
-      if (!abs) continue;
+      if (node.layout.mode !== 'ABSOLUTE') continue;
       if (node.layout.heightMode !== 'HUG') continue;
       if (node.layout.height != null) continue;
       if (kidsOf(node).length === 0) continue;
@@ -487,6 +498,176 @@ const textClip: BugDetector = {
 };
 
 /* =============================================================
+ * J. 列表里 N 项同时显示「选中」标记（repeat 把状态位写死）
+ * ============================================================= */
+
+/** 会被当成「选中 / 勾选」的图标名 */
+const STATE_ICON = /^(check|tick|done|radio|circle-check|circle-dot|square-check|dot)/;
+
+/** 方框勾选框（多选合法）：边长 ≤28 且近似正方 */
+function isCheckboxBox(n: UINode): boolean {
+  const w = num(n.layout.width);
+  const h = num(n.layout.height);
+  if (w == null || h == null || w <= 0 || h <= 0 || w > 28 || h > 28) return false;
+  const r = w / h;
+  return r >= 0.8 && r <= 1.25;
+}
+
+/** 结构签名（只看两层：行的形状决定「同构」，再深就会把文案差异也算进去） */
+function shapeOf(n: UINode, depth = 2): string {
+  if (depth === 0) return n.type;
+  return `${n.type}(${kidsOf(n)
+    .map((c) => shapeOf(c, depth - 1))
+    .join(',')})`;
+}
+
+/**
+ * 判据：同一父容器下 ≥3 个**同构兄弟**（同类型 + 同子结构），每个兄弟子树里都出现
+ * **同一个**「选中标记」图标（`d` 完全相同）。
+ *
+ * 为什么这是 bug 而不是 taste：单选列表不可能同时选中 3 项。真实来源是
+ * `form-select` 场景 —— 模型把 `{"kind":"VECTOR","icon":"check"}` 写进了 `repeat` 模板，
+ * 展开出的 4 行每行一个勾，同时 4 行背景还完全一样，于是「当前选中项」根本看不出来。
+ * 对照 `form-checkbox`（手写 3 行，只有第一行带勾）—— 说明模型会写，是 `repeat` 把它带偏的。
+ *
+ * 三条防误报：
+ * 1. **必须同构**：结构不同的兄弟（标题行 + 数据行）不参与判定。
+ * 2. **必须是状态图标**：靠 `ctx.icons` 把 `d` 反查回图标名再匹配；没有图标表时退化成
+ *    看节点 name（`选中勾` / `checkbox` 这类），看不住就不报 —— 宁可漏判。
+ * 3. **排除方框勾选**：标记的父容器是边长 ≤28 的方框时那是 checkbox（多选合法），不报。
+ *
+ * **不自动修**：把哪一项留下是无解的（模型没给任何选中线索），删错三行比留四个勾更糟。
+ * 正解在提示词侧（`repeat` 段已写明「表达不了其中一项特殊」），这里只负责让问题可见。
+ */
+const stateCollapse: BugDetector = {
+  id: 'state-collapse',
+  title: '列表里 N 项同时显示选中标记',
+  severity: 'bug',
+  rationale:
+    '同构列表 ≥3 行各带同一个勾/选中图标 —— 单选不可能多选，是 repeat 模板把状态位写死的形态',
+  check(page, ctx) {
+    // d → 图标名（一个 d 可能对应多个别名，优先取命中「状态图标」的那个）
+    const byD = new Map<string, string[]>();
+    for (const [name, d] of Object.entries(ctx?.icons ?? {})) {
+      const arr = byD.get(d);
+      if (arr) arr.push(name);
+      else byD.set(d, [name]);
+    }
+    const resolve = (n: UINode): string | null => {
+      const d = (n as { vector?: { d?: string } }).vector?.d;
+      /**
+       * 只认「真路径」。`draftToPage` 在**没有传 `icons`** 时会把每个图标降级成
+       * 占位路径 `M 0 0`（单测环境就是这样），此时所有 VECTOR 共用同一个 `d`，
+       * 反查表会把它匹配成某个状态图标 → 整页误报。所以短路径一律不参与反查。
+       */
+      if (d && d.length >= 10 && d !== 'M 0 0') {
+        const hit = byD.get(d)?.find((x) => STATE_ICON.test(x));
+        if (hit) return hit;
+      }
+      // 名称兜底：编译后图标名会丢，但节点 name 还在（`选中勾` / `checkbox` 这类）
+      const nm = n.name ?? '';
+      return /勾|选中|已选|checked|checkbox|radio|tick/i.test(nm) ? nm : null;
+    };
+
+    /** 行内所有「状态标记」图标：d（或 name）→ 节点 */
+    const markersOf = (row: UINode): Map<string, UINode> => {
+      const out = new Map<string, UINode>();
+      const go = (n: UINode, parent: UINode): void => {
+        if (n.type === 'VECTOR' && !isCheckboxBox(parent)) {
+          const name = resolve(n);
+          if (name) {
+            const key = (n as { vector?: { d?: string } }).vector?.d || `name:${name}`;
+            if (!out.has(key)) out.set(key, n);
+          }
+        }
+        for (const c of kidsOf(n)) go(c, n);
+      };
+      for (const c of kidsOf(row)) go(c, row);
+      return out;
+    };
+
+    const hits: BugHit[] = [];
+    for (const { node, path } of walk(page)) {
+      const kids = kidsOf(node);
+      if (kids.length < 3) continue;
+      const groups = new Map<string, UINode[]>();
+      for (const k of kids) {
+        if (kidsOf(k).length === 0) continue; // 叶子不可能是「一行」
+        const sig = shapeOf(k);
+        const arr = groups.get(sig);
+        if (arr) arr.push(k);
+        else groups.set(sig, [k]);
+      }
+      for (const rows of groups.values()) {
+        if (rows.length < 3) continue;
+        const count = new Map<string, { n: number; mark: UINode }>();
+        for (const r of rows) {
+          for (const [key, mark] of markersOf(r)) {
+            const cur = count.get(key);
+            if (cur) cur.n += 1;
+            else count.set(key, { n: 1, mark });
+          }
+        }
+        for (const [key, { n, mark }] of count) {
+          if (n < 3) continue;
+          hits.push({
+            bugId: stateCollapse.id,
+            severity: 'bug',
+            page: page.name,
+            path: `${path}/${mark.name || '选中标记'}`,
+            nodeId: mark.id,
+            detail: `${rows.length} 行同构列表里有 ${n} 行各带一个「${resolve(mark) ?? key}」图标，选中项无法区分`,
+            meta: { rows: rows.length, marked: n, icon: resolve(mark) ?? key },
+          });
+        }
+      }
+    }
+    return hits;
+  },
+};
+
+/* =============================================================
+ * K. 模板占位符漏进产物（`{{title}}` 没被展开）
+ * ============================================================= */
+
+/**
+ * 判据：TEXT/BUTTON 的文案里还带 `{{...}}`。
+ *
+ * **零误报**：`{{xxx}}` 只可能是 `repeat` 的模板占位符，展开后必然被替换；
+ * 没被替换只有两种原因 —— ① 写了 `{{title}}` 却没写 `repeat`（占位符没人喂）；
+ * ② `repeat` 的 `values` 里没有这个键。两种都是确定的错，界面上会直接显示 `{{title}}`。
+ *
+ * **这条是预防性的，不是实测出来的**：45 场景 3 批样本里 0 命中（模型确实会忘写 `repeat`，
+ * 但忘写时通常连 `{{}}` 也不写）。留着它的理由只有一条 —— 判据是恒真的逻辑等式，
+ * 加进来零风险；哪天真漏了，界面会直接印出 `{{title}}`，而像素比对查不出
+ * （产物与设计一致），AST 字段扫描也查不出（字段全都合法）。
+ */
+const templateLeak: BugDetector = {
+  id: 'template-leak',
+  title: '模板占位符漏进产物（{{…}} 未展开）',
+  severity: 'bug',
+  rationale: '{{xxx}} 是 repeat 的模板占位符，出现在产物文案里说明 repeat 或 values 漏了',
+  check(page) {
+    const hits: BugHit[] = [];
+    for (const { node, path } of walk(page)) {
+      if (!hasText(node)) continue;
+      const m = node.text.match(/\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/);
+      if (!m) continue;
+      hits.push({
+        bugId: templateLeak.id,
+        severity: 'bug',
+        page: page.name,
+        path,
+        nodeId: node.id,
+        detail: `文案里残留占位符「${m[0]}」——没有 repeat，或 values 里没有键 ${m[1]}`,
+        meta: { key: m[1] },
+      });
+    }
+    return hits;
+  },
+};
+
+/* =============================================================
  * 注册表
  * ============================================================= */
 
@@ -500,6 +681,8 @@ export const BUG_DETECTORS: BugDetector[] = [
   gapScatter,
   flatHierarchy,
   textClip,
+  stateCollapse,
+  templateLeak,
 ];
 
 export function detectorById(id: string): BugDetector | undefined {

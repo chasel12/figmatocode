@@ -273,7 +273,12 @@ export async function runSitePlan(
     const userMessage =
       attempt === 0
         ? user
-        : buildRepairPrompt({ previousOutput: lastRaw, violationsText: summarizeViolations(lastViolations), attempt });
+        : buildRepairPrompt({
+            previousOutput: lastRaw,
+            violationsText: summarizeViolations(lastViolations),
+            attempt,
+            requirement: userPrompt,
+          });
     opts.onProgress?.({
       stage: attempt === 0 ? 'request' : 'repair',
       attempt,

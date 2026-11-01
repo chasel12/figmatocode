@@ -254,6 +254,32 @@ describe('abs-no-size（脱流容器高度塌 0）', () => {
     ]);
     expect(hitsOf(p, 'abs-no-size')).toHaveLength(0);
   });
+
+  it('正例：绕过 normalize 直接造 mode:ABSOLUTE + HUG → 命中（证明规则真的在跑）', () => {
+    // 用 rawPage：走 draftToPage 的话 normalizeAbsolute 规则 3 会把它补成 FIXED，测不到正例
+    const box = createNode('FRAME', { name: '浮层' });
+    box.layout = { ...box.layout, mode: 'ABSOLUTE', widthMode: 'FIXED', width: 200, heightMode: 'HUG' };
+    const t = createNode('TEXT', { name: '字' });
+    (t as { text?: string }).text = '浮层内容';
+    (box as ContainerNode).children = [t] as ContainerNode['children'];
+    expect(hitsOf(rawPage([box]), 'abs-no-size')).toHaveLength(1);
+  });
+
+  it('反例：position:ABSOLUTE + HUG → 不命中（fit-content 会按内容算，不会塌 0）', () => {
+    /**
+     * 实测纠错（2026-11-01，`overlay-menu`）：判据原来写成
+     * `position === 'ABSOLUTE' || mode === 'ABSOLUTE'`，于是下拉菜单
+     * （`mode: VERTICAL` + `position: ABSOLUTE` + HUG）被报成「高度会塌 0」，
+     * 而截图里它正常显示。`position: ABSOLUTE` 仍发射 `height: fit-content`，
+     * 绝对定位元素的 fit-content 按内容算 —— 真正塌 0 的是 `mode: ABSOLUTE`。
+     */
+    const box = createNode('FRAME', { name: '下拉菜单' });
+    box.layout = { ...box.layout, mode: 'VERTICAL', position: 'ABSOLUTE', x: 10, y: 10, widthMode: 'FIXED', width: 180, heightMode: 'HUG' };
+    const t = createNode('TEXT', { name: '选项' });
+    (t as { text?: string }).text = '编辑';
+    (box as ContainerNode).children = [t] as ContainerNode['children'];
+    expect(hitsOf(rawPage([box]), 'abs-no-size')).toHaveLength(0);
+  });
 });
 
 /* =============================================================
@@ -395,5 +421,175 @@ describe('text-clip（文字估算超出固定宽度）', () => {
       { kind: 'TEXT', name: '短文', text: '标题', layout: { mode: 'HORIZONTAL', widthMode: 'FIXED', heightMode: 'HUG', width: 100 }, style: { fontSize: 16 } },
     ]);
     expect(hitsOf(p, 'text-clip')).toHaveLength(0);
+  });
+});
+
+/* =============================================================
+ * state-collapse
+ * ============================================================= */
+
+/**
+ * 真实来源：`form-select` 场景里模型把 `{"kind":"VECTOR","icon":"check"}` 写进了
+ * `repeat` 模板，展开出的 4 个选项每行一个勾 —— 单选列表不可能同时选中 4 项。
+ *
+ * 这条的**反例比正例关键**：任何「每行都有同一个图标」的列表（带右箭头的设置项）
+ * 都会撞上同一个形态，只有把判据限定到「状态图标」才能不误报。
+ */
+describe('state-collapse（列表里 N 项同时显示选中标记）', () => {
+  const VEC = { mode: 'HORIZONTAL' as const, widthMode: 'FIXED' as const, heightMode: 'FIXED' as const, width: 16, height: 16 };
+  const ROW = { mode: 'HORIZONTAL' as const, widthMode: 'FILL' as const, heightMode: 'HUG' as const, gap: 8 };
+
+  /** 一行：文案 + 一个尾部图标（图标名可换，用来区分「状态图标」与「普通图标」） */
+  const row = (label: string, icon: string, iconName = '尾图标') => ({
+    kind: 'FRAME',
+    name: `选项-${label}`,
+    layout: ROW,
+    children: [
+      { kind: 'TEXT', name: '文案', text: label, layout: { mode: 'HORIZONTAL', widthMode: 'HUG', heightMode: 'HUG' } },
+      { kind: 'VECTOR', name: iconName, icon, layout: VEC },
+    ],
+  });
+
+  const list = (rows: unknown[]) => page([
+    {
+      kind: 'FRAME',
+      name: '选项组',
+      layout: { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'HUG', gap: 4 },
+      children: rows,
+    },
+  ]);
+
+  it('正例：4 行同构选项每行一个 check → 命中 1 条', () => {
+    const p = list(['甲', '乙', '丙', '丁'].map((t) => row(t, 'check', '选中勾')));
+    const hits = hitsOf(p, 'state-collapse');
+    expect(hits).toHaveLength(1);
+    expect(hits[0].detail).toContain('4 行');
+    expect(hits[0].severity).toBe('bug');
+  });
+
+  it('正例：给了图标表时靠 `d` 反查回名字（编译后 VECTOR 只有 d，没有图标名）', () => {
+    /**
+     * 必须用 `rawPage` 造：单测环境里 `draftToPage` 没拿到图标表，会把每个图标
+     * 降级成占位路径 `M 0 0` —— 那样测的是「所有图标长得一样」而不是「反查 `d`」。
+     */
+    const CHECK_D = 'M20 6 9 17l-5-5';
+    const rows = ['甲', '乙', '丙'].map((t) => {
+      const r = createNode('FRAME', { name: `选项-${t}` });
+      r.layout = { ...r.layout, mode: 'HORIZONTAL', widthMode: 'FILL', heightMode: 'HUG' };
+      const label = createNode('TEXT', { name: '文案' });
+      (label as { text?: string }).text = t;
+      const mark = createNode('VECTOR', { name: '尾图标' });
+      mark.vector = { d: CHECK_D, width: 24, height: 24 } as typeof mark.vector;
+      mark.layout = { ...mark.layout, widthMode: 'FIXED', width: 16, heightMode: 'FIXED', height: 16 };
+      (r as ContainerNode).children = [label, mark] as ContainerNode['children'];
+      return r;
+    });
+    const p = rawPage(rows);
+    const hits = detectorById('state-collapse')!.check(p, { icons: { check: CHECK_D } });
+    expect(hits).toHaveLength(1);
+    expect(hits[0].meta?.icon).toBe('check');
+  });
+
+  it('反例：占位路径 `M 0 0`（没传图标表）不参与反查 → 不命中', () => {
+    // 否则整页所有图标共用一个 d，反查表会把它当成 check，全线误报
+    const rows = ['甲', '乙', '丙'].map((t) => {
+      const r = createNode('FRAME', { name: `选项-${t}` });
+      const mark = createNode('VECTOR', { name: '尾图标' });
+      mark.vector = { d: 'M 0 0', width: 24, height: 24 } as typeof mark.vector;
+      (r as ContainerNode).children = [mark] as ContainerNode['children'];
+      return r;
+    });
+    expect(detectorById('state-collapse')!.check(rawPage(rows), { icons: { check: 'M 0 0' } })).toHaveLength(0);
+  });
+
+  it('反例：每行都是右箭头（普通列表）→ 不命中（这是最常见的形态，误报就废了）', () => {
+    const p = list(['甲', '乙', '丙', '丁'].map((t) => row(t, 'chevron-right')));
+    expect(hitsOf(p, 'state-collapse')).toHaveLength(0);
+  });
+
+  it('反例：只有 1 行带勾（手写列表的正确画法）→ 不命中', () => {
+    const p = list([row('甲', 'check', '选中勾'), row('乙', 'chevron-right'), row('丙', 'chevron-right')]);
+    expect(hitsOf(p, 'state-collapse')).toHaveLength(0);
+  });
+
+  it('反例：勾在 20×20 方框里（多选 checkbox，全部勾上合法）→ 不命中', () => {
+    const p = page([
+      {
+        kind: 'FRAME',
+        name: '复选框组',
+        layout: { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'HUG', gap: 4 },
+        children: ['甲', '乙', '丙'].map((t) => ({
+          kind: 'FRAME',
+          name: `复选-${t}`,
+          layout: ROW,
+          children: [
+            {
+              kind: 'FRAME',
+              name: '勾选框',
+              layout: { mode: 'HORIZONTAL', widthMode: 'FIXED', heightMode: 'FIXED', width: 20, height: 20 },
+              children: [{ kind: 'VECTOR', name: '对勾', icon: 'check', layout: VEC }],
+            },
+            { kind: 'TEXT', name: '文案', text: t, layout: { mode: 'HORIZONTAL', widthMode: 'HUG', heightMode: 'HUG' } },
+          ],
+        })),
+      },
+    ]);
+    expect(hitsOf(p, 'state-collapse')).toHaveLength(0);
+  });
+
+  it('反例：只有 2 行（不足 3 项，判不出是单选列表）→ 不命中', () => {
+    const p = list(['甲', '乙'].map((t) => row(t, 'check', '选中勾')));
+    expect(hitsOf(p, 'state-collapse')).toHaveLength(0);
+  });
+
+  it('scanPages 会把 ctx 透传给检测器', () => {
+    const p = list(['甲', '乙', '丙'].map((t) => row(t, 'check', '选中勾')));
+    const noCtx = scanPages([p], [detectorById('state-collapse')!]);
+    expect(noCtx.byBug['state-collapse']).toBe(1); // 名称兜底也能判
+    const withCtx = scanPages([p], [detectorById('state-collapse')!], { icons: { check: 'M20 6 9 17l-5-5' } });
+    expect(withCtx.byBug['state-collapse']).toBe(1);
+  });
+});
+
+/* =============================================================
+ * template-leak
+ * ============================================================= */
+
+describe('template-leak（{{…}} 漏进产物）', () => {
+  it('正例：写了 {{title}} 却没有 repeat → 命中', () => {
+    const p = page([
+      { kind: 'TEXT', name: '标题', text: '{{title}}', layout: { mode: 'HORIZONTAL', widthMode: 'HUG', heightMode: 'HUG' } },
+    ]);
+    const hits = hitsOf(p, 'template-leak');
+    expect(hits).toHaveLength(1);
+    expect(hits[0].meta?.key).toBe('title');
+  });
+
+  it('反例：repeat 展开后占位符已被替换 → 不命中', () => {
+    const p = page([
+      {
+        kind: 'FRAME',
+        name: '列表',
+        layout: { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'HUG', gap: 8 },
+        children: [
+          {
+            kind: 'FRAME',
+            name: '行',
+            repeat: { count: 3, values: { title: ['甲', '乙', '丙'] } },
+            layout: { mode: 'HORIZONTAL', widthMode: 'FILL', heightMode: 'HUG' },
+            children: [{ kind: 'TEXT', name: '标题', text: '{{title}}', layout: { mode: 'HORIZONTAL', widthMode: 'HUG', heightMode: 'HUG' } }],
+          },
+        ],
+      },
+    ]);
+    expect(hitsOf(p, 'template-leak')).toHaveLength(0);
+    expect(JSON.stringify(p)).not.toContain('{{');
+  });
+
+  it('反例：普通文案里带单个花括号 → 不命中（只认 {{…}}）', () => {
+    const p = page([
+      { kind: 'TEXT', name: '文案', text: '价格 {起}', layout: { mode: 'HORIZONTAL', widthMode: 'HUG', heightMode: 'HUG' } },
+    ]);
+    expect(hitsOf(p, 'template-leak')).toHaveLength(0);
   });
 });

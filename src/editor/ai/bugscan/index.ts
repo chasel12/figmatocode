@@ -8,7 +8,7 @@
 
 import type { UIPage } from '../../../schema/types';
 import { BUG_DETECTORS } from './detectors';
-import type { BugDetector, BugHit } from './types';
+import type { BugDetector, BugHit, ScanContext } from './types';
 
 export interface PageScan {
   page: string;
@@ -52,6 +52,7 @@ export function countNodes(page: UIPage): number {
 export function scanPages(
   pages: UIPage[],
   detectors: BugDetector[] = BUG_DETECTORS,
+  ctx?: ScanContext,
 ): ScanSummary {
   const out: PageScan[] = [];
   const byBug: Record<string, number> = {};
@@ -63,7 +64,7 @@ export function scanPages(
     for (const d of detectors) {
       called.add(d.id);
       try {
-        for (const h of d.check(page)) hits.push(h);
+        for (const h of d.check(page, ctx)) hits.push(h);
       } catch (err) {
         hits.push({
           bugId: d.id,

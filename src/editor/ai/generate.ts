@@ -111,7 +111,12 @@ export async function runPageGeneration(opts: PipelineOptions): Promise<Pipeline
   let firstPass = false;
 
   for (let attempt = 0; attempt <= maxRepair; attempt += 1) {
-    const userMessage = attempt === 0 ? user : buildRepairPrompt({ previousOutput: lastRaw, violationsText: summarizeViolations(lastViolations), attempt });
+    const userMessage = attempt === 0 ? user : buildRepairPrompt({
+      previousOutput: lastRaw,
+      violationsText: summarizeViolations(lastViolations),
+      attempt,
+      requirement: opts.userPrompt,
+    });
     opts.onProgress?.({
       stage: attempt === 0 ? 'request' : 'repair',
       attempt,
@@ -212,7 +217,12 @@ export async function runEditPlan(
   let firstPass = false;
 
   for (let attempt = 0; attempt <= maxRepair; attempt += 1) {
-    const userMessage = attempt === 0 ? user : buildRepairPrompt({ previousOutput: lastRaw, violationsText: summarizeViolations(lastViolations), attempt });
+    const userMessage = attempt === 0 ? user : buildRepairPrompt({
+      previousOutput: lastRaw,
+      violationsText: summarizeViolations(lastViolations),
+      attempt,
+      requirement: opts.userPrompt,
+    });
     opts.onProgress?.({
       stage: attempt === 0 ? 'request' : 'repair',
       attempt,

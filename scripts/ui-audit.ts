@@ -50,15 +50,25 @@ interface Group {
   note?: string;
 }
 
-/** 从 `src/assets/icons/lucide.ts` 读图标表（与运行时同一份数据，免动态 import） */
+/**
+ * 从 `src/assets/icons/lucide.ts` 读图标表（与运行时同一份数据，免动态 import）。
+ *
+ * **正则必须跟生成格式对齐**：`lucide.ts` 是单行 JSON，条目形如
+ * `"check":{"d":"M20 6 9 17l-5-5","t":"done todo"}` —— 早先这里写的是 `d:`（无引号），
+ * 一个都匹配不到，`icons` 静默变成 `{}`，于是 `draftToPage` 把所有图标降级成 circle，
+ * 整组 `draft` 页面的图标与 `ui-gen` 实际产物**不是同一份东西**（假绿，已发生一次）。
+ * 所以这里除了修正则，还要在表为空时**直接抛**：宁可脚本崩，不能静默扫一份错的输入。
+ */
 function loadIcons(): Record<string, string> {
   try {
     const src = readFileSync(path.join(root, 'src/assets/icons/lucide.ts'), 'utf8');
     const out: Record<string, string> = {};
-    for (const m of src.matchAll(/['"]?([a-z0-9-]+)['"]?\s*:\s*\{\s*d:\s*['"]([^'"]+)['"]/g)) out[m[1]] = m[2];
+    for (const m of src.matchAll(/"([a-z0-9-]+)":\{"d":"([^"]+)"/g)) out[m[1]] = m[2];
+    if (Object.keys(out).length < 100) throw new Error(`只解析到 ${Object.keys(out).length} 个图标`);
     return out;
-  } catch {
-    return {};
+  } catch (err) {
+    console.error(`图标表解析失败：${(err as Error).message}（audit 的 draft 组会与真实产物不一致，中止）`);
+    process.exit(3);
   }
 }
 
@@ -147,7 +157,7 @@ interface GroupResult {
   summary: ReturnType<typeof scanPages>;
 }
 
-const results: GroupResult[] = groups.map((g) => ({ group: g, summary: scanPages(g.pages, detectors) }));
+const results: GroupResult[] = groups.map((g) => ({ group: g, summary: scanPages(g.pages, detectors, { icons }) }));
 
 /* ---------------- 出报告 ---------------- */
 

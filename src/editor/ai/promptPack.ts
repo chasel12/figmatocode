@@ -90,10 +90,12 @@ layout?: {mode:VERTICAL|HORIZONTAL（默认 VERTICAL；排版只用这两个）,
 —— 这样内部还能正常 flex 排布。不要用 ABSOLUTE 做底栏：ABSOLUTE 下不输出 flex 排布，子项会叠在一起。
 **用 FIXED 底栏时，根容器的 padding 底部要留出底栏高度**（如 padding:[0,0,64,0]），
 否则页面最后一块内容会被底栏永久压住——滚动也救不了，因为底栏是固定的。
-**挂角元素**（数字角标、关闭按钮、浮层）用 position:"ABSOLUTE" + x/y，mode 保持 VERTICAL/HORIZONTAL：
+**挂角元素**（数字角标、关闭按钮）用 position:"ABSOLUTE" + x/y，mode 保持 VERTICAL/HORIZONTAL：
   {"name":"角标","layout":{"mode":"VERTICAL","position":"ABSOLUTE","x":28,"y":-4,
    "width":18,"height":18,"widthMode":"FIXED","heightMode":"FIXED","align":"CENTER","justify":"CENTER"}}
-只脱流、不占父容器排版，内部照常居中；x/y 相对父内容区，可为负。
+只脱流、不占父容器排版，内部照常居中；x/y 相对**父容器**，可为负。
+**整屏浮层（Toast / 弹窗 / 遮罩）一律用 FIXED**，不要用 ABSOLUTE：父容器在页面下半部分时，
+浮层会被送到视口外（实测 Toast 落到 1282px，视口只有 812，用户根本看不到）。
 用 mode:"ABSOLUTE" 挂角会把内部也变绝对（数字落到左上角），**不要**这么写。
 叠层专用：mode:ABSOLUTE 必须给**每个子项** x/y；子项都没 x/y 时会被自动改回 VERTICAL
 （HUG 与 width+height 同时写时按 FIXED 算——固定尺寸的盒子直接写 FIXED，别配 HUG）
@@ -161,6 +163,9 @@ repeat?: {count:1~60,
                    {"kind":"TEXT","text":"{{label}}","className":"text-xs"}]}
   → 5 个入口 5 个不同图标。**漏掉 icon 这一项 = 5 个一模一样的图标**
   （模板里 icon 是固定值时，repeat 出来的每一份都长一样，这是最常见的「图标复用」缺陷）。
+  **repeat 表达不了「其中一项特殊」**：N 份共用同一模板，模板里放「勾/选中点」会出现在**每一项**上。
+  要「第 2 项选中」，就手写那 3~5 行，或把差异放进 values（文案/图标）与 styles（背景/文字色）。
+  **手写时同理**：勾 + 高亮底只能落在选中那一行，其余行不要带勾（复制行会把勾一起带过去）。
 
 className 写法示例（**推荐照这个风格写**，比 layout 手写更可靠）：
 {"kind":"FRAME","name":"顶部导航","className":"flex items-center justify-between px-4 h-14 w-full bg-card","children":[
@@ -235,7 +240,9 @@ const RULES_BLOCK = `## 硬规则（违反会被 schema 闸门拦下并返工）
    图标放进去，下方再放 TEXT。
 7. 规模：节点 ≤ 80，嵌套 ≤ 6 层；重复卡片用同样的子结构复制，不要为每个卡片另造一套层级。
 8. 表达边界（诚实边界）：不做 hover/focus 运行时态、不做滚动吸顶、不做真实交互；只画静态视觉。
-9. 命名：name 用简短中文语义（"顶部导航"/"商品卡"），便于后续人工定位。`;
+9. 命名：name 用简短中文语义（"顶部导航"/"商品卡"），便于后续人工定位。
+10. 文案要具体：**不要把你看到的指令语写成 text**——「列表占位」「这里放标题」「示例文本」会被
+    原样渲染成界面文字。没有真实内容时按品类编具体名字（「海盐焦糖爆米花」而不是「商品名」）。`;
 
 /** 按用户提示词挑最贴近的 few-shot（关键词命中数 + 顺序稳定） */
 export function pickFewShots(entries: FewShotEntry[], userPrompt: string, limit = 2): FewShotEntry[] {
@@ -448,13 +455,28 @@ export function buildRepairPrompt(params: {
   previousOutput: string;
   violationsText: string;
   attempt: number;
+  /**
+   * **原始用户需求，必须带上。**
+   *
+   * 自修轮替换的是 `user` 那一整段，而用户需求就写在 `user` 里 —— 只贴「违例清单 +
+   * 上一次输出」的话，模型手上只剩系统提示词（契约 + 规则 + few-shot），
+   * 于是它照着「一个移动端页面长什么样」凭空编一个新页面出来，schema 照样全绿。
+   *
+   * 实测（2026-11-01，45 场景）：`nav-badge-icon` 要的是「4 个功能入口 + 消息角标」，
+   * 自修轮吐出来的是**设置页**（账号分组 / 偏好分组）、另一次是**订阅管理页**；
+   * 场景期望校验里 6 条失败有 4 条是这么来的，而违例机制一条都没报
+   * —— 它只管「合不合法」，不管「还是不是同一个需求」。
+   */
+  requirement: string;
 }): string {
+  const req = params.requirement.trim() ? [`用户需求（不要改题）：`, params.requirement.trim(), ''] : [];
   /**
    * `previousOutput` 为空 = 上一版**被截断**（调用方故意不传，见 `truncatedViolation`）。
    * 这时候不能贴「上一次输出」——半截 JSON 会把模型引到断口上继续写，越修越烂。
    */
   if (!params.previousOutput.trim()) {
     return [
+      ...req,
       `你上一次的输出被截断，没有写完（第 ${params.attempt} 次自修）。`,
       '违例清单：',
       params.violationsText,
@@ -464,6 +486,7 @@ export function buildRepairPrompt(params: {
     ].join('\n');
   }
   return [
+    ...req,
     `你上一次的输出未通过契约校验（第 ${params.attempt} 次自修）。`,
     '违例清单：',
     params.violationsText,

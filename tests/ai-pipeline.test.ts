@@ -88,6 +88,28 @@ describe('M7 W3 生成管线', () => {
     expect(client.calls[1].system).toBe(client.calls[0].system);
   });
 
+  it('自修轮必须带原始用户需求（丢了就会「换题」）', async () => {
+    /**
+     * 自修轮替换的是 `user` 整段，而用户需求就写在 `user` 里。
+     * 不带的话模型只剩系统提示词，会照着「一个移动端页面长什么样」凭空编一个新页面，
+     * **schema 照样全绿** —— 违例机制只管合不合法，不管还是不是同一个需求。
+     *
+     * 实测（45 场景，`nav-badge-icon`）：要的是「4 个功能入口 + 消息角标」，
+     * 自修轮吐出来的是设置页 / 订阅管理页。
+     */
+    const bad = validDraft();
+    bad.root.children![0].style = { color: '@color.nonexistent' };
+    const client = new FakeClient([JSON.stringify(bad), JSON.stringify(validDraft())]);
+    await runPageGeneration({
+      userPrompt: '顶部 4 个圆形功能入口，消息角标写 2',
+      pack,
+      viewport: { width: 375, height: 812 },
+      client,
+    });
+    expect(client.calls[1].user).toContain('顶部 4 个圆形功能入口，消息角标写 2');
+    expect(client.calls[1].user).toContain('不要改题');
+  });
+
   it('自修用尽仍不合格 → 抛出带违例的错误（不产出半成品页面）', async () => {
     const bad = validDraft();
     bad.root.children![0].style = { color: '@color.nope' };

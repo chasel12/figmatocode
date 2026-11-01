@@ -43,6 +43,21 @@ export interface BugHit {
   meta?: Record<string, number | string | boolean | null>;
 }
 
+/**
+ * 扫描上下文（可选）。
+ *
+ * 只有「需要把编译产物反查回设计语义」的检测器才用它 —— 典型是
+ * `state-collapse`：编译后的 VECTOR 只剩 `vector.d`，图标**名字**丢了，
+ * 要判「这个图标是不是勾」必须拿图标表把 `d` 反查回去。
+ *
+ * 缺省（不传）时检测器必须**降级而不是崩**，降级方向一律是「宁可漏判」：
+ * 没有图标表就看节点 name，看不住就不报。理由同文件头 —— 误报比漏报贵。
+ */
+export interface ScanContext {
+  /** 图标名 → svg path 的 `d`（与 `src/assets/icons` 同一份数据） */
+  icons?: Record<string, string>;
+}
+
 export interface BugDetector {
   /** kebab-case，报告里当主键 */
   id: string;
@@ -65,5 +80,5 @@ export interface BugDetector {
    * 理由是检测要能跑在「模型刚输出、还没编译」的 draft 上 —— 那才是 bug 刚诞生的时刻。
    * 唯一例外是 `fixed-occlude`，它要拿视口高度算，视口在 `page.viewport` 里有。
    */
-  check(page: import('../../../schema/types').UIPage): BugHit[];
+  check(page: import('../../../schema/types').UIPage, ctx?: ScanContext): BugHit[];
 }

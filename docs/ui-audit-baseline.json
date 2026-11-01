@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-01T11:09:58.494Z",
+  "generatedAt": "2026-11-01T14:51:06.012Z",
   "pages": [
     {
       "group": "demo",
@@ -18,19 +18,21 @@
     },
     {
       "group": "draft",
-      "pages": 6,
-      "nodes": 353
+      "pages": 50,
+      "nodes": 1799
     }
   ],
   "counts": {
-    "badge-inline": 0,
-    "vector-ratio": 1,
+    "badge-inline": 2,
+    "vector-ratio": 2,
     "empty-frame": 0,
     "abs-no-size": 0,
     "fixed-occlude": 1,
     "text-invisible": 0,
     "gap-scatter": 1,
-    "flat-hierarchy": 0,
-    "text-clip": 0
+    "flat-hierarchy": 11,
+    "text-clip": 0,
+    "state-collapse": 1,
+    "template-leak": 0
   }
 }

@@ -657,6 +657,16 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
   const flexOut = flexDecl ?? hugFlex;
   if (flexOut) css['flex'] = flexOut;
 
+  /**
+   * `flex-shrink` 必须写在 `flex` 简写**之后**（简写会把 shrink 重置成 1）。
+   *
+   * 这个字段以前**根本没有出口**：`types.ts` 有、`tailwind.ts` 会把 `shrink-0` 写进去、
+   * `.fig` 旁挂层也会往返，唯独 HTML 编译层不读 —— 又一个「字段在、通道不在」。
+   * 后果实测：`card-hscroll` 5 张 140px 的卡在横向行里被 flex 压成 **33px**，
+   * 「自动布局映射」5 个字折成 3 行，每张卡都坏掉。
+   */
+  if (L.flexShrink != null && !absChild) css['flex-shrink'] = String(L.flexShrink);
+
   // flex-grow 显式属性
   if (L.flexGrow && L.flexGrow > 0 && !absChild) {
     css['flex-grow'] = String(L.flexGrow);

@@ -1241,6 +1241,13 @@ export function normalizePage(root: UINode, violations: AiViolation[], notes: st
   // 必须在 normalizeFill 之后：那条规则会把「父 HUG 的子项 FILL」降回 HUG，
   // 而等分网格的子项必须是 FILL，否则同排宽度不齐。后跑的规则优先。
   normalizeGridItems(root, violations);
+  // 网格归一之后：那时子项的 FILL/HUG 才定下来，判断「装不装得下」才有意义
+  normalizeButtonPadding(root);
+  normalizeTextFit(root, notes);
+  // 必须在 textFit 之后：那时每个按钮的 min-width 才算得出来
+  normalizeMinWidthUp(root);
+  normalizeFullWidthChild(root, root.layout.width ?? 375, notes);
+  normalizeHScroll(root, root.layout.width ?? 375, notes);
   // 必须最后跑：前面几条可能改掉背景（normalizeFill 会把父 HUG 的子项 FILL 降回 HUG，
   // 也可能动 fills），对比度要按**最终**背景算，早算等于拿旧背景判新文字色。
   normalizeInvisibleText(root, root.style?.background ?? '#FFFFFF');
@@ -1352,6 +1359,169 @@ function normalizeHugSize(root: UINode): void {
        * 高度方向不存在这个副作用：HUG 的本意就是「按内容撑高」，给个下限不改变这件事。
        */
       L.minHeight = Math.max(L.minHeight ?? 0, L.height);
+    }
+    if (isContainer(node)) node.children.forEach(visit);
+  };
+  visit(root);
+}
+
+/**
+ * 单行短文案不许被压到折行 —— 给 FILL 的文字/按钮一个 `min-width` 地板（转换层兜底）。
+ *
+ * ## 为什么会有这个 bug
+ * 底栏那种「左侧图标块 + 右侧两个按钮」的行里，三个子项都是 `FILL`（`flex: 1 1 0` +
+ * `min-width: 0`），于是每个只分到 86px。而「加入购物车」5 个汉字在 14 号字下要 70px，
+ * 加上左右各 20px 内边距要 110px —— 装不下就折成两行，按钮在 44px 高里挤成两行小字。
+ * 实测 `layout-actionbar` 两个按钮都这样，`card-product` 的「加入购物车」同理。
+ *
+ * ## 为什么用 min-width 而不是改 widthMode
+ * 改 `HUG` 会让按钮不再等分剩余空间（原设计是等宽）；改 `FIXED` 会锁死宽度，
+ * 换一行就溢出。`min-width` 只设下限：够宽时照旧等分，不够宽时保住文字。
+ *
+ * ## 只判「短文案」
+ * ≤10 字且没有换行符。长文案（商品描述）折行是设计，不是 bug。
+ */
+function normalizeTextFit(root: UINode, notes: string[]): void {
+  const visit = (node: UINode): void => {
+    const L = node.layout;
+    const raw = (node as { text?: string }).text;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    const isTextual = node.type === 'TEXT' || node.type === 'BUTTON';
+    if (isTextual && text && text.length <= 10 && !text.includes('\n') && L.widthMode === 'FILL') {
+      const fontSize = node.style?.fontSize ?? 14;
+      const padX = L.padding ? L.padding[1] + L.padding[3] : 0;
+      const need = Math.ceil(estimateTextWidth(text, fontSize)) + padX + 2;
+      if ((L.minWidth ?? 0) < need) {
+        L.minWidth = need;
+        notes.push(`「${text}」按 ${fontSize} 号字需要 ${need}px，已设 min-width 防止折行`);
+      }
+    }
+    if (isContainer(node)) node.children.forEach(visit);
+  };
+  visit(root);
+}
+
+/** 粗略字宽：CJK 约 1em，其余约 0.55em（只用来判「装不装得下」，不做排版） */
+function estimateTextWidth(text: string, fontSize: number): number {
+  let w = 0;
+  for (const ch of text) w += /[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? fontSize : fontSize * 0.55;
+  return w;
+}
+
+/**
+ * 短文案按钮的内边距上限：每边 ≤12。
+ *
+ * 模型很爱写「按钮高度 48、左右内边距 20」，在撑满整行时无所谓；
+ * 但挤进 3 图标 + 2 按钮的底栏时，40px 的内边距吃掉一半宽度 ——
+ * 实测 `layout-actionbar` 两个按钮各需要 112px，而这一行只分得到 86px。
+ * 收到 12/边后每边省 8px，配合 `normalizeTextFit` 的 min-width 正好放得下。
+ *
+ * 只收「≤6 字」的短文案：长文案的内边距不影响它装不装得下（本来就要折行）。
+ */
+function normalizeButtonPadding(root: UINode): void {
+  const visit = (node: UINode): void => {
+    const raw = (node as { text?: string }).text;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    const L = node.layout;
+    if ((node.type === 'TEXT' || node.type === 'BUTTON') && text && text.length <= 6 && L.padding) {
+      const [t, r, b, l] = L.padding;
+      if (r > 12 || l > 12) L.padding = [t, Math.min(r, 12), b, Math.min(l, 12)];
+    }
+    if (isContainer(node)) node.children.forEach(visit);
+  };
+  visit(root);
+}
+
+/**
+ * 把子项的 `min-width` 汇总到容器上 —— 否则下限设了也没用。
+ *
+ * 底栏那一行是「图标组 + 按钮组」两个 FILL 平分 343px，按钮组拿到 177px，
+ * 而组里两个按钮各要 96px（`flex:1 1 0` 只在组**内部**分配，不会去跟兄弟要空间）。
+ * 给按钮组一个 `min-width = 96*2+12 = 204`，它才敢从图标组那里抢回 27px。
+ *
+ * 只汇总「所有子项都有 min-width」的横向容器：混着 FILL/HUG 的容器算不准，宁可不设。
+ */
+function normalizeMinWidthUp(root: UINode): void {
+  const visit = (node: UINode): void => {
+    if (!isContainer(node)) return;
+    node.children.forEach(visit);
+    if (node.layout.mode !== 'HORIZONTAL' || node.children.length < 1) return;
+    const kids = node.children;
+    if (!kids.every((c) => c.layout.minWidth != null)) return;
+    const gap = node.layout.gap ?? 0;
+    const padX = node.layout.padding ? node.layout.padding[1] + node.layout.padding[3] : 0;
+    const sum = kids.reduce((n, c) => n + (c.layout.minWidth ?? 0), 0) + gap * (kids.length - 1) + padX;
+    node.layout.minWidth = Math.max(node.layout.minWidth ?? 0, sum);
+  };
+  visit(root);
+}
+
+
+/**
+ * 「占满整行」的子项在带内边距的容器里必须是 FILL，不能写死宽度。
+ *
+ * 实测 `state-skeleton`：骨架卡片是 FILL（内容宽 343-24=319），里面的「封面占位」
+ * 却写死 `width: 343` —— 那是**页面**内容宽，模型把两个层级的内边距算重了，
+ * 于是每张卡的封面都从卡片右边溢出去 24px。
+ *
+ * 判据保守：只在「父是 FILL + 父有内边距 + 子项 FIXED 且宽度 ≥ 页面宽 - 32」时改，
+ * 也就是「这一项本来就想占满整行」。普通定宽元素不动。
+ */
+function normalizeFullWidthChild(root: UINode, pageWidth: number, notes: string[]): void {
+  const visit = (node: UINode): void => {
+    if (isContainer(node) && node.layout.widthMode === 'FILL' && node.layout.padding) {
+      const padX = node.layout.padding[1] + node.layout.padding[3];
+      if (padX > 0) {
+        for (const c of node.children) {
+          if (c.layout.widthMode === 'FIXED' && (c.layout.width ?? 0) >= pageWidth - 32) {
+            c.layout.widthMode = 'FILL';
+            notes.push(`「${c.name}」写死 ${c.layout.width}px 但父容器有 ${padX}px 内边距，已改为 FILL`);
+          }
+        }
+      }
+    }
+    if (isContainer(node)) node.children.forEach(visit);
+  };
+  visit(root);
+}
+
+
+/**
+ * 横向滚动的行：子项被 flex 压扁 → `flex-shrink: 0`（转换层兜底）。
+ *
+ * ## 判据
+ * 「横向容器 + 子项全是 FIXED 宽 + 宽度之和 > 页面宽」= 这一行装不下，本该横向滚动。
+ * 此时浏览器默认 `flex-shrink: 1` 会把它们等比压扁：实测 `card-hscroll` 5 张 140px 的卡
+ * 被压成 **33px**，「自动布局映射」5 个字折成 3 行 —— 每张卡都坏掉。
+ *
+ * ## 为什么只改 flex-shrink
+ * 真正的横向滚动要容器 `overflow-x: auto`，AST 里没有 scroll 字段。但**压扁**和**溢出**
+ * 是两回事：压扁让每一张卡都坏，溢出只是超出视口 —— 后者正是「横向列表在 375 宽屏幕
+ * 上的样子」。先修前者，后者等有 scroll 能力再说。
+ */
+function normalizeHScroll(root: UINode, pageWidth: number, notes: string[]): void {
+  const visit = (node: UINode): void => {
+    if (isContainer(node) && node.layout.mode === 'HORIZONTAL') {
+      const kids = node.children;
+      const fixed = kids.filter((c) => c.layout.widthMode === 'FIXED' && (c.layout.width ?? 0) > 0);
+      const gap = node.layout.gap ?? 0;
+      const total = fixed.reduce((n, c) => n + (c.layout.width ?? 0), 0) + gap * Math.max(0, kids.length - 1);
+      if (fixed.length >= 2 && fixed.length === kids.length && total > pageWidth) {
+        /**
+         * 两步都要做，缺一步就只是把问题换个地方：
+         *  - `flex-shrink: 0` 防止 140px 被压成 33px（文字折 3 行）；
+         *  - `wrap: WRAP` 让装不下的卡片换到下一行 —— 否则 5 张里 3 张直接落在屏幕外，
+         *    而 AST **没有横向滚动能力**（无 scroll/overflow 字段），落出去就是永远看不见。
+         *
+         * 取舍：换行会丢掉「横向列表」这个设计意图，但内容全在、都能读。
+         * 溢出则是有 3 张卡用户永远看不到 —— 前者是可接受的降级，后者是功能缺失。
+         */
+        node.layout.wrap = 'WRAP';
+        notes.push(`「${node.name}」一行放不下（${Math.round(total)}px > 页宽 ${pageWidth}），已改为换行排列`);
+        for (const c of kids) {
+          if ((c.layout.flexShrink ?? 1) !== 0) c.layout.flexShrink = 0;
+        }
+      }
     }
     if (isContainer(node)) node.children.forEach(visit);
   };

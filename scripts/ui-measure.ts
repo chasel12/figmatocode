@@ -256,19 +256,21 @@ function classify(pageName: string, boxes: RawBox[], byCls: Map<string, NodeMeta
       push('v-overflow', b.cls, `内容 ${b.scrollH}px > 盒高 ${b.clientH}px（overflow-y:${b.overflowY}）`);
     }
 
-    // 5. 子元素超出父盒（只判非脱流、非根的直接子项）
+    /**
+     * 5. 子元素**横向**超出父盒。
+     *
+     * 只判横向，不判纵向：纵向溢出会让 document 长高，用户滚一下就能看到（`overlay-toast`
+     * 的 8 行列表就是这样，页高 880 而不是 812，内容没丢）；横向溢出到 375 以外则是
+     * **永远看不见** —— 而 AST 没有横向滚动能力。这条区分是 2026-11-01 从 4 条命中里
+     * 复盘出来的：3 条纵向（正常滚动）1 条横向（真 bug）。
+     */
     if (!b.floating && b.parentW > 0 && b.w > 0) {
       const overRight = b.x + b.w - b.parentRight;
-      const overBottom = b.y + b.h - b.parentBottom;
-      if (overRight > TOL || overBottom > TOL) {
-        push(
-          'out-of-parent',
-          b.cls,
-          `超出父盒 ${Math.round(Math.max(overRight, overBottom))}px（自身 ${Math.round(b.w)}×${Math.round(b.h)}，父 ${Math.round(b.parentW)}×${Math.round(b.parentH)}）`,
-        );
+      if (overRight > TOL) {
+        push('out-of-parent', b.cls, `横向超出父盒 ${Math.round(overRight)}px（自身 ${Math.round(b.w)}×${Math.round(b.h)}，父 ${Math.round(b.parentW)}×${Math.round(b.parentH)}）`);
       }
     }
-  }
+    }
   return hits;
 }
 
@@ -287,6 +289,7 @@ async function main(): Promise<void> {
   const page = await ctx.newPage();
 
   const all: Hit[] = [];
+  let stale = 0;
   const perPage: { page: string; nodes: number; hits: number; height: number }[] = [];
 
   for (const f of files) {
@@ -296,7 +299,20 @@ async function main(): Promise<void> {
 
     const html = path.join(SHOTS, `${id}.html`);
     if (!fs.existsSync(html)) {
-      console.warn(`  跳过 ${id}（缺 HTML）`);
+      console.warn(`  跳过 ${id}（缺 HTML，先跑 npm run ui:shots）`);
+      continue;
+    }
+    /**
+     * **同源校验**：HTML 必须是当前 page.json 渲染出来的。
+     *
+     * 早先只判「文件在不在」，于是改了转换层之后重跑量测，读到的还是**上一批**的 HTML，
+     * 而对照用的 `page.json` 已经是新的 —— 两边不同源，报出来的「声明 64 实际 24」
+     * 是旧产物的问题（实测 4 条全是这么来的）。不同源的结果比没有结果更危险：
+     * 它会让人去修一个已经修好的 bug。
+     */
+    if (fs.statSync(html).mtimeMs < fs.statSync(path.join(SRC, f)).mtimeMs) {
+      console.warn(`  跳过 ${id}（HTML 比 page.json 旧，先跑 npm run ui:shots）`);
+      stale += 1;
       continue;
     }
     await page.goto(`${srv.url}/${id}.html`, { waitUntil: 'networkidle' });
@@ -335,6 +351,7 @@ async function main(): Promise<void> {
   lines.push('>');
   lines.push('> 这份报告读的是**渲染后的盒子**，不是节点树。`bugscan/` 那些检测器判的是「字段组合像不像 bug」，');
   lines.push('> 而底栏被切、按钮换行、子项溢出父盒这些在 AST 里完全合法 —— 只有量出来才知道。');
+  if (stale) lines.push('>', `> ⚠ 有 ${stale} 页因 HTML 比 page.json 旧被跳过（先跑 \`npm run ui:shots\`）。`);
   lines.push('');
 
   lines.push('## 一、按类型', '');
