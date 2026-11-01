@@ -61,6 +61,48 @@ export function ownBackground(node: UINode): BgResolution {
   return { state: 'inherit' };
 }
 
+/**
+ * 该容器是否有「铺满的背景层」子节点。
+ *
+ * 判据四件齐：`position: ABSOLUTE`（脱流不占位）+ `widthMode: FILL`（横向铺满）
+ * + 高度 ≥ 父高 80% + 有可见填充。
+ *
+ * 为什么要这个函数：有一种很常见的写法是把背景画在**同级兄弟**上 —— 一个绝对定位的
+ * 矩形铺满父容器，文字再叠上去（demo「13 绝对定位页」的海报就是这样，白字压在渐变上）。
+ * 这种结构从 AST 爬祖先链永远看不到那个矩形，算出来的「有效背景」是父容器的底色，
+ * 于是白字压白底 = 1.07:1，报出一条根本不存在的违例。
+ *
+ * 加高度比例是为了不把**角标**当成背景层 —— 角标同样是 ABSOLUTE，但只有 18×18。
+ *
+ * 这个判定有两个消费者，口径必须唯一：
+ * - 生成侧 `specToPage.normalizeInvisibleText`（决定要不要改文字色）
+ * - 审计侧 `bugscan.detectors` 的 `text-invisible`（决定要不要报）
+ * 两边算出不同结论就是「同一条规则自己和自己打架」。
+ */
+export function hasBackdropLayer(parent: UINode): boolean {
+  if (!isContainer(parent)) return false;
+  const ph = parent.layout.height ?? 0;
+  /**
+   * **父容器 `mode: 'ABSOLUTE'` 时，子节点天然脱流**，不需要各自声明 `position`。
+   *
+   * 这一条是踩过才补的：demo「13 绝对定位页」的海报 `mode=ABSOLUTE`，里面的背景矩形
+   * 只写了 `widthMode:FILL` + `height:420`，**没有 `position` 字段**。
+   * 第一版判据要求 `position === 'ABSOLUTE'`，于是永远返回 false ——
+   * 这条「防误报」的防线写了却从未生效，只是恰好那条路径当时没被跑到。
+   */
+  const parentAbs = parent.layout.mode === 'ABSOLUTE';
+  return parent.children.some((c) => {
+    const L = c.layout;
+    const S = c.style;
+    const outOfFlow = L.position === 'ABSOLUTE' || parentAbs;
+    if (!outOfFlow) return false;
+    if (L.widthMode !== 'FILL') return false;
+    if (!S?.fills?.length && !S?.background) return false;
+    const ch = L.height ?? 0;
+    return ph > 0 ? ch >= ph * 0.8 : ch > 0;
+  });
+}
+
 /** 可点元素：BUTTON，或挂了 `ON_CLICK` 交互（导航热区在 `wireNavigation` 里会提到祖先，
  *  但那属于出码侧；规则看的是设计意图，所以按 AST 原始绑定点判） */
 function isClickable(node: UINode): boolean {

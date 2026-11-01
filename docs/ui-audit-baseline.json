@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-11-01T11:09:58.494Z",
+  "pages": [
+    {
+      "group": "demo",
+      "pages": 19,
+      "nodes": 596
+    },
+    {
+      "group": "mall",
+      "pages": 6,
+      "nodes": 537
+    },
+    {
+      "group": "mall+",
+      "pages": 6,
+      "nodes": 537
+    },
+    {
+      "group": "draft",
+      "pages": 6,
+      "nodes": 353
+    }
+  ],
+  "counts": {
+    "badge-inline": 0,
+    "vector-ratio": 1,
+    "empty-frame": 0,
+    "abs-no-size": 0,
+    "fixed-occlude": 1,
+    "text-invisible": 0,
+    "gap-scatter": 1,
+    "flat-hierarchy": 0,
+    "text-clip": 0
+  }
+}

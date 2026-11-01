@@ -27,7 +27,7 @@ import type {
 import { createNode, createPage, nextId } from '../../schema/factory';
 import { isContainer } from '../../schema/types';
 import { contrastRatio, parseColor, relativeLuminance } from '../../standards/color';
-import { ownBackground } from '../../standards/context';
+import { hasBackdropLayer, ownBackground } from '../../standards/context';
 import type { StylePack } from '../../tokens/packs/types';
 import type { AiBorderSpec, AiFillSpec, AiLayoutSpec, AiNodeSpec, AiPageDraft, AiStatesSpec, AiStyleSpec, AiViolation } from './types';
 import { parseClassNames } from './tailwind';
@@ -1221,6 +1221,56 @@ export function normalizePage(root: UINode, violations: AiViolation[], notes: st
   // 必须最后跑：前面几条可能改掉背景（normalizeFill 会把父 HUG 的子项 FILL 降回 HUG，
   // 也可能动 fills），对比度要按**最终**背景算，早算等于拿旧背景判新文字色。
   normalizeInvisibleText(root, root.style?.background ?? '#FFFFFF');
+  // 最后：它只读 `root.children` 里 FIXED 元素的最终高度，不改任何子节点
+  normalizeSticky(root);
+}
+
+/**
+ * 贴底固定元素 → 根容器补足 `padding-bottom`（转换层兜底，静默）。
+ *
+ * ## 为什么
+ *
+ * `position: 'FIXED'` 的元素**脱离文档流**，父容器不会为它预留空间。底栏高 64px、
+ * 根容器 `padding-bottom: 0` 时，页面最后 64px 内容被永久压住 —— 滚动到底也看不到。
+ *
+ * 实测两处真实命中（`npm run ui:audit`）：
+ * - 商城「商品详情」：底栏 64px，padding-bottom 0，最后「留白」只有 40px → 遮住 24px
+ * - `ai-ab-diancai`：底部购物车栏 68px，padding-bottom 0
+ *
+ * ## 为什么这条像素代价是零
+ *
+ * `padding-bottom` 只影响**可滚动范围的底部**，视口顶部的截图完全不变。
+ * 换句话说：`npm run diff` 那 19 页 / 商城 6 页的像素比对这个维度上**看不见它** ——
+ * 这也正是它必须靠结构判据而不是像素判据发现的原因
+ * （像素 100% 只能证明「产物 = 设计」，设计本身错时两边一起错）。
+ *
+ * ## 为什么只判「贴底」不判「所有 FIXED」
+ *
+ * 顶部固定栏（`stickyTop: 0`）不需要 padding-bottom，它盖住的是内容开头，
+ * 而内容开头本来就在视口顶部，滚动时自然让开。只有贴底的才需要预留。
+ *
+ * 判据与 `bugscan` 的 `fixed-occlude` 检测器**必须一致**（同一形态，一个修一个报）。
+ */
+function normalizeSticky(root: UINode): void {
+  if (!isContainer(root)) return;
+  const vh = root.layout.height ?? 0;
+  const bars = root.children.filter((c) => {
+    if (c.layout.position !== 'FIXED') return false;
+    const h = c.layout.height;
+    if (typeof h !== 'number' || h <= 0) return false;
+    const y = c.layout.y;
+    // 有 y 时按「底边贴到视口底」判；没有 y 时只能靠 stickyBottom === 0
+    if (typeof y === 'number') return vh > 0 ? y + h >= vh - 2 : false;
+    return c.layout.stickyBottom === 0;
+  });
+  if (bars.length === 0) return;
+
+  const barH = Math.max(...bars.map((b) => b.layout.height as number));
+  const pad = root.layout.padding;
+  const curBottom = pad?.[2] ?? 0;
+  // 已有预留够高就不动：改设计的事不归转换层管
+  if (curBottom >= barH) return;
+  root.layout.padding = [pad?.[0] ?? 0, pad?.[1] ?? 0, barH, pad?.[3] ?? 0];
 }
 
 /**
@@ -1318,25 +1368,6 @@ function normalizeInvisibleText(root: UINode, pageBg: string): void {
     node.children.forEach((c) => visit(c, covered ? null : bg));
   };
   visit(root, pageBg);
-}
-
-/**
- * 该容器是否有「铺满的背景层」子节点。
- *
- * 判据三件齐：`ABSOLUTE`（脱流不占位）+ `FILL` 宽度 + 高度 ≥ 父高 80% + 有可见填充。
- * 加高度比例是为了不把**角标**当成背景层——角标也是 ABSOLUTE，但只有 18×18。
- */
-function hasBackdropLayer(parent: UINode): boolean {
-  if (!isContainer(parent)) return false;
-  const ph = parent.layout.height ?? 0;
-  return parent.children.some((c) => {
-    const L = c.layout;
-    const S = c.style;
-    if (L.position !== 'ABSOLUTE' || L.widthMode !== 'FILL') return false;
-    if (!S?.fills?.length && !S?.background) return false;
-    const ch = L.height ?? 0;
-    return ph > 0 ? ch >= ph * 0.8 : ch > 0;
-  });
 }
 
 /** 在给定底色上取黑或白——不是「最好看」，是「一定读得出来」 */
