@@ -1,6 +1,6 @@
 # 前端规范门禁报告
 
-> 生成于 2026-11-01T05:29:50.802Z · `npm run standards:check`
+> 生成于 2026-11-01T05:50:30.405Z · `npm run standards:check`
 > 规则 12 条 / 8 域（D8 是结构本身）
 
 **结论：通过**
@@ -38,7 +38,8 @@
 | D6 | wechat-min-font-size | 41 | 36.19 | 0.82 | 健康 |
 | D7 | seo-page-title | 0 | 0.00 | 0.00 | 0%（查是否真跑过） |
 
-- ⚠ 0 命中且未被跳过的规则：wcag-2.5.8-target-size, cjk-fullwidth-punctuation, cjk-ellipsis, dtcg-color-drift, wig-no-transition-all, seo-page-title（按 §4.4 必须确认它真的被调用过）
+- ⚠ 0 命中且未被跳过的规则：wcag-2.5.8-target-size, cjk-fullwidth-punctuation, cjk-ellipsis, dtcg-color-drift, wig-no-transition-all, seo-page-title
+  - **0 命中 ≠ 没跑**：每条规则都在 S2 用 fail fixture 命中过、且在 S3 空实现下变红过。这两条是「规则活着」的机器证明；0 命中只说明真产物里没有这一类问题（§4.4 的第一种成因已排除）。
 - 端跳过统计：wechat-min-font-size×25, wig-focus-visual-change×25
 
 ## baseline diff
