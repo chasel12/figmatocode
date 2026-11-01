@@ -297,3 +297,94 @@ describe('配方里的日历示例必须能展开', () => {
     expect(checked.violations).toHaveLength(0);
   });
 });
+
+/**
+ * `icon:"{{icon}}"` + `values.icon` —— 让 N 个图标各不相同的**唯一**写法。
+ *
+ * 2026-11-01 真实模型实测：`ai-matrix` 实跑 10 页，L3/L6 两页整页失败，
+ * 原因全是闸门拿字面量 `"{{icon}}"` 去查图标表（查不到）→ 报违例 → 模型写的就是对的，
+ * 改 3 轮也改不出来 → 抛异常。B2「自修后通过率」从 100% 掉到 80%。
+ *
+ * 这里锁住两件事：**闸门放行占位符**、**展开后拿到的是替换后的真名**。
+ */
+describe('图标占位符（闸门与转换层分层）', () => {
+  const icons: Record<string, string> = {
+    house: 'M1',
+    'shopping-cart': 'M2',
+    bell: 'M3',
+    circle: 'M4',
+    'shopping-bag': 'M5',
+  };
+
+  const draftWith = (child: AiNodeSpec): AiPageDraft => ({
+    kind: 'page',
+    name: '图标占位',
+    width: 375,
+    height: 812,
+    root: { kind: 'FRAME', layout: { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'HUG' }, children: [child] },
+  });
+
+  const vectors = (node: UINode): UINode[] => {
+    const out: UINode[] = [];
+    const visit = (n: UINode): void => {
+      if (n.type === 'VECTOR') out.push(n);
+      kids(n).forEach(visit);
+    };
+    visit(node);
+    return out;
+  };
+
+  it('闸门放行 icon:"{{icon}}"（展开前是字面量，不能拿去查表）', () => {
+    const draft = draftWith({
+      kind: 'FRAME',
+      repeat: { count: 3, values: { icon: ['house', 'shopping-cart', 'bell'] } },
+      children: [{ kind: 'VECTOR', icon: '{{icon}}', layout: { width: 24, height: 24 } }],
+    });
+    const res = validateAiOutput(draft, { expect: 'page', pack, icons });
+    expect(res.ok, JSON.stringify(res.violations ?? [])).toBe(true);
+  });
+
+  it('展开后每个图标各用各的名字（不是 N 份同一个）', () => {
+    const draft = draftWith({
+      kind: 'FRAME',
+      repeat: { count: 3, values: { icon: ['house', 'shopping-cart', 'bell'] } },
+      children: [{ kind: 'VECTOR', icon: '{{icon}}', layout: { width: 24, height: 24 } }],
+    });
+    const { page, violations } = draftToPage(draft, { pack, icons });
+    expect(violations).toHaveLength(0);
+    const ds = vectors(page.root).map((n) => (n as unknown as { vector: { d: string } }).vector.d);
+    expect(ds).toEqual(['M1', 'M2', 'M3']);
+  });
+
+  it('写错名字（字面量、无相近项）仍然报违例 —— 那是模型该改的', () => {
+    const draft = draftWith({ kind: 'VECTOR', icon: 'zzzzqqq', layout: { width: 24, height: 24 } });
+    const res = validateAiOutput(draft, { expect: 'page', pack, icons });
+    expect(res.ok).toBe(false);
+    expect(res.violations.some((v) => v.path.endsWith('.icon'))).toBe(true);
+  });
+
+  it('占位符写在 repeat 之外：降级成相近图标，不整页失败', () => {
+    const draft = draftWith({ kind: 'VECTOR', icon: '{{icon}}', layout: { width: 24, height: 24 } });
+    const { page, violations } = draftToPage(draft, { pack, icons });
+    const vec = vectors(page.root);
+    expect(vec).toHaveLength(1);
+    // 关键：不能是空路径（空路径 = 界面上一个看不见的洞）
+    expect((vec[0] as unknown as { vector: { d: string } }).vector.d).not.toBe('M 0 0');
+    expect(violations.some((v) => v.path.endsWith('.icon') && v.autoFixed)).toBe(true);
+  });
+
+  it('values 缺 icon 数组：降级成序号后同样兜底，不失败', () => {
+    const draft = draftWith({
+      kind: 'FRAME',
+      repeat: { count: 2, values: { name: ['甲', '乙'] } },
+      children: [{ kind: 'VECTOR', icon: '{{icon}}', layout: { width: 24, height: 24 } }],
+    });
+    const { page, violations } = draftToPage(draft, { pack, icons });
+    const vec = vectors(page.root);
+    expect(vec).toHaveLength(2);
+    for (const v of vec) {
+      expect((v as unknown as { vector: { d: string } }).vector.d).not.toBe('M 0 0');
+    }
+    expect(violations.every((v) => v.autoFixed)).toBe(true);
+  });
+});

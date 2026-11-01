@@ -650,15 +650,38 @@ export function buildNodeFromSpec(
      * 契约校验（contract.ts）用的是同一个函数，两处必须保持一致。
      */
     const hit = spec.icon && ctx.icons ? resolveIconName(spec.icon, ctx.icons) : { name: undefined, candidates: [] };
-    const d = spec.vectorD ?? (hit.name ? ctx.icons?.[hit.name] : undefined);
+    let d = spec.vectorD ?? (hit.name ? ctx.icons?.[hit.name] : undefined);
     if (spec.icon && !ctx.icons) {
       violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库未加载，无法解析 "${spec.icon}"` });
     } else if (spec.icon && !d) {
-      violations.push({
-        path: `${path}.icon`,
-        kind: 'limit',
-        message: `图标库中不存在 "${spec.icon}"，相近的有：${hit.candidates.join(' / ') || '（无）'}`,
-      });
+      /**
+       * 占位符没换出有效名字 —— **降级，不判失败**。
+       *
+       * 两种成因，都是「我们的替换机制没拿到名字」，不是模型写错了图标名：
+       *  - `icon:"{{icon}}"` 但 `repeat.values` 里没有 `icon` 数组 → 按既有约定降级成序号 `"1"`；
+       *  - `icon:"{{icon}}"` 写在 `repeat` 之外 → 压根没有替换动作，原样留着。
+       *
+       * 与「模型写了个不存在的名字」（`housee`）必须区别对待：后者报 fatal 让它改，
+       * 前者改了也没用（它写的就是标准写法），报 fatal 只会把整页烧掉 3 轮后失败。
+       * 实测正是这一类让 `ai-matrix` 实跑掉到 80%。
+       */
+      const fromPlaceholder = /\{\{/.test(spec.icon) || /^\d+$/.test(spec.icon);
+      if (fromPlaceholder) {
+        const fallback = hit.candidates[0] ?? 'circle';
+        d = ctx.icons?.[fallback];
+        violations.push({
+          path: `${path}.icon`,
+          kind: 'limit',
+          autoFixed: true,
+          message: `图标占位符没换出有效名字（"${spec.icon}"），已换成 "${fallback}"；要让每项图标不同，请写 icon:"{{icon}}" 并给同一层 repeat 的 values.icon 数组`,
+        });
+      } else {
+        violations.push({
+          path: `${path}.icon`,
+          kind: 'limit',
+          message: `图标库中不存在 "${spec.icon}"，相近的有：${hit.candidates.join(' / ') || '（无）'}`,
+        });
+      }
     }
     vectorNode.vector = { d: d ?? 'M 0 0', width: 24, height: 24 };
     /**
@@ -1312,6 +1335,23 @@ function normalizeHugSize(root: UINode): void {
     if (L.widthMode === 'HUG' && L.width != null && L.heightMode === 'HUG' && L.height != null) {
       L.widthMode = 'FIXED';
       L.heightMode = 'FIXED';
+    } else if (L.heightMode === 'HUG' && L.height != null) {
+      /**
+       * 单轴 HUG + 显式高度 → **min-height 地板**（2026-11-01，真实模型实测）。
+       *
+       * `HUG` 编译成 `height: fit-content`，显式 `height` 被整个丢掉。模型的习惯写法是
+       * 「底栏高度 64 + 内容自适应」，于是底栏真的只剩内容高（实测 40px）——
+       * 图标 20 + 文字 14 挤满 40px，文字底边贴在视口第 811 行（视口 812），
+       * 看起来就是「底栏文字被切了一半」。`ai-matrix` 与 45 场景里带底栏的页面全是这个形态。
+       *
+       * 用 `min-height` 而不是改回 `FIXED`：FIXED 会把内容撑爆（文字溢出盒子），
+       * min-height 只在内容比声明值小时生效，两边都安全。
+       *
+       * **只做高度轴，不做宽度轴**：宽度方向有历史回归——品类栏 `HUG + width:92`
+       * 一旦落成固定宽度就会挤窄右侧商品网格（见 `normalizeFill` 的注释）。
+       * 高度方向不存在这个副作用：HUG 的本意就是「按内容撑高」，给个下限不改变这件事。
+       */
+      L.minHeight = Math.max(L.minHeight ?? 0, L.height);
     }
     if (isContainer(node)) node.children.forEach(visit);
   };

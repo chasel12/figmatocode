@@ -67,6 +67,8 @@ const pack = getPack('shadcn');
 
 function collectDrafts(): { pages: UIPage[]; note?: string } {
   const dirs = [
+    // `scripts/ui-gen.ts` 的产物：45 个 UI 场景各一份真实模型输出（优先看这个）
+    '.tmp/ui-gen',
     '.tmp/ai-ab-diancai',
     '.tmp/ai-ab-ev-scooter',
     '.tmp/ai-ab-ev-scooter-verify',
@@ -83,8 +85,10 @@ function collectDrafts(): { pages: UIPage[]; note?: string } {
       try {
         const draft = JSON.parse(fs.readFileSync(path.join(abs, f), 'utf8')) as AiPageDraft;
         const { page } = draftToPage(draft, { pack, icons });
-        // 页面名带上来源，报告里能分清是哪一份 draft
-        page.name = `${d.split('/').pop()}/${f.replace('.json', '')}`;
+        // `ui-gen` 的文件名就是场景 id，直接用（报告里一眼能对上清单）；
+        // 其它目录一份 draft 可能有多页，带上来源目录才分得清。
+        const base = f.replace(/\.draft\.json$/i, '').replace(/\.json$/i, '');
+        page.name = d === '.tmp/ui-gen' ? base : `${d.split('/').pop()}/${base}`;
         pages.push(page);
       } catch (err) {
         failed.push(`${d}/${f}: ${(err as Error).message.slice(0, 60)}`);

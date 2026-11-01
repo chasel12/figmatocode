@@ -147,9 +147,25 @@ function walkSpec(
     });
   }
   if (spec.icon) {
+    /**
+     * **占位符不是图标名，闸门不能拿它查表**（2026-11-01 实测，真实模型 20% 页面因此整页失败）。
+     *
+     * `repeat` 的 `values` 能喂任何字符串字段，图标要逐项不同就得写
+     * `icon:"{{icon}}"` + `values:{icon:[...]}`。但闸门跑在**展开之前**，
+     * 此刻 `spec.icon` 还是字面量 `"{{icon}}"`，查表必然查不到 ——
+     * 于是一份**完全正确**的产物被拒，模型连改 3 轮也改不出别的写法
+     * （它写的就是对的），整页生成失败。
+     *
+     * 实测：`ai-matrix` 实跑 10 页，L3/L6 两页全挂在这一条上，
+     * B2「自修后通过率」从 100% 掉到 80%。
+     *
+     * 展开后的真实名字由 `specToPage` 的 VECTOR 分支再查一次（那里拿到的是替换后的值），
+     * 所以这里放行不会漏检，只是把检查挪到能判的那一层。
+     */
+    const isPlaceholder = /\{\{[A-Za-z_][\w-]*\}\}/.test(spec.icon);
     if (!icons) {
       violations.push({ path: `${path}.icon`, kind: 'limit', message: `图标库未加载，无法解析 "${spec.icon}"` });
-    } else {
+    } else if (!isPlaceholder) {
       /**
        * 与 specToPage 走同一个归一器：模型写 `home`/`cart`/`notification` 这类
        * 「它以为存在」的名字时，别名表能兜住（house/shopping-cart/bell）。

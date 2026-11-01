@@ -56,6 +56,9 @@
     "standards": "npm run standards:check && npm run standards:a11y",
     "ui:audit": "vite-node scripts/ui-audit.ts",
     "ui:audit:baseline": "vite-node scripts/ui-audit.ts --baseline",
+    "ui:gen": "vite-node scripts/ui-gen.ts",
+    "ui:shots": "vite-node scripts/ui-shots.ts",
+    "ui:measure": "vite-node scripts/ui-measure.ts",
     "recovery": "node scripts/recovery-check.mjs"
   },
   "dependencies": {

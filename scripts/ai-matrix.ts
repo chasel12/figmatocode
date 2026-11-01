@@ -202,12 +202,23 @@ const GOLDEN = [
  * 优先级：`AI_PROVIDER` 显式指定 > 按已配置的 key 自动挑（顺序即优先级）> 跳过实跑档。
  * 本地端点（Ollama 等）`keyOptional`，允许无 key 实跑——这是「没有官方 key 也能验链路」的入口。
  */
-const KEY_ENV: Record<string, string> = {
-  anthropic: 'ANTHROPIC_API_KEY',
-  deepseek: 'DEEPSEEK_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  gemini: 'GEMINI_API_KEY',
+/**
+ * 每家允许的 key 环境变量名（按顺序取第一个非空的）。
+ *
+ * **为什么是数组而不是单值**：`qwen` 这一条原本压根不在表里 ——
+ * 供应商表里有 `qwen`，评测轨却拿不到它的 key，于是「点名 qwen 实跑」直接静默跳过。
+ * 加上之后同时接受两个名字：`AI_API_KEY` 是 `gen-mall` 等脚本用的通用名，
+ * `DASHSCOPE_API_KEY` 是百炼官方文档用的名字，用户手里是哪个都能跑。
+ */
+const KEY_ENV: Record<string, string[]> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'AI_API_KEY'],
+  deepseek: ['DEEPSEEK_API_KEY', 'AI_API_KEY'],
+  qwen: ['DASHSCOPE_API_KEY', 'QWEN_API_KEY', 'AI_API_KEY'],
+  openai: ['OPENAI_API_KEY', 'AI_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'AI_API_KEY'],
 };
+
+const keyOf = (p: string): string | undefined => (KEY_ENV[p] ?? []).map((n) => process.env[n]).find((v) => v);
 
 function resolveLive(): { provider: ProviderId; apiKey?: string } | null {
   const explicit = process.env.AI_PROVIDER as ProviderId | undefined;
@@ -218,17 +229,17 @@ function resolveLive(): { provider: ProviderId; apiKey?: string } | null {
       process.exit(1);
     }
     const def = providerDef(explicit);
-    const apiKey = KEY_ENV[explicit] ? process.env[KEY_ENV[explicit]] : undefined;
+    const apiKey = keyOf(explicit);
     if (!apiKey && !def.keyOptional) {
       // 显式点名了供应商却没给 key：不能静默退回离线档，否则会以为「实跑过了」
-      console.warn(`[ai-matrix] AI_PROVIDER=${explicit} 但没有设置 ${KEY_ENV[explicit] ?? '对应的 key'}，实跑档跳过`);
+      console.warn(`[ai-matrix] AI_PROVIDER=${explicit} 但没有设置 ${(KEY_ENV[explicit] ?? []).join(' / ')}，实跑档跳过`);
       return null;
     }
     return { provider: explicit, apiKey };
   }
-  for (const p of Object.keys(KEY_ENV) as ProviderId[]) {
-    const key = process.env[KEY_ENV[p]];
-    if (key) return { provider: p, apiKey: key };
+  for (const p of Object.keys(KEY_ENV)) {
+    const key = keyOf(p);
+    if (key) return { provider: p as ProviderId, apiKey: key };
   }
   return null;
 }
