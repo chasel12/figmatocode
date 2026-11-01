@@ -18,6 +18,7 @@ import type { UINode, UIPage } from '../schema/types';
 import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
+import { escapeAttr } from './attr';
 import { assetBytes } from './zipKit';
 import {
   collectAssets,
@@ -48,10 +49,13 @@ export const TARO_TAG_MAP: TagMap = {
 /** Taro 图片：webpack require 静态解析（相对 src/pages/<NN>/）+ aspectFill
  *  走 require 而非 URL 字符串：小程序端没有 public 概念，资源必须参与打包。
  *  非内联资源（http/data 已落盘之外的）退回字符串 src。 */
-const taroImageAttr = (_node: UINode, src: string): string =>
-  src.startsWith('/assets/')
-    ? `src={require('../../${src.slice(1)}')} mode="aspectFill"`
-    : `src="${src}" mode="aspectFill"`;
+const taroImageAttr = (node: UINode, src: string): string => {
+  // 小程序没有 alt，替代文本走 aria-label
+  const label = (node as { alt?: string }).alt ? ` aria-label="${escapeAttr((node as { alt?: string }).alt!)}"` : '';
+  return src.startsWith('/assets/')
+    ? `src={require('../../${src.slice(1)}')} mode="aspectFill"${label}`
+    : `src="${src}" mode="aspectFill"${label}`;
+};
 
 /** 单页 TSX（`generateTaro(ctx)`，plan §2.3 统一签名）
  *
@@ -113,7 +117,7 @@ function h5Template(title: string): string {
 <html>
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
 <title>${title.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>
 </head>
 <body>

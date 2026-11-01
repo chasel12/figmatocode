@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "pages": 25,
+  "nodes": 2266,
+  "rules": {
+    "wcag-1.4.3-contrast": 406,
+    "wcag-1.1.1-image-alt": 82,
+    "wcag-2.5.8-target-size": 0,
+    "wig-interaction-state": 88,
+    "wig-focus-visual-change": 0,
+    "cjk-latin-spacing": 2,
+    "cjk-fullwidth-punctuation": 0,
+    "cjk-ellipsis": 0,
+    "dtcg-color-drift": 0,
+    "wig-no-transition-all": 0,
+    "wechat-min-font-size": 41,
+    "seo-page-title": 0
+  }
+}

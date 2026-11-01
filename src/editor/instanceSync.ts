@@ -33,6 +33,8 @@ export interface OverridePatch {
   layout?: Record<string, unknown>;
   text?: string;
   src?: string;
+  /** B8：图片替代文本也是「实例可改」的内容（与 src 同为 IMAGE 的内容字段） */
+  alt?: string;
   name?: string;
 }
 
@@ -88,6 +90,7 @@ export function recordOverride(
   if (patch.layout) merged.layout = { ...(prev.layout ?? {}), ...patch.layout };
   if (patch.text !== undefined) merged.text = patch.text;
   if (patch.src !== undefined) merged.src = patch.src;
+  if (patch.alt !== undefined) merged.alt = patch.alt;
   if (patch.name !== undefined) merged.name = patch.name;
   existing.value = merged;
   return list;
@@ -115,6 +118,7 @@ export function applyOverrides(root: UINode, overrides: InstanceOverride[] | und
     if (patch.layout) node.layout = { ...node.layout, ...patch.layout };
     if (patch.text !== undefined) (node as { text?: string }).text = patch.text;
     if (patch.src !== undefined) (node as { src?: string }).src = patch.src;
+    if (patch.alt !== undefined) (node as { alt?: string }).alt = patch.alt;
     if (patch.name !== undefined) node.name = patch.name;
   }
   return root;

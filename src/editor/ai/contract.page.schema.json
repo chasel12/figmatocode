@@ -403,6 +403,10 @@
     },
     "AiNodeSpec": {
       "properties": {
+        "alt": {
+          "description": "IMAGE 的替代文本（WCAG 1.1.1）。\n\n**这是给读屏器念的句子，不是图层名**：`name` 写「商品主图」是给编辑者看的， `alt` 要写「芒果干包装正面，净含量 100g」——把内容说清楚，而不是把类别说一遍。 装饰性图片（分割线、背景光晕）显式写空串 `\"\"`，与「忘了写」区分开。\n\n出码：H5 四端出 `alt`，小程序两端出 `aria-label`。",
+          "type": "string"
+        },
         "children": {
           "items": {
             "$ref": "#/definitions/AiNodeSpec"

@@ -129,7 +129,8 @@ describe('position: FIXED 通道（固定底栏）', () => {
     expect(node.layout.stickyBottom).toBe(0);
     const css = cssOf(page, node);
     expect(css.position).toBe('fixed');
-    expect(css.bottom).toBe('0px');
+    // B5：贴底固定元素带安全区抬升（env() 无安全区时回退 0，渲染不变）
+    expect(css.bottom).toContain('env(safe-area-inset-bottom');
     // 不该被 normalizeAbsolute 降级（它压根不是 ABSOLUTE）
     expect(node.layout.mode).toBe('HORIZONTAL');
     expect(violations.filter((v) => v.path.includes('layout.mode'))).toHaveLength(0);

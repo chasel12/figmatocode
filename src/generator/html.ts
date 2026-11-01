@@ -37,7 +37,7 @@ function makeRenderer(classNames: Map<string, string>, indentUnit = '  ', startD
         if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE') {
           return `${indent}<div class="${cls}" style="background-image:url('${escapeHtml(src)}');background-repeat:repeat;"></div>`;
         }
-        return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="" />`;
+        return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="${escapeHtml(node.alt ?? '')}" />`;
       }
       // P3-4：按图层名给确定性色调（同名同色；只改 background，不动盒子）
       return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></div>`;
@@ -137,9 +137,11 @@ export function generateHtml(page: UIPage, compiled: CompiledPage, options: { ti
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>${escapeHtml(options.title ?? page.name)}</title>
 <style>
+/* B5：让 UA 的默认配色（滚动条/表单控件/系统 UI）跟随页面明暗，避免「深色页配浅色滚动条」 */
+:root { color-scheme: ${isDarkColor(page.root.style?.background) ? 'dark' : 'light'}; }
 html, body { margin: 0; padding: 0; }
 body { font-family: ${FONT_STACK}; background: #ffffff; min-height: ${minH === '100vh' ? '812px' : minH.replace('max(', '').replace(/, 100vh\)/, '')}; }
 ${imagePlaceholderCss(collectPlaceholderNodes(page.root), isDarkColor(page.root.style?.background))}

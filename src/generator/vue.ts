@@ -17,6 +17,7 @@ import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { collectFxDefs } from './html';
+import { escapeAttr } from './attr';
 import { IMAGE_PLACEHOLDER_CLASS, collectPlaceholderNodes, imagePlaceholderCss, placeholderClass } from './imagePlaceholder';
 import { svgOfNodeVector, svgOfVector } from './vector';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
@@ -74,7 +75,7 @@ export function emitVueTemplate(ctx: EmitContext): string {
         if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE') {
           return `${indent}<div${idAttr} class="${cls}" style="background-image:url('${src}');background-repeat:repeat;"></div>`;
         }
-        return `${indent}<${tag}${idAttr} class="${cls}" src="${src}" alt="" />`;
+        return `${indent}<${tag}${idAttr} class="${cls}" src="${src}" alt="${escapeAttr(node.alt ?? '')}" />`;
       }
       return `${indent}<div${idAttr} class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></div>`;
     }
@@ -154,20 +155,12 @@ createApp(${name}).mount('#root')
   ];
 }
 
-function escapeAttr(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function htmlShell(title: string, scriptSrc: string, fxDefs: string): string {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>${escapeAttr(title)}</title>
 </head>
 <body>

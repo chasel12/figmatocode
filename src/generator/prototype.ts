@@ -108,7 +108,7 @@ function renderNode(node: UINode, classNames: Map<string, string>, depth: number
     if (!src) return `${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"${anchor}${inter}></div>`;
     if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE')
       return `${indent}<div class="${cls}" style="background-image:url('${escapeHtml(src)}');background-repeat:repeat;"${anchor}${inter}></div>`;
-    return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt=""${anchor}${inter} />`;
+    return `${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="${escapeHtml(node.alt ?? '')}"${anchor}${inter} />`;
   }
   if (node.type === 'SLICE') return ''; // FR-14：Slice 无出码 DOM
   if (node.type === 'VECTOR') {
@@ -183,7 +183,7 @@ export function generatePrototypeProject(project: UIProject): PrototypeFile[] {
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>${escapeHtml(project.name || 'UI 原型')}</title>
 <link rel="stylesheet" href="index.css" />
 </head>

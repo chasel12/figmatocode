@@ -636,6 +636,8 @@ export function buildNodeFromSpec(
   }
   if (node.type === 'IMAGE') {
     node.src = spec.src ?? '';
+    // B8：空串是「显式的装饰图」，与「没写」不同 —— 只透传已定义的值
+    if (spec.alt !== undefined) node.alt = spec.alt;
   }
   if (node.type === 'VECTOR') {
     const vectorNode = node as VectorNode;

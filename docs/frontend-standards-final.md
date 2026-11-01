@@ -278,3 +278,73 @@ B5/B8 会改产物或 AST，要单独跑门禁。
 
 **「不冲突」不是靠挑规则挑出来的，是靠「一域一主 + 显式裁决冲突条款」设计出来的。**
 **「真落地」不是靠配上了，是靠「每条规则都有 fail fixture + 空实现下必须变红」证出来的。**
+
+---
+
+## 七、实施记录（2026-11-01，B1~B8 全部落地）
+
+### 7.1 交付物
+
+| 批 | 落点 | 说明 |
+|---|---|---|
+| B1 | `src/standards/{types,context,color,runner,audit,fixtures,rules,index}.ts` | 规则注册表 + 上下文构建 + 自检/变异（测试与脚本**共用同一份** `audit.ts`） |
+| B2 | `src/standards/rules/d1-a11y.ts` | 对比度（分级）、图片 alt、目标尺寸 |
+| B3 | `src/standards/rules/d3-typography.ts` | 三条规则 + 幂等归一化（空格/全角标点/省略号） |
+| B4 | `src/standards/rules/d2-behavior.ts` | 交互态（按端分流）、焦点必须改视觉 |
+| B5 | `src/compiler/compile.ts` + 各端 HTML 壳 | 贴底固定元素安全区；`:root { color-scheme }`；`viewport-fit=cover` |
+| B6 | `src/standards/rules/d7-seo.ts` | 标题唯一/长度（**折进规则表**，见 7.3） |
+| B7 | `scripts/standards-a11y.ts` + `docs/standards-a11y-baseline.json` | axe on dist，7 条可修规则白名单 |
+| B8 | schema → AI 契约 → 4 端出口 → `.fig` 旁挂 → 规则 | `alt` 全链路，12 条断言逐层验 |
+
+门禁入口：`npm run standards:check`（S1~S4）、`npm run standards:a11y`（B7）、
+`npm run standards`（两者串联）。报告落 `docs/standards-report.md`，
+基线落 `docs/standards-baseline.json`（可 diff）。
+
+### 7.2 实测（2026-11-01）
+
+| 项 | 结果 |
+|---|---|
+| `tsc --noEmit` | 0 错 |
+| `npm test` | **1289/1289（85 文件，校验 85/85）**，新增 4 文件 / 52 例 |
+| `standards:check` | S1 12 条规则全有 fixture · S2 34 个 fixture 全过 · S3 16 次变异全变红 · S4 25 页×2 端 |
+| `standards:a11y` | 25 页，`color-contrast` 176 节点 / 22 页 |
+| `build` | OK |
+| `fig:check` | 4 关（导入 4 文件 / 往返 19 页 / CSS 19 页 / 组件 4 项） |
+| `ai-matrix` | 10/10；稳定前缀 **11363 / 12000** tokens（+28，只剩 637） |
+| `recovery` | 12/12 |
+| demo 像素 | **19/19 ≥ 98%**（16 层嵌套 99.18% 最低） |
+
+### 7.3 与原方案的四处偏离（都是「两份实现会漂移」这一类）
+
+1. **`check` 返回 `RuleHit[]` 而非完整 `StandardViolation`**：`ruleId/domain/severity/source`
+   由 runner 统一盖章。语义不变（空 = 合规），好处是规则不可能标错自己的 id。
+2. **不另建 `scripts/standards-mutation.ts`**：变异测试实现在 `src/standards/audit.ts`，
+   被 `tests/standards-registry.test.ts`（T3）和 `standards:check` 的 S3 **共用**。
+   另写一份的结局一定是两份漂移，而漂移的永远是更松的那份。
+3. **B6 不另写 SEO 脚本**：`seo-page-title` 已经是 D7 规则，S4 带 `site` 上下文跑整站。
+   `description` 一项**放弃**——AST 没有这个字段，加它等于再造一个「字段在、通道不在」。
+4. **D5 跑在产物 CSS 上，不在 AST 上**：`StyleSchema` 没有 `transition` 字段（C15 的裁决），
+   所以在 `ctx.css` 上查 `transition: all`；`ctx.css` 缺失时规则返回空并在报告里显式标注。
+
+### 7.4 两条实测换来的判据修正
+
+- **`ownBackground` 必须区分「没有填充」与「填充不可判定」**。第一版把两者都返回 `null`，
+  于是渐变背景的卡片**继承了祖先白底**，报出一条根本不成立的对比度违例
+  （`contrast-skip-gradient` 正例命中 1 条就是这么发现的）。现返回
+  `{inherit | color | unknown}` 三态，`unknown` 一路传下去让规则跳过。
+- **`10MB` 这类「数字+单位」必须整体保护**。第一版只保护了 token 内部，
+  结果 `剩余10MB空间` → `剩余10MB 空间`（左边不加右边加），比不加更难看。
+  单位词是一个整体，整体两侧都不动。
+
+### 7.5 axe 与 AST 规则为什么不能互相替代（实测证据）
+
+axe 在 25 页上**只报出 `color-contrast` 一条**，`image-alt` 一条都没有。
+原因：出口在缺 alt 时写的是 `alt=""`，而 `alt=""` 在 HTML 语义里等于
+**「这张图是装饰性的」**——axe 判定合规。于是：
+
+- **axe 查不出「设计漏了 alt」**，它只能查「产物里的 alt 合不合法」；
+- **AST 规则查不出「出口忘了写 alt」**，它只看得到 AST 字段。
+
+两条必须同时在：AST 规则负责「该不该有」，axe 负责「出口有没有真的写出去」。
+这正是 C10 要收敛白名单、而不是拿 axe 一把梭的原因。
+

@@ -719,6 +719,9 @@ export function importFig(
       node.layout = layoutOf(fig, 'IMAGE', relative, extras[guidKey(fig.guid)], kids.length > 0);
       node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (src) node.src = src;
+      // B8：alt 只存在旁挂层（Figma 无原语）。`''` 是显式的「装饰图」，与「没写过」必须分开
+      const alt = extras[guidKey(fig.guid)]?.alt;
+      if (alt !== undefined) node.alt = alt;
       if (fig.visible === false) node.visible = false;
       if (fig.locked) node.locked = true;
       importedTypes.IMAGE = (importedTypes.IMAGE ?? 0) + 1;

@@ -597,6 +597,8 @@ function buildNode(
   if (st.cornerSmoothing !== undefined) extra.cornerSmoothing = st.cornerSmoothing;
   if (st.boxShadow !== undefined) extra.boxShadow = st.boxShadow;
   if (st.imageScaleMode !== undefined) extra.imageScaleMode = st.imageScaleMode;
+  // B8：alt 在 Figma 的 NodeChange 里没有原语，只能旁挂（空串是「装饰图」的显式声明，也要存）
+  if (node.type === 'IMAGE' && node.alt !== undefined) extra.alt = node.alt;
   if (st.arcData !== undefined) extra.arcData = st.arcData;
   if (st.paragraphIndent !== undefined) extra.paragraphIndent = st.paragraphIndent;
   if (st.openType !== undefined) extra.openType = st.openType;

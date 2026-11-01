@@ -62,8 +62,9 @@ const CONTRACT_BLOCK = `## 输出契约（只输出一个 JSON 对象，不要 m
 
 节点（AiNodeSpec）可用字段：
 kind: FRAME|TEXT|BUTTON|RECTANGLE|IMAGE|OVAL|LINE|VECTOR（必填）
-name?: string  text?: TEXT/BUTTON 必填  src?: IMAGE 可选  icon?: VECTOR 图标名  vectorD?: VECTOR 路径
+name?: string  text?: TEXT/BUTTON 必填  src?: IMAGE 可选  alt?: IMAGE 替代文本  icon?: VECTOR 图标名  vectorD?: VECTOR 路径
   IMAGE：缩略图/头像/商品图一律用它（src 留空即可，会渲染成占位块）。**不要用 RECTANGLE 假装图片**
+  **内容图必须写 alt**（一句说清画面是什么，如 "芒果干包装正面"）；纯装饰的图写 alt:""
   VECTOR：功能图标/分类图标用它，icon 从下方「图标」清单里选
 className?: Tailwind 类名——**描述布局优先用它**，比手写 layout 更不容易出错。支持：
   方向 flex / flex-col；对齐 items-center|start|end|stretch、justify-center|between|end

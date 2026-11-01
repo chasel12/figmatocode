@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "pages": 25,
+  "whitelist": [
+    "color-contrast",
+    "image-alt",
+    "html-has-lang",
+    "document-title",
+    "heading-order",
+    "button-name",
+    "link-name"
+  ],
+  "rules": {
+    "color-contrast": {
+      "nodes": 176,
+      "pages": 22
+    }
+  }
+}

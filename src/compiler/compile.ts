@@ -542,7 +542,20 @@ function compileDeclarations(node: UINode, ctx: NodeContext): CSSDecl {
       css['position'] = L.position === 'FIXED' ? 'fixed' : 'sticky';
       const top = L.stickyTop ?? (L.stickyBottom != null ? undefined : 0);
       if (top != null) css['top'] = px(top);
-      else if (L.stickyBottom != null) css['bottom'] = px(L.stickyBottom);
+      else if (L.stickyBottom != null) {
+        /**
+         * B5 安全区：**贴底固定**元素要避开 iPhone 的 home indicator（底部横条），
+         * 否则最后一格按钮会被系统手势区永久压住 —— 与「底栏压住最后一张卡的价格行」
+         * 是同一类缺陷，只是成因在设备侧而不是布局侧。
+         *
+         * 只用 `calc(值 + env(safe-area-inset-bottom, 0px))`：
+         * - 没有安全区的环境（桌面浏览器、无刘海机型）`env()` 回退 `0px`，
+         *   **渲染结果与不带 calc 完全一致** → 像素基线不动；
+         * - 有安全区时自动抬起，不需要任何运行时判断。
+         * sticky 不参与：它在内容流里，不在设备边缘。
+         */
+        css['bottom'] = L.position === 'FIXED' ? `calc(${px(L.stickyBottom)} + env(safe-area-inset-bottom, 0px))` : px(L.stickyBottom);
+      }
     }
 
     if (L.mode !== 'ABSOLUTE') {

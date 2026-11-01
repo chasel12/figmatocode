@@ -87,6 +87,8 @@ export function normalize(node: UINode, parentMode?: string): unknown {
     locked: node.locked ?? false,
     ...(node.type === 'TEXT' ? { text: (node as { text: string }).text } : {}),
     ...(node.type === 'IMAGE' && (node as { src?: string }).src ? { hasSrc: true } : {}),
+    // B8：alt 走 meta.json 旁挂往返，不在这个口径里就等于「修了但没人验证」
+    ...(node.type === 'IMAGE' && (node as { alt?: string }).alt !== undefined ? { alt: (node as { alt?: string }).alt } : {}),
     /**
      * FR-25 组件实例。**曾经完全不在这个口径里**，于是「另存为 .fig 再打开，
      * 组件实例变成普通节点、组件表清空」这件事在门禁里一直是绿的

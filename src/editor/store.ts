@@ -19,7 +19,7 @@ import { captureOverrideForTarget, deriveInstance } from './instanceSync';
 function withInstanceOverride(
   page: UIPage,
   targetId: string,
-  patch: { style?: Record<string, unknown>; layout?: Record<string, unknown>; text?: string; src?: string },
+  patch: { style?: Record<string, unknown>; layout?: Record<string, unknown>; text?: string; src?: string; alt?: string },
 ): UIPage {
   const cap = captureOverrideForTarget(page.root, targetId, patch);
   if (!cap) return page;
@@ -114,6 +114,8 @@ export type EditorAction =
   | { type: 'UPDATE_STYLE_MULTI'; patches: { id: string; patch: Partial<StyleSchema> }[]; transient?: boolean }
   | { type: 'UPDATE_TEXT'; id: string; text: string; transient?: boolean }
   | { type: 'UPDATE_SRC'; id: string; src: string; transient?: boolean }
+  /** B8：图片替代文本（与 src 分开：一个是资源，一个是文案） */
+  | { type: 'UPDATE_ALT'; id: string; alt: string; transient?: boolean }
   | { type: 'UPDATE_NAME'; id: string; name: string }
   | { type: 'UPDATE_EXPORT_SETTINGS'; id: string; settings: ExportSetting[] }
   | { type: 'DELETE'; ids?: string[] }
@@ -601,6 +603,16 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       found.node.src = action.src;
       // #3：实例内换图 → 记覆盖
       withInstanceOverride(nextPage, action.id, { src: action.src });
+      return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
+    }
+
+    case 'UPDATE_ALT': {
+      const nextPage = clonePage(state.page);
+      const found = findById(nextPage.root, action.id);
+      if (!found || found.node.type !== 'IMAGE') return state;
+      found.node.alt = action.alt;
+      // 实例内改 alt → 记覆盖（与 src 同口径，否则切变体后整体丢失）
+      withInstanceOverride(nextPage, action.id, { alt: action.alt });
       return action.transient ? transientEdit(state, nextPage) : pushHistory(state, nextPage);
     }
 

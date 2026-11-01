@@ -73,6 +73,12 @@ export interface ExtraNode {
   cornerSmoothing?: number;
   boxShadow?: string;
   imageScaleMode?: 'FILL' | 'FIT' | 'CROP' | 'TILE';
+  /**
+   * B8 图片替代文本。Figma 的 `NodeChange` 里**没有** alt 原语（它把这层交给了
+   * 导出设置和插件生态），所以只能旁挂 —— 与 `imageScaleMode` 同一条理由：
+   * 原生优先、旁挂补齐，跨工具会丢（格式边界，不是 bug）。
+   */
+  alt?: string;
   arcData?: { startingAngle: number; endingAngle: number; innerRadius: number };
   paragraphIndent?: number;
   openType?: { liga?: boolean; kern?: boolean; dlig?: boolean };

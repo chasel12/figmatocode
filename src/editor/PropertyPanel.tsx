@@ -2388,15 +2388,26 @@ export function PropertyPanel() {
           </Row>
         )}
         {node.type === 'IMAGE' && (
-          <Row label="图片源">
-            <input
-              type="text"
-              placeholder="图片 URL 或 data:image/...;base64,..."
-              value={node.src ?? ''}
-              onChange={(e) => dispatch({ type: 'UPDATE_SRC', id: node.id, src: e.target.value, transient: true })}
-              onBlur={commit}
-            />
-          </Row>
+          <>
+            <Row label="图片源">
+              <input
+                type="text"
+                placeholder="图片 URL 或 data:image/...;base64,..."
+                value={node.src ?? ''}
+                onChange={(e) => dispatch({ type: 'UPDATE_SRC', id: node.id, src: e.target.value, transient: true })}
+                onBlur={commit}
+              />
+            </Row>
+            <Row label="替代文本">
+              <input
+                type="text"
+                placeholder="读屏器念的句子；装饰图留空"
+                value={node.alt ?? ''}
+                onChange={(e) => dispatch({ type: 'UPDATE_ALT', id: node.id, alt: e.target.value, transient: true })}
+                onBlur={commit}
+              />
+            </Row>
+          </>
         )}
         {node.type === 'IMAGE' && (
           <Row label="填充">

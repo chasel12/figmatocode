@@ -30,6 +30,7 @@ import { compilePage } from '../compiler/compile';
 import { scssFromPage } from '../compiler/css-model';
 import { fontFaceCss, FONT_STACK } from '../font';
 import { IMAGE_PLACEHOLDER_CLASS, collectPlaceholderNodes, imagePlaceholderCss, placeholderClass } from './imagePlaceholder';
+import { escapeAttr } from './attr';
 import { svgOfNodeVector, svgOfVector } from './vector';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
 import { assetBytes } from './zipKit';
@@ -98,7 +99,10 @@ export function emitUniappTemplate(ctx: EmitContext): string {
         if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE') {
           return `${indent}<view${idAttr} class="${cls}" style="background-image:url('${src}');background-repeat:repeat;"></view>`;
         }
-        return `${indent}<image${idAttr} class="${cls}" src="${src}" mode="aspectFill" />`;
+        // 小程序没有 alt 语义，替代文本走 aria-label（微信/uni-app 都认）
+        return `${indent}<image${idAttr} class="${cls}" src="${src}" mode="aspectFill"${
+          node.alt ? ` aria-label="${escapeAttr(node.alt)}"` : ''
+        } />`;
       }
       // 占位色块：仍走 view + class（与 HTML 端同一个 placeholder class，像素关才可比）
       return `${indent}<view${idAttr} class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></view>`;
@@ -337,7 +341,7 @@ export function createApp() {
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>${appName}</title>
   </head>
   <body>

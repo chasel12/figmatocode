@@ -15,6 +15,7 @@
  */
 import type { UINode } from '../schema/types';
 import { isContainer } from '../schema/types';
+import { escapeAttr } from './attr';
 import { svgOfNodeVector, svgOfVector } from './vector';
 import { IMAGE_PLACEHOLDER_CLASS, placeholderClass } from './imagePlaceholder';
 import { isShapeSvgNode, shapePathData, shapeFillOf, shapeStrokeOf } from '../compiler/shapePath';
@@ -64,7 +65,8 @@ export interface TsxEmitOptions {
   navAttr?: (node: UINode) => string;
 }
 
-const defaultImageAttr = (_node: UINode, src: string): string => `src="${src}" alt=""`;
+const defaultImageAttr = (node: UINode, src: string): string =>
+  `src="${src}" alt="${escapeAttr((node as { alt?: string }).alt ?? '')}"`;
 
 /** 单页 body（不含 import / 组件壳）：供 React、Taro 两侧复用 */
 export function emitTsxBody(ctx: EmitContext, options: TsxEmitOptions = {}): string {

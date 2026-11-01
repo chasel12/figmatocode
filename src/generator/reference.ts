@@ -104,7 +104,7 @@ function renderFlat(page: UIPage, classNames: Map<string, string>): string {
         if ((node.style?.imageScaleMode ?? 'FILL') === 'TILE') {
           out.push(`${indent}<div class="${cls}" style="background-image:url('${escapeHtml(src)}');background-repeat:repeat;"></div>`);
         } else {
-          out.push(`${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="" />`);
+          out.push(`${indent}<img class="${cls}" src="${escapeHtml(src)}" alt="${escapeHtml(node.alt ?? '')}" />`);
         }
       } else out.push(`${indent}<div class="${cls} ${IMAGE_PLACEHOLDER_CLASS} ${placeholderClass(node.name)}"></div>`);
       return;
@@ -163,7 +163,7 @@ export function generateReferenceHtml(
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>${escapeHtml(options.title ?? `${page.name} - reference`)}</title>
 <style>
 html, body { margin: 0; padding: 0; }

@@ -62,7 +62,7 @@ function htmlShell(title: string, scriptSrc: string, fxDefs: string): string {
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>${escapeAttr(title)}</title>
 </head>
 <body>

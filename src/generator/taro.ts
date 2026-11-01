@@ -1,6 +1,7 @@
 import type { UINode, UIPage } from '../schema/types';
 import { isContainer } from '../schema/types';
 import type { CompiledPage } from '../compiler/css-model';
+import { escapeAttr } from './attr';
 
 function escapeText(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
@@ -30,7 +31,8 @@ export function generateTaroTsx(page: UIPage, compiled: CompiledPage): string {
     }
     if (node.type === 'IMAGE') {
       const src = imageSrc(node);
-      return `${indent}<Image className="${cls}"${src ? ` src={require('${src}')}` : ''} mode="aspectFill" />`;
+      const label = node.alt ? ` aria-label="${escapeAttr(node.alt)}"` : '';
+      return `${indent}<Image className="${cls}"${src ? ` src={require('${src}')}` : ''} mode="aspectFill"${label} />`;
     }
 
     if (!isContainer(node) || node.type === 'RECTANGLE') {

@@ -563,6 +563,16 @@ export interface ButtonNode extends NodeBase {
 export interface ImageNode extends NodeBase {
   type: 'IMAGE';
   src?: string;
+  /**
+   * B8 图片替代文本（WCAG 1.1.1）。
+   *
+   * 为什么是独立字段而不是塞进 `name`：`name` 是图层名（中文习惯写「商品主图」），
+   * 语义是**给我自己看**；`alt` 是给读屏器念的句子（「芒果干包装正面，净含量 100g」），
+   * 语义是**给别人听**。一个字段承担两个语义 = 两边都不称职（第 6 条结构性教训）。
+   *
+   * 装饰性图片（分割线/背景光晕）的 `alt` 应显式写成空串，与「忘了写」区分开。
+   */
+  alt?: string;
 }
 
 /** FR-16 形状叶子：OVAL 椭圆 / LINE 直线（height=0 语义，斜角存 style.rotation）/ POLYGON 多边形 / STAR 星形；FR-14 SLICE（无样式圈定框，出码跳过） */
