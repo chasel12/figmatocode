@@ -15,6 +15,7 @@ import type { ButtonNode, ComponentDef, ContainerNode, FlowDef, HorizontalConstr
 import { createNode, createPage, resetIdSeq } from '../schema/factory';
 import { BUTTON_LABEL, DEFAULT_FONT_FAMILY, PLACEHOLDER_IMAGE_HASH } from './export';
 import { readExtras, readProjectExtras, type ExtraNode } from './extras';
+import { figmaBlobToSvgPath } from './path-blob';
 import {
   effectsToStyle,
   figColorToCss,
@@ -100,6 +101,11 @@ export interface FigNode {
   textData?: { characters?: string };
   count?: number;
   starInnerScale?: number;
+  /**
+   * VECTOR 的渲染几何（`.fig` 的 `Path[]`）。`commandsBlob` 是 blobs 数组的索引，
+   * 指向紧凑编码的命令流；导入侧据此还原 AST 的 `vector.d`。
+   */
+  fillGeometry?: Array<{ windingRule?: string; commandsBlob?: number; styleID?: number }>;
   arcData?: { startingAngle?: number; endingAngle?: number; innerRadius?: number };
   [k: string]: unknown;
 }
@@ -189,9 +195,26 @@ export function openFigArchive(bytes: Uint8Array): FigArchive {
       images[name.slice('images/'.length)] = data;
     }
   }
+  const meta = metaEntry ? (JSON.parse(new TextDecoder().decode(metaEntry)) as Record<string, unknown>) : undefined;
+  /**
+   * AST 旁挂层的**新位置**：归档里的 `ui_compiler_extras.json`。
+   *
+   * 2026-11-02 从 `meta.json` 搬出来 —— `meta.json` 是 Figma 真会读的文件，往里塞 12KB
+   * 自定义键有被键校验拒掉的风险。这里合并回 `meta.ui_compiler_extras`，
+   * 于是 `readExtras` / `readProjectExtras` 与所有调用方都不用改。
+   * 旧文件（旁挂在 meta 里）继续可读：新条目不存在就什么都不做。
+   */
+  const extrasEntry = entries['ui_compiler_extras.json'];
+  if (meta && extrasEntry) {
+    try {
+      meta.ui_compiler_extras = JSON.parse(new TextDecoder().decode(extrasEntry));
+    } catch {
+      // 旁挂层坏了不该让整个文件打不开：忽略即可（只丢扩展字段）
+    }
+  }
   return {
     canvas,
-    ...(metaEntry ? { meta: JSON.parse(new TextDecoder().decode(metaEntry)) as Record<string, unknown> } : {}),
+    ...(meta ? { meta } : {}),
     images,
   };
 }
@@ -251,6 +274,14 @@ const SIZING: Record<string, 'FIXED' | 'HUG' | 'FILL'> = {
   RESIZE_TO_FIT_WITH_IMPLICIT_SIZE: 'FIXED',
   FILL: 'FILL',
 };
+
+/**
+ * 「这一轴不落数值」的 sizing 取值。
+ *
+ * 两种自动尺寸都必须排除：`RESIZE_TO_FIT`（HUG）与
+ * `RESIZE_TO_FIT_WITH_IMPLICIT_SIZE`（FIXED 但无显式值）。
+ */
+const AUTO_SIZING = new Set(['RESIZE_TO_FIT', 'RESIZE_TO_FIT_WITH_IMPLICIT_SIZE']);
 
 const ALIGN: Record<string, 'START' | 'CENTER' | 'END' | 'STRETCH' | 'BASELINE'> = {
   MIN: 'START',
@@ -326,12 +357,39 @@ function canonical(value: unknown): string {
 }
 
 /** 布局字段：尺寸 / 自动布局 / padding / gap / 裁剪 / 约束 */
+/**
+ * f32 往返去噪。
+ *
+ * kiwi 的数值字段是 **float32**，`1.6` 存进去读回来是 `1.600000023841858`。
+ * 语义上无差别，但会让「往返逐字段相等」的门禁永远差一口气，也让像素比对出现
+ * 亚像素抖动。三位小数足够（样式数值的精度都在 0.1 量级）。
+ */
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000;
+}
+
+/**
+ * Figma 的 padding 四字段 → AST 的 `[top, right, bottom, left]`。
+ *
+ * `stackVerticalPadding` / `stackHorizontalPadding` 是「上下」「左右」的合并值，
+ * `stackPaddingRight` / `stackPaddingBottom` 是单边覆盖 —— 必须按「单边优先」读。
+ */
+function paddingOf(node: FigNode): [number, number, number, number] {
+  return [
+    node.stackVerticalPadding ?? node.stackPadding ?? 0,
+    node.stackPaddingRight ?? node.stackHorizontalPadding ?? node.stackPadding ?? 0,
+    node.stackPaddingBottom ?? node.stackVerticalPadding ?? node.stackPadding ?? 0,
+    node.stackHorizontalPadding ?? node.stackPadding ?? 0,
+  ];
+}
+
 function layoutOf(
   node: FigNode,
   kind: NodeKind,
   relative: { x: number; y: number },
   extra?: ExtraNode,
   hasChildren = false,
+  parentPad: [number, number, number, number] = [0, 0, 0, 0],
 ): LayoutSchema {
   const base = createNode(kind, { id: 'tmp' }).layout;
   const w = node.size?.x ?? 0;
@@ -340,12 +398,24 @@ function layoutOf(
   // 主轴 = 排列方向：HORIZONTAL 时主轴是宽度，VERTICAL 时主轴是高度
   const vertical = stack === 'VERTICAL';
 
-  const padding: [number, number, number, number] = [
-    node.stackVerticalPadding ?? node.stackPadding ?? 0,
-    node.stackPaddingRight ?? node.stackHorizontalPadding ?? node.stackPadding ?? 0,
-    node.stackPaddingBottom ?? node.stackVerticalPadding ?? node.stackPadding ?? 0,
-    node.stackHorizontalPadding ?? node.stackPadding ?? 0,
-  ];
+  const padding = paddingOf(node);
+
+  /**
+   * **脱流子项的坐标要减掉父 padding**（2026-11-03）。
+   *
+   * `.fig` 的 `transform` 是「相对父 **border box**」，而 AST 的 `layout.x/y` 是
+   * 「相对父 **内容盒**」（padding 由父在布局时叠加）。导出侧对脱流子项直接写
+   * `abs - parentAbs`，里面已经含了父的 padding；导入不减回来的话，每往返一轮
+   * 就多出一次 padding —— 实测全字段用例 `x: 21 → 25`（父 padding-left = 4）、
+   * `y: 34 → 50`（padding-top = 16）。
+   *
+   * 只对脱流子项做：流内子项的 x/y 会被布局引擎覆盖，减了反而污染 `deepEqual`。
+   */
+  const isOutOfFlow = extra?.position === 'ABSOLUTE' || extra?.mode === 'ABSOLUTE';
+  const outOfFlowPad = {
+    x: isOutOfFlow ? parentPad[3] + (extra?.margin ? extra.margin[3] : 0) : 0,
+    y: isOutOfFlow ? parentPad[0] + (extra?.margin ? extra.margin[0] : 0) : 0,
+  };
 
   return {
     ...base,
@@ -380,13 +450,52 @@ function layoutOf(
             : isContainerKind(kind)
               ? 'ABSOLUTE'
               : base.mode) as LayoutMode,
-    widthMode: SIZING[(vertical ? node.stackCounterSizing : node.stackPrimarySizing) ?? ''] ?? 'FIXED',
-    heightMode: SIZING[(vertical ? node.stackPrimarySizing : node.stackCounterSizing) ?? ''] ?? 'FIXED',
-    // 自动尺寸的轴不落数值（`.fig` 里的尺寸只是缓存，AST 里「不写」才是语义）
-    width: (vertical ? node.stackCounterSizing : node.stackPrimarySizing) === 'RESIZE_TO_FIT_WITH_IMPLICIT_SIZE' ? undefined : w,
-    height: (vertical ? node.stackPrimarySizing : node.stackCounterSizing) === 'RESIZE_TO_FIT_WITH_IMPLICIT_SIZE' ? undefined : h,
-    x: relative.x,
-    y: relative.y,
+    /**
+     * **优先读旁挂的原始模式**（2026-11-03）。导出侧为了让 Figma 显示一致，会把一部分
+     * HUG / FILL 改写成 FIXED；`extra.sizing` 里存的是 AST 真值。
+     * 外部 Figma 文件没有这一项，回落到 `stackPrimarySizing` 的映射（原行为）。
+     */
+    widthMode:
+      extra?.sizing?.w ??
+      SIZING[(vertical ? node.stackCounterSizing : node.stackPrimarySizing) ?? ''] ??
+      'FIXED',
+    heightMode:
+      extra?.sizing?.h ??
+      SIZING[(vertical ? node.stackPrimarySizing : node.stackCounterSizing) ?? ''] ??
+      'FIXED',
+    /**
+     * 自动尺寸的轴**不落数值**（`.fig` 里的 `size` 只是渲染缓存，AST 里「不写」才是语义）。
+     *
+     * 2026-11-03 修：早先只排除 `RESIZE_TO_FIT_WITH_IMPLICIT_SIZE`，把真正的 HUG
+     * （`RESIZE_TO_FIT`）漏掉了 —— 于是每个 HUG 节点回读后都多出一个 `layout.width/height`。
+     * 单次往返看不出问题（`widthMode` 仍是 HUG，编译按 HUG 出码），但**第二次导出**时
+     * `measureTree` 读到 `L.height` 就当固定值用，HUG 被逐次冻结成写死尺寸：
+     * 「存 → 开 → 存」三轮之后，所有自适应区块都变成硬编码宽高。
+     */
+    /**
+     * **FIXED 之外一律不带尺寸值**（HUG / FILL 都不该落数值，见 memory 铁律）。
+     * 有旁挂 `sizing` 时按它判，否则按 `stackPrimarySizing` 判。
+     */
+    width: extra?.sizing
+      ? extra.sizing.wv
+      : AUTO_SIZING.has((vertical ? node.stackCounterSizing : node.stackPrimarySizing) ?? '')
+        ? undefined
+        : w,
+    height: extra?.sizing
+      ? extra.sizing.hv
+      : AUTO_SIZING.has((vertical ? node.stackPrimarySizing : node.stackCounterSizing) ?? '')
+        ? undefined
+        : h,
+    /**
+     * **有 margin 时要减回来**（2026-11-03）。
+     *
+     * 导出侧对 margin 子项写了 `stackPositioning: 'ABSOLUTE'`（Figma 没有 margin 原语，
+     * 只能脱流 + 用 transform 定位），所以 `transform` 里的坐标是「含 margin 的实际位置」。
+     * 而 AST 的 `layout.x/y` 是**不含 margin** 的（margin 单独一个字段，布局时再叠加）。
+     * 不减回去的话，`x = 21 + 8` 会在下一次布局里再叠一次 margin，每往返一轮就右移 8px。
+     */
+    x: relative.x - outOfFlowPad.x,
+    y: relative.y - outOfFlowPad.y,
     padding,
     gap: node.stackSpacing ?? 0,
     gapCross: node.stackCounterSpacing,
@@ -461,11 +570,11 @@ function styleOf(node: FigNode, extra?: ExtraNode): StyleSchema {
     if (lh && typeof lh.value === 'number') {
       // 只有百分比才写 lineHeightMode；像素是默认值，写出来会多一个「必然差异」
       if (lh.units === 'PERCENT') style.lineHeightMode = 'PERCENT';
-      style.lineHeight = lh.value;
+      style.lineHeight = round3(lh.value);
     }
     const ls = node.letterSpacing;
     if (ls && typeof ls.value === 'number') {
-      style.letterSpacing = ls.value;
+      style.letterSpacing = round3(ls.value);
       if (ls.units === 'PERCENT') style.letterSpacingMode = 'PERCENT';
     }
     const align = node.textAlignHorizontal;
@@ -659,6 +768,12 @@ export function importFig(
     });
   }
 
+  /** 取父节点的 padding（脱流子项还原 `layout.x/y` 时要减掉，见 layoutOf） */
+  const parentPadOf = (n: FigNode): [number, number, number, number] => {
+    const p = n.parentIndex ? nodeByKey.get(guidKey(n.parentIndex.guid)) : undefined;
+    return p ? paddingOf(p) : [0, 0, 0, 0];
+  };
+
   // 图片 blob：fillPaints.image.dataBlob → blobs[]
   const imageByBlob = new Map<number, string>();
   for (const n of nodeChanges) {
@@ -685,7 +800,15 @@ export function importFig(
       x: fig.transform?.m02 ?? 0,
       y: fig.transform?.m12 ?? 0,
     };
-    const relative = { x: abs.x - parentAbs.x, y: abs.y - parentAbs.y };
+    /**
+     * **`transform.m02/m12` 就是父内相对坐标，不需要减父级位置**（2026-11-02 修）。
+     *
+     * 旧代码按「Figma 存的是页面绝对坐标」处理，减掉父级位置 —— 于是真实文件一导入就错位：
+     * `variable-override-precedence.fig` 的 `FRAME G @(400,50)` 子项 `g1 @(0,0)` 被算成
+     * `(-400,-50)`。实证：g1 在 G 的框内左上角（0,0），按绝对坐标解释则落在 (0,0)、在 G 之外，
+     * 不可能。`parentAbs` 参数保留只为签名稳定与将来「需要绝对坐标」的场景。
+     */
+    const relative = { x: abs.x, y: abs.y };
     const kids = (childrenOf.get(guidKey(fig.guid)) ?? []).filter((k) => k.phase !== 'REMOVED');
 
     // 图片填充 → IMAGE 节点（AST 有独立图片语义，比「矩形 + 背景图」可编辑）
@@ -705,7 +828,7 @@ export function importFig(
     if (type === 'TEXT') {
       const kind: NodeKind = 'TEXT';
       const node = createNode(kind, { id: nextFigId(), name: fig.name ?? '文本' });
-      node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0, parentPadOf(fig));
       node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (fig.visible === false) node.visible = false;
       if (fig.locked) node.locked = true;
@@ -716,7 +839,7 @@ export function importFig(
 
     if (src || isImagePlaceholder) {
       const node = createNode('IMAGE', { id: nextFigId(), name: fig.name ?? '图片' }) as ImageNode;
-      node.layout = layoutOf(fig, 'IMAGE', relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.layout = layoutOf(fig, 'IMAGE', relative, extras[guidKey(fig.guid)], kids.length > 0, parentPadOf(fig));
       node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (src) node.src = src;
       // B8：alt 只存在旁挂层（Figma 无原语）。`''` 是显式的「装饰图」，与「没写过」必须分开
@@ -733,7 +856,7 @@ export function importFig(
     if (type === 'FRAME' && kids.length === 1 && kids[0].type === 'TEXT' && kids[0].name === BUTTON_LABEL) {
       const label = kids[0];
       const node = createNode('BUTTON', { id: nextFigId(), name: fig.name ?? '按钮' }) as ButtonNode;
-      node.layout = layoutOf(fig, 'BUTTON', relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.layout = layoutOf(fig, 'BUTTON', relative, extras[guidKey(fig.guid)], kids.length > 0, parentPadOf(fig));
       node.style = { ...styleOf(fig, extras[guidKey(fig.guid)]), ...textStyleOf(styleOf(label)) };
       // 导出时把「按钮 flex 居中」翻译成了 label 的 textAlignVertical，这里不能当成原始样式搬回去
       if (node.layout.align === 'CENTER' && node.style.textAlignVertical === 'CENTER') delete node.style.textAlignVertical;
@@ -747,7 +870,7 @@ export function importFig(
     if (SUPPORTED_CONTAINERS.has(type)) {
       const kind: NodeKind = type === 'SECTION' ? 'SECTION' : 'FRAME';
       const node = createNode(kind, { id: nextFigId(), name: fig.name ?? 'Frame' }) as ContainerNode;
-      node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0);
+      node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0, parentPadOf(fig));
       node.style = styleOf(fig, extras[guidKey(fig.guid)]);
       if (fig.visible === false) node.visible = false;
       if (fig.locked) node.locked = true;
@@ -778,7 +901,18 @@ export function importFig(
          * `position: absolute`，不参与流，x/y 就是它的唯一位置来源 ——
          * 清掉等于把它拽回流里（历史缺陷：VERTICAL 页里自由摆放的子项另存后全部堆到左上角）。
          */
-        if (auto && c.layout.mode !== 'ABSOLUTE') {
+        /**
+         * 脱流子项（`mode: ABSOLUTE` 或 `position: ABSOLUTE/FIXED/STICKY`）的 x/y 是
+         * **唯一的位置来源**，一律保留。早先只认 `mode`，于是 `position: 'ABSOLUTE'`
+         * 的子项（相对父定位的角标、装饰层）坐标被清掉 —— 编译后 CSS 少了 `left/top`，
+         * 元素跑回流的起点。demo「13 绝对定位页」就是这样 CSS 不一致。
+         */
+        const outOfFlow =
+          c.layout.mode === 'ABSOLUTE' ||
+          c.layout.position === 'ABSOLUTE' ||
+          c.layout.position === 'FIXED' ||
+          c.layout.position === 'STICKY';
+        if (auto && !outOfFlow) {
           delete c.layout.x;
           delete c.layout.y;
         }
@@ -794,13 +928,32 @@ export function importFig(
       return null;
     }
     const node = createNode(kind, { id: nextFigId(), name: fig.name ?? type });
-    node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0);
+    node.layout = layoutOf(fig, kind, relative, extras[guidKey(fig.guid)], kids.length > 0, parentPadOf(fig));
     node.style = { ...styleOf(fig, extras[guidKey(fig.guid)]), ...(shapeExtras(fig, kind) as Partial<StyleSchema>) };
     if (fig.visible === false) node.visible = false;
     if (fig.locked) node.locked = true;
     if (kind === 'VECTOR') {
-      // 矢量几何在 Figma 里是命令 blob，需要额外解码器；这里保留空 path 占位
-      node.vector = { d: 'M 0 0', width: node.layout.width, height: node.layout.height };
+      /**
+       * **矢量几何从 `fillGeometry` 反解**（2026-11-02 补）。
+       *
+       * 早先这里是 `d: 'M 0 0'` 占位 —— 因为当时导出侧压根不写几何，没得可解。
+       * 现在导出会把 `vector.d` 编码进 `fillGeometry[].commandsBlob`（与真实 Figma 文件
+       * 同一套编码），导入就该反过来读，**而不是依赖旁挂里的 d**：
+       * 这样在 Figma 里改过图标路径，导回来也是新的。
+       *
+       * `viewBox` 用旁挂补位（路径落盘时已缩放成节点本地坐标，原始 24×24 坐标系只在
+       * 旁挂里）；外部文件没有旁挂就取节点尺寸，等价于「viewBox == 盒子」。
+       */
+      const geo = (fig.fillGeometry ?? [])[0];
+      const blob = geo && typeof geo.commandsBlob === 'number' ? blobs[geo.commandsBlob] : undefined;
+      const d = blob ? figmaBlobToSvgPath(blob) : '';
+      /**
+       * **不要恢复原始 viewBox**：`d` 落盘时已经被缩放成节点本地坐标（16 盒子里的 16 坐标），
+       * 若把 `width/height` 填回 24，出码会按 viewBox=24 再缩一次 —— 图标变成 2/3 大小、
+       * 贴在左上角（实测「图标消失」）。缺省 viewBox 就是 layout 尺寸，两者一致才对。
+       */
+      node.vector = { d: d || 'M 0 0' };
+      if (geo?.windingRule === 'ODD') node.vector.fillRule = 'evenodd';
     }
     importedTypes[kind] = (importedTypes[kind] ?? 0) + 1;
     return node;
@@ -840,15 +993,28 @@ export function importFig(
     const horizontal = parent.mode === 'HORIZONTAL';
     const primaryKey = horizontal ? 'widthMode' : 'heightMode';
     const crossKey = horizontal ? 'heightMode' : 'widthMode';
-    // 主轴 FILL：Figma 的 stackChildPrimaryGrow（弹性拉伸）
-    if ((fig.stackChildPrimaryGrow ?? 0) > 0) node.layout[primaryKey] = 'FILL';
-    // 交叉轴 FILL：Figma 只能写成子项 stackChildAlignSelf=STRETCH。
-    // 但「父容器 align=STRETCH」也会让子项带上同一个标记，靠**尺寸是否正好等于父内容盒**区分：
-    // 导出时交叉轴 FILL 会被换算成父内容盒尺寸，而 align=STRETCH 的子项保留自身尺寸。
-    if (fig.stackChildAlignSelf === 'STRETCH') {
-      const crossSize = horizontal ? (fig.size?.y ?? 0) : (fig.size?.x ?? 0);
-      const content = horizontal ? parent.contentH : parent.contentW;
-      if (content > 0 && Math.abs(crossSize - content) < 0.5) node.layout[crossKey] = 'FILL';
+    /**
+     * **有旁挂 `sizing` 时一律跳过下面这套启发式**（2026-11-03）。
+     *
+     * `stackChildPrimaryGrow` / `stackChildAlignSelf` 是**有歧义**的：它们既表示
+     * 「子项是 FILL」，也表示「父容器 align=STRETCH」。下面靠「尺寸是否等于父内容盒」
+     * 猜，猜错就把 HUG 改成 FILL。自家导出的文件不需要猜 —— extras 里就是真值。
+     * 实测 demo「16 多层嵌套页面」的 `Text 472`（`widthMode: HUG`，被父 STRETCH 拉伸到
+     * 满宽）被猜成 FILL，父容器的 `align: STRETCH` 因此反推失败、变成 START。
+     *
+     * 外部 Figma 文件没有 extras，继续走启发式（原行为）。
+     */
+    if (!extras[guidKey(fig.guid)]?.sizing) {
+      // 主轴 FILL：Figma 的 stackChildPrimaryGrow（弹性拉伸）
+      if ((fig.stackChildPrimaryGrow ?? 0) > 0) node.layout[primaryKey] = 'FILL';
+      // 交叉轴 FILL：Figma 只能写成子项 stackChildAlignSelf=STRETCH。
+      // 但「父容器 align=STRETCH」也会让子项带上同一个标记，靠**尺寸是否正好等于父内容盒**区分：
+      // 导出时交叉轴 FILL 会被换算成父内容盒尺寸，而 align=STRETCH 的子项保留自身尺寸。
+      if (fig.stackChildAlignSelf === 'STRETCH') {
+        const crossSize = horizontal ? (fig.size?.y ?? 0) : (fig.size?.x ?? 0);
+        const content = horizontal ? parent.contentH : parent.contentW;
+        if (content > 0 && Math.abs(crossSize - content) < 0.5) node.layout[crossKey] = 'FILL';
+      }
     }
     return node;
   };
@@ -859,22 +1025,102 @@ export function importFig(
     : nodeChanges.filter((n) => n.type === 'CANVAS');
 
   const pages: UIPage[] = [];
+  /**
+   * 项目级旁挂要在**建页之前**读：页面根的 `style` / `layout` 就放在里面
+   * （`.fig` 没有"页面根容器"这个实体，见 extras.ts 的 `ExtraPage`）。
+   */
+  const project = readProjectExtras(archive.meta);
   let total = 0;
+  /**
+   * 页面 id 必须**每页唯一**（2026-11-02 修）。
+   *
+   * `createPage()` 的默认 id 是固定 `'page'`（那是单页场景下「同样输入构造出逐字节
+   * 相同的页面」的基础，脏标记与几何断言都依赖它），导入器直接用它 → 六页全是 `'page'`。
+   * 编辑器判 `p.id === state.currentPageId` 时六页全中，点任意页都走「已经是当前页」的
+   * 早退分支，**永远切不了页**，用户看到的就是「`.fig` 打开只有一页」。
+   *
+   * 用独立前缀而不是 `nextId('page')`：导入开头调了 `resetIdSeq(0)`，之后编辑器「新建页面」
+   * 也从 `page-1` 起算，同前缀会撞。`figpage-N` 按 CANVAS 顺序编号，同一份文件导入两次
+   * 得到同一组 id（稳定），且与节点 id（`fig-N`）不同空间。
+   */
+  let pageSeq = 0;
   for (const canvas of canvases) {
     const name = canvas.name ?? `Page ${pages.length + 1}`;
     if (name === 'Internal Only Canvas') continue; // Figma 内部画布，不是用户页面
     const kids = (childrenOf.get(guidKey(canvas.guid)) ?? []).filter((k) => k.phase !== 'REMOVED');
     if (kids.length === 0) continue;
+    /**
+     * **新格式：CANVAS 下的每个顶层 FRAME 是一个页面**（见 export.ts 的 `format: 'frames'`）。
+     *
+     * 页面根就是那个 FRAME 本身 —— `build()` 会把它的 `stackMode / padding / gap / align /
+     * fills / 圆角` 全部还原进 `root.layout` 与 `root.style`，**不需要旁挂层**。
+     * 这也是「深色页存成 .fig 变白字白底」那类问题从根上消失的原因：旁挂漏写是静默丢字段，
+     * 原生字段漏写会被往返测试当场抓住。
+     *
+     * 为什么用格式标记而不是「猜结构」：外部 Figma 文件里一个 CANVAS 上也可能只有一个
+     * FRAME（`circle-text.fig` 就是这样），按结构猜会把「单 frame 的页面」误判成新格式，
+     * 把页面内容整体降一级。
+     */
+    /**
+     * 新格式判定：**显式标记优先，没有标记时按结构推断**。
+     *
+     * 显式标记（`project.format === 'frames'`）只有我们自己写的文件才有；外部 Figma 文件、
+     * 或者我们自己导出的「纯标准版」（去掉旁挂层）都没有。此时若 CANVAS 下的顶层子项
+     * **全部是 FRAME**，按「一个 frame 一页」处理 —— 这正是 Figma 里「一屏一个画板」的
+     * 常规组织方式，语义上比「整块画布当一页、里面并排若干画板」正确。
+     *
+     * 排除旧格式：旧导出会把每个 CANVAS 的根样式/布局写进 `project.pages`，有这张表就说明
+     * CANVAS 自己是页面，不能拆。
+     */
+    const structuralFrames =
+      project.format === undefined && !project.pages && kids.length > 0 && kids.every((k) => k.type === 'FRAME');
+    if (project.format === 'frames' || structuralFrames) {
+      for (const frame of kids) {
+        if (frame.type !== 'FRAME') continue;
+        if (total >= maxNodes) {
+          warnings.push(`节点数超过上限 ${maxNodes}，后续页面已截断`);
+          break;
+        }
+        const w = Math.round(frame.size?.x ?? 0) || 375;
+        const h = Math.round(frame.size?.y ?? 0) || 812;
+        // parentMode 传 ABSOLUTE：CANVAS 没有布局语义，根自己的尺寸由下面的 FIXED 锁定
+        const built = build(frame, { x: 0, y: 0 }, { mode: 'ABSOLUTE', contentW: w, contentH: h });
+        if (!built) continue;
+        const root = built as ContainerNode;
+        root.type = 'PAGE';
+        root.layout.widthMode = 'FIXED';
+        root.layout.heightMode = 'FIXED';
+        root.layout.width = w;
+        root.layout.height = h;
+        pageSeq += 1;
+        const page: UIPage = { id: `figpage-${pageSeq}`, name: root.name ?? `Page ${pageSeq}`, viewport: { width: w, height: h }, root };
+        // 根 id 与页面 id 一致（`createPage` 的既有语义，几何 map / 选中态按根 id 索引）
+        root.id = page.id;
+        pages.push(page);
+        const count = (n: UINode): number => 1 + (('children' in n ? (n as ContainerNode).children : []) as UINode[]).reduce((a, c) => a + count(c), 0);
+        total += count(root);
+      }
+      continue;
+    }
     const page = createPage(name, 375, 812);
+    pageSeq += 1;
+    page.id = `figpage-${pageSeq}`;
+    // 根 id 与页面 id 保持一致：`createPage` 的既有语义就是 `page.id === root.id`
+    // （几何 map、选中态都按根 id 索引），这里只把「同一个值」换成「每页不同的值」。
+    page.root.id = page.id;
     page.root.name = name;
     /**
      * 还原页面根布局模式（导出侧写在 CANVAS 的 `stackMode` 上，见 export.ts 的说明）。
      * **必须在 build 之前设**：第 695 行用 `page.root.layout.mode` 判断子项的 FILL 语义，
      * 设晚了子项的 widthMode 会被按错误的父布局解析。
-     * 缺省（外部 `.fig` 没有这个字段）回落 VERTICAL —— 与 `createPage` 的基线一致。
+     *
+     * **缺省回落 `ABSOLUTE`，不是 VERTICAL**（2026-11-02 修）：Figma 的画布就是个绝对定位的
+     * 空间 —— 外部 `.fig` 的 CANVAS 子项全是并排的 frame，各带自己的坐标。早先回落 VERTICAL，
+     * 于是把「画布上并排 6 个 frame」读成「一列竖着堆的 6 个 frame」，画布看起来像被压成一条。
+     * 只有我们自己的旧导出（显式写了 `stackMode`）才有流式语义，那种情况不走这个分支。
      */
     page.root.layout.mode =
-      canvas.stackMode === 'HORIZONTAL' ? 'HORIZONTAL' : canvas.stackMode === 'VERTICAL' ? 'VERTICAL' : canvas.stackMode === 'NONE' ? 'ABSOLUTE' : page.root.layout.mode;
+      canvas.stackMode === 'HORIZONTAL' ? 'HORIZONTAL' : canvas.stackMode === 'VERTICAL' ? 'VERTICAL' : 'ABSOLUTE';
     /**
      * 页面尺寸：**优先读 CANVAS 上的 `size`**（我们导出时写的是真实视口），
      * 外部 `.fig`（CANVAS 尺寸为 0）才回落到子项包围盒。
@@ -892,6 +1138,21 @@ export function importFig(
       page.root.layout.height = canvasH;
       page.viewport = { width: canvasW, height: canvasH };
     }
+    /**
+     * 还原页面根节点的样式与布局。
+     *
+     * **这一步不能省**：`.fig` 里的页面根就是 CANVAS，没有 fills / auto layout，所以
+     * 根的 `background` 与 `padding/gap/align/justify` 全靠旁挂带回来。丢了会怎样：
+     * 深色主题页（`#1d232a` 底 + 白字）存成 `.fig` 再打开 → 根背景回落成工厂默认白 →
+     * **白字白底，整页看起来是空的**；`padding: [0,0,80,0]` 丢了则内容重新被固定底栏压住。
+     *
+     * 顺序：放在 CANVAS 的 `size` 之后、`build()` 之前 —— 旁挂里不含 mode/width/height，
+     * 不会覆盖原生字段；而子项的 FILL 语义依赖此时已确定的 `page.root.layout.mode`。
+     * 外部 `.fig` 没有这张表，`pageExtra` 为 undefined，一路走原生，行为不变。
+     */
+    const pageExtra = canvas.guid ? project.pages?.[String(canvas.guid.localID)] : undefined;
+    if (pageExtra?.style) page.root.style = { ...pageExtra.style };
+    if (pageExtra?.layout) Object.assign(page.root.layout, pageExtra.layout);
     // 兜底包围盒：外部文件没有尺寸，只能从子项推
     let maxX = page.viewport.width;
     let maxY = page.viewport.height;
@@ -906,6 +1167,15 @@ export function importFig(
       // 但 FILL 语义要按页面根布局（VERTICAL/HORIZONTAL）判断，不能当 ABSOLUTE
       const built = build(kid, origin, { mode: page.root.layout.mode, contentW: page.viewport.width, contentH: page.viewport.height });
       if (!built) continue;
+      /**
+       * 画布上的顶层 FRAME = 一个屏幕/画板，**默认裁剪**（Figma 就是这么渲染的）。
+       *
+       * 为什么必须显式补：Figma 的 schema 里根本没有 `clipsContent` 字段（frame 天然裁剪），
+       * 所以我们从 `.fig` 读不到「要裁」这个信息。不补的后果是手机页里超出一屏的内容
+       * （总高 1072 > 视口 812）从 frame 底部整片溢出来，散在画布上像一堆碎片 ——
+       * 这正是用户看到的「残次的组件」。
+       */
+      if (built.type === 'FRAME' && built.layout.clipContent === undefined) built.layout.clipContent = true;
       total += 1;
       children.push(built);
       maxX = Math.max(maxX, (kid.transform?.m02 ?? 0) + (kid.size?.x ?? 0));
@@ -927,8 +1197,8 @@ export function importFig(
   /**
    * 项目级旁挂：组件表 / 样式表 / 原型流程。
    * 早先这些整个不进 `.fig`，存盘再打开就没了——用户看到的是「组件变普通节点、命名样式失效」。
+   * （`project` 已在建页之前读取，页面根节点的旁挂要用它。）
    */
-  const project = readProjectExtras(archive.meta);
 
   return {
     pages,

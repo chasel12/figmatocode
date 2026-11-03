@@ -60,6 +60,7 @@
     "ui:shots": "vite-node scripts/ui-shots.ts",
     "ui:measure": "vite-node scripts/ui-measure.ts",
     "ui:expect": "vite-node scripts/ui-expect.ts",
+    "showcase:gen": "vite-node scripts/gen-showcase.ts",
     "recovery": "node scripts/recovery-check.mjs"
   },
   "dependencies": {

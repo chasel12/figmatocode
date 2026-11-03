@@ -48,11 +48,19 @@ function clampSize(layout: LayoutSchema, s: Size): Size {
  */
 export class LayoutResolver {
   private hugCache = new Map<string, Size>();
+  /**
+   * 页面视口高度。`position: 'FIXED'` 的贴底子项要按它算 y。
+   *
+   * 为什么存在这里而不是层层传参：CSS 的 `position: fixed` 本来就是**相对视口**的，
+   * 与它嵌在多少层容器里无关 —— 几何引擎要复现的是同一个结果，所以视口是全局量。
+   */
+  private viewportH = 0;
 
   constructor(private measure: TextMeasureFn) {}
 
   resolve(page: UIPage): GeometryMap {
     this.hugCache.clear();
+    this.viewportH = page.viewport.height;
     const out: GeometryMap = {};
     const root = page.root;
     const rootRect = this.resolveNode(root, {
@@ -80,14 +88,25 @@ export class LayoutResolver {
 
     let w: number;
     if (ctx.forceW != null) w = ctx.forceW;
-    else if (L.widthMode === 'FIXED' && L.width != null) w = L.width;
     else if (L.widthMode === 'FILL') w = ctx.availW ?? this.hug(node).w;
+    /**
+     * **有显式 `width` 就当固定值**，不要求 `widthMode === 'FIXED'`（2026-11-03）。
+     *
+     * 手工构造 / 外部导入的 AST 常只写 `{ width: 16, height: 16 }` 而不带 `widthMode`
+     * （`parseProject` 的护栏会补默认值，但绕过它的路径不会）。早先这里要求
+     * `widthMode === 'FIXED'`，于是这类节点被当成 HUG → 量出 0 → 导出的 VECTOR
+     * 几何命令全是 `M0 0L0 0`（图标在 Figma 里是一个看不见的空框）。
+     * 与旧 `measureTree` 的口径一致：`L.width ?? null` 有值就用。
+     *
+     * HUG 不该带 `width`（两轴都不能落数值，见 memory 铁律），所以这个顺序不会误伤。
+     */
+    else if (L.width != null) w = L.width;
     else w = this.hug(node, ctx.availW, ctx.availH).w;
 
     let h: number;
     if (ctx.forceH != null) h = ctx.forceH;
-    else if (L.heightMode === 'FIXED' && L.height != null) h = L.height;
     else if (L.heightMode === 'FILL') h = ctx.availH ?? this.hug(node, ctx.availW, ctx.availH).h;
+    else if (L.height != null) h = L.height;
     else h = this.hug(node, ctx.availW, ctx.availH).h;
 
     void padX;
@@ -143,7 +162,13 @@ export class LayoutResolver {
     const padX = pl + pr;
     const padY = pt + pb;
     const gap = L.gap ?? 0;
-    const children = node.children;
+    /**
+     * `?? []` 是防御：手工构造 / 外部导入的 AST 可能给了 `mode: 'ABSOLUTE'` 却没带
+     * `children`（例如测试里只写 `{ type: 'VECTOR', layout: { mode: 'ABSOLUTE' } }`）。
+     * 早先这里直接 `node.children.length` → 整个导出崩在 `undefined.length`。
+     * 判据仍是 `isContainer()`（见 `parseProject` 的护栏），这里只兜「键缺失」。
+     */
+    const children = node.children ?? [];
 
     if (!children.length) {
       const w = L.widthMode === 'FIXED' && L.width != null ? L.width : padX;
@@ -254,13 +279,15 @@ export class LayoutResolver {
     const cm = marOf(L);
 
     let w: number;
-    if (L.widthMode === 'FIXED' && L.width != null) w = L.width;
-    else if (L.widthMode === 'FILL') w = parentContentW != null ? Math.max(parentContentW - cm[1] - cm[3], 0) : this.hug(node).w;
+    // 与 `resolveNode` 同口径：有显式 `width` 就当固定值，不要求 `widthMode === 'FIXED'`
+    // （手写 / 外部导入的 AST 常省略 widthMode，缺了它就会被量成 0）
+    if (L.widthMode === 'FILL') w = parentContentW != null ? Math.max(parentContentW - cm[1] - cm[3], 0) : this.hug(node).w;
+    else if (L.width != null) w = L.width;
     else w = this.hug(node, parentContentW, parentContentH).w;
 
     let h: number;
-    if (L.heightMode === 'FIXED' && L.height != null) h = L.height;
-    else if (L.heightMode === 'FILL') h = parentContentH != null ? Math.max(parentContentH - cm[0] - cm[2], 0) : this.hug(node, parentContentW, parentContentH).h;
+    if (L.heightMode === 'FILL') h = parentContentH != null ? Math.max(parentContentH - cm[0] - cm[2], 0) : this.hug(node, parentContentW, parentContentH).h;
+    else if (L.height != null) h = L.height;
     else h = this.hug(node, parentContentW, parentContentH).h;
 
     return clampSize(L, { w, h });
@@ -313,11 +340,37 @@ export class LayoutResolver {
      * - `mode: 'ABSOLUTE'`：老写法，脱流**且**自己的内部排版也变绝对；
      * - `position: 'ABSOLUTE'`：新写法，只脱流，内部排版照旧走 flex/gap/align。
      */
-    const isOutOfFlow = (c: UINode): boolean =>
+    const isAbs = (c: UINode): boolean =>
       c.layout.mode === 'ABSOLUTE' || c.layout.position === 'ABSOLUTE';
-    const flowChildren = children.filter((c) => !isOutOfFlow(c));
-    const absChildren = children.filter(isOutOfFlow);
-    const assignAbsolute = () => {
+    /**
+     * `position: 'FIXED'`（贴顶/贴底固定栏）**也是脱流**，但落位规则不同：
+     * 它不按自己的 x/y，而是钉在**页面视口**边缘（贴底 → `视口高 - 自身高 - stickyBottom`）。
+     *
+     * 早先这里只认 ABSOLUTE，FIXED 一律当普通流子项排 —— 于是「发现」页的底部导航
+     * 被排到 y=1008，**跑到 812 高的画框外面去了**。画布上表现为「页面里只有 4 个块，
+     * 下面飘着一条孤零零的导航」；`.fig` 导出沿用同一套坐标，在 Figma 里打开就是
+     * 用户报的「一页乱七八糟」。出码侧（`compile.ts` 出 `position: fixed`）一直是对的，
+     * 所以 HTML 截图正常、只有画布和 `.fig` 错 —— 又一个「门禁全绿但产物不能用」。
+     */
+    const isFixed = (c: UINode): boolean =>
+      c.layout.mode !== 'ABSOLUTE' && c.layout.position === 'FIXED';
+    const flowChildren = children.filter((c) => !isAbs(c) && !isFixed(c));
+    const absChildren = children.filter(isAbs);
+    const fixedChildren = children.filter(isFixed);
+
+    /** 贴顶/贴底固定子项的落位（与 `compile.ts` 的 top/bottom 判定逐字对齐） */
+    const fixedRectOf = (child: UINode): Geometry => {
+      const cm = marOf(child.layout);
+      const size = this.childSize(child, Math.max(contentW - cm[1] - cm[3], 0), null);
+      const top = child.layout.stickyTop ?? (child.layout.stickyBottom != null ? undefined : 0);
+      const y =
+        top != null
+          ? top + cm[0]
+          : this.viewportH - size.h - (child.layout.stickyBottom ?? 0) + cm[0];
+      return { x: contentX + cm[3], y, width: size.w, height: size.h };
+    };
+
+    const assignOutOfFlow = () => {
       for (const child of absChildren) {
         const cm = marOf(child.layout);
         const availW = Math.max(contentW - cm[1] - cm[3], 0);
@@ -334,9 +387,10 @@ export class LayoutResolver {
           out,
         );
       }
+      for (const child of fixedChildren) this.assign(child, fixedRectOf(child), out);
     };
     if (!flowChildren.length) {
-      assignAbsolute();
+      assignOutOfFlow();
       return;
     }
 
@@ -446,7 +500,7 @@ export class LayoutResolver {
         });
         crossCursor += rowH + gapCross;
       });
-      assignAbsolute();
+      assignOutOfFlow();
       return;
     }
 
@@ -494,7 +548,7 @@ export class LayoutResolver {
 
       this.assign(child, rectChild, out);
     });
-    assignAbsolute();
+    assignOutOfFlow();
   }
 }
 

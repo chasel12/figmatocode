@@ -1,0 +1,68 @@
+{
+  "target": "vue",
+  "generatedAt": "2026-11-01T17:39:37.432Z",
+  "pages": [
+    {
+      "path": "pages/p-1",
+      "title": "发现",
+      "html": "pages/p-1/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 78
+    },
+    {
+      "path": "pages/p-2",
+      "title": "播放",
+      "html": "pages/p-2/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 58
+    },
+    {
+      "path": "pages/p-3",
+      "title": "歌单详情",
+      "html": "pages/p-3/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 68
+    },
+    {
+      "path": "pages/p-4",
+      "title": "搜索",
+      "html": "pages/p-4/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 94
+    },
+    {
+      "path": "pages/p-5",
+      "title": "我的音乐",
+      "html": "pages/p-5/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 114
+    },
+    {
+      "path": "pages/p-6",
+      "title": "歌词",
+      "html": "pages/p-6/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 59
+    }
+  ],
+  "files": 26,
+  "bytes": 177686
+}

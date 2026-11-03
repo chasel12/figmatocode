@@ -1,0 +1,55 @@
+page,
+.taro_page {
+  background: #ffffff;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Taro 组件最小 reset（h5）：内置 Button 带 padding/圆角/边框，Image 带 inline 基线间隙，
+   不清掉就无法与设计稿对齐。weapp 侧由各自的默认样式接管，不做假设。 */
+taro-button-core,
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: inherit;
+  font-size: inherit;
+  color: inherit;
+  overflow: visible;
+}
+taro-button-core::after,
+button::after {
+  border: 0;
+}
+
+/* Taro 内置「taro-button-core + taro-button-core { margin-top: 15px }」（模仿微信
+   原生 button 的相邻间距）。它有两个标签名，特异性 0,0,2，压得过上面那条单选择器
+   reset —— 于是「两个按钮上下排」会凭空多出 15px 间隙，整页从那里开始整体下移。
+   实测：零食商城商品详情页因此比基准高 15px，taro 端相似度 92.88%，而 react /
+   uni-app 都是 100%（同一份 AST、同一份 CSS，只差这一条组件默认值）。
+   必须用同样两个标签名的相邻选择器才压得住。 */
+taro-button-core + taro-button-core,
+button + button {
+  margin-top: 0;
+}
+taro-image-core,
+img {
+  display: inline-block;
+  vertical-align: top;
+}
+
+/* 空 src 图片的占位样式（唯一权威定义在 imagePlaceholder.ts）。
+   必须放全局 app.scss：页面级 index.scss 由 scssFromPage 生成，只含编译器的盒模型规则。
+   曾经不发射这段、同时关掉色调类，理由是「Taro 的空图走 Image 组件而不是背景块」——
+   实际 emitTsxBody 对空 src 出的是 View + 占位类，结果封面块透明、露出卡片底色，
+   taro 端像素相似度被压在 92% 且只有截图能发现。 */
+.ui-image-placeholder {
+  --ph-tint: linear-gradient(0deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 100%);
+  background-color: #ececf1;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a8a8b4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='16' rx='2'/><circle cx='8.5' cy='9.5' r='1.5'/><path d='M21 15l-5-5L5 20'/></svg>"), linear-gradient(135deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0) 55%), var(--ph-tint);
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: center, center, center;
+  background-size: 24px 24px, cover, cover;
+}

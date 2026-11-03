@@ -24,8 +24,22 @@ import { generateHtml } from '../src/generator/html';
 import type { UIPage } from '../src/schema/types';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = path.join(root, '.tmp/ui-gen');
-const OUT = path.join(root, '.tmp/ui-shots');
+const argvEarly = process.argv.slice(2);
+const earlyArg = (flag: string, dflt: string): string => {
+  const eq = argvEarly.find((a) => a.startsWith(`${flag}=`));
+  if (eq) return eq.slice(flag.length + 1);
+  const i = argvEarly.indexOf(flag);
+  return i >= 0 ? (argvEarly[i + 1] ?? dflt) : dflt;
+};
+/**
+ * 输入/输出目录可覆盖。
+ *
+ * 默认是 45 个场景那套（`.tmp/ui-gen` → `.tmp/ui-shots`），但「整站工程」产出的是
+ * 一个多页 project.json，拆成单页后要落到别的目录 —— 混进 `.tmp/ui-gen` 会被
+ * `ui:measure` / `ui:audit` 一起扫进去，把两组口径搅在一起。
+ */
+const SRC = path.resolve(root, earlyArg('--src', '.tmp/ui-gen'));
+const OUT = path.resolve(root, earlyArg('--out', '.tmp/ui-shots'));
 
 const argv = process.argv.slice(2);
 const argOf = (flag: string, dflt: string): string => {

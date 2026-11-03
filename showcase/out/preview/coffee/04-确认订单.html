@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>04-确认订单</title>
+<style>
+/* B5：让 UA 的默认配色（滚动条/表单控件/系统 UI）跟随页面明暗，避免「深色页配浅色滚动条」 */
+:root { color-scheme: light; }
+html, body { margin: 0; padding: 0; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #ffffff; min-height: 812px; }
+.ui-image-placeholder {
+  --ph-tint: linear-gradient(0deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 100%);
+  background-color: #ececf1;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23a8a8b4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='16' rx='2'/><circle cx='8.5' cy='9.5' r='1.5'/><path d='M21 15l-5-5L5 20'/></svg>"), linear-gradient(135deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0) 55%), var(--ph-tint);
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: center, center, center;
+  background-size: 24px 24px, cover, cover;
+}
+.ui-image-ph-photo-84 { --ph-tint: linear-gradient(135deg, hsl(84 44% 89%) 0%, hsl(110 40% 77%) 100%); }
+.ui-image-ph-photo-118 { --ph-tint: linear-gradient(135deg, hsl(118 44% 89%) 0%, hsl(144 40% 77%) 100%); }
+.ui-image-ph-photo-305 { --ph-tint: linear-gradient(135deg, hsl(305 44% 89%) 0%, hsl(331 40% 77%) 100%); }
+</style>
+<style>
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fonts/inter-latin-wght-normal.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fonts/inter-latin-ext-wght-normal.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'Inter';font-style:italic;font-weight:100 900;font-display:swap;src:url('/fonts/inter-latin-wght-italic.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Inter';font-style:italic;font-weight:100 900;font-display:swap;src:url('/fonts/inter-latin-ext-wght-italic.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'Space Grotesk';font-style:normal;font-weight:300 700;font-display:swap;src:url('/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Space Grotesk';font-style:normal;font-weight:300 700;font-display:swap;src:url('/fonts/space-grotesk-latin-ext-wght-normal.woff2') format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+</style>
+<style>
+.page-1 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0px 0px 96px 0px;
+  width: 100%;
+  min-height: max(812px, 100vh);
+  background-color: #faf5ef;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.frame-1 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0px 16px;
+  width: 100%;
+  height: 56px;
+  background-color: #faf5ef;
+}
+
+.frame-2 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background-color: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #d4a373;
+  box-shadow: 0px 2px 6px 0px rgba(181,101,74,0.10);
+}
+
+.vector-1 {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+}
+
+.text-1 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.2px;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-3 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  width: 36px;
+  height: 36px;
+}
+
+.frame-4 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 20px 0px 20px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-5 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #d4a373;
+  box-shadow: 0px 6px 16px 0px rgba(122,99,80,0.06);
+}
+
+.frame-6 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  padding: 4px;
+  width: 100%;
+  height: 40px;
+  background-color: #f1f3f5;
+  border-radius: 16px;
+}
+
+.frame-7 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 36px;
+  flex: 1 1 0;
+  flex-grow: 1;
+  background-color: #b5654a;
+  border-radius: 10px;
+  box-shadow: 0px 2px 6px 0px rgba(181,101,74,0.24);
+}
+
+.vector-2 {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+}
+
+.text-2 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #faf5ef;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-8 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 36px;
+  flex: 1 1 0;
+  flex-grow: 1;
+  border-radius: 8px;
+}
+
+.vector-3 {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+}
+
+.text-3 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-9 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.vector-4 {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+}
+
+.frame-10 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  height: fit-content;
+  flex: 1 1 0;
+  flex-grow: 1;
+}
+
+.text-4 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-5 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #8b9d77;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-11 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #d4a373;
+  box-shadow: 0px 6px 16px 0px rgba(122,99,80,0.06);
+}
+
+.text-6 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.4px;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-12 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.image-1 {
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  background-color: #f1f3f5;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.frame-13 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  height: fit-content;
+  flex: 1 1 0;
+  flex-grow: 1;
+}
+
+.text-7 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-8 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #d4a373;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-9 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #b5654a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-10 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  opacity: 0.75;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-14 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.image-2 {
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  background-color: #f1f3f5;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.frame-15 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  height: fit-content;
+  flex: 1 1 0;
+  flex-grow: 1;
+}
+
+.text-11 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-12 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #d4a373;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-13 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #b5654a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-14 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  opacity: 0.75;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-16 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.image-3 {
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  background-color: #f1f3f5;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.frame-17 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  height: fit-content;
+  flex: 1 1 0;
+  flex-grow: 1;
+}
+
+.text-15 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-16 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #d4a373;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-17 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #b5654a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-18 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  opacity: 0.75;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-18 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #d4a373;
+  box-shadow: 0px 6px 16px 0px rgba(122,99,80,0.06);
+}
+
+.frame-19 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-19 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-20 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-20 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-21 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-22 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #8b9d77;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rectangle-1 {
+  box-sizing: border-box;
+  width: 100%;
+  height: 1px;
+  background-color: #d4a373;
+  opacity: 0.35;
+}
+
+.frame-21 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-23 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-24 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 26px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.3px;
+  color: #b5654a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-22 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #d4a373;
+  box-shadow: 0px 6px 16px 0px rgba(122,99,80,0.06);
+}
+
+.frame-23 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-24 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background-color: #8fb86a;
+  border-radius: 10px;
+  opacity: 0.18;
+}
+
+.vector-5 {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+}
+
+.text-25 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vector-6 {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+}
+
+.frame-25 {
+  box-sizing: border-box;
+  position: fixed;
+  display: flex;
+  flex-direction: row;
+  bottom: calc(0px + env(safe-area-inset-bottom, 0px));
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0px 20px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  min-height: 88px;
+  background-color: #faf5ef;
+  border: 1px solid #d4a373;
+  box-shadow: 0px -6px 18px 0px rgba(122,99,80,0.10);
+}
+
+.frame-26 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-26 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  opacity: 0.8;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  -webkit-font-smoothing: antialiased;
+  color: #7a6350;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-27 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 28px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.5px;
+  color: #b5654a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.button-1 {
+  box-sizing: border-box;
+  padding: 0px 24px;
+  width: fit-content;
+  height: 48px;
+  flex: 0 0 auto;
+  background-color: #b5654a;
+  border-radius: 10px;
+  box-shadow: 0px 4px 12px 0px rgba(181,101,74,0.24);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.4px;
+  color: #faf5ef;
+  text-align: center;
+  white-space: pre-wrap;
+  word-break: break-word;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-1:hover {
+  background-color: #a05a42;
+  box-shadow: 0px 8px 20px 0px rgba(181,101,74,0.30);
+}
+
+.button-1:active {
+  background-color: #a05a42;
+  box-shadow: inset 0px 2px 4px 0px rgba(0,0,0,0.12);
+}
+</style>
+</head>
+<body>
+
+  <div id="page-581" class="page-1">
+    <div class="frame-1">
+      <div class="frame-2">
+        <svg class="vector-1" width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" fill-rule="nonzero" stroke="#b5654a" stroke-width="2.4" ><path d="m15 18-6-6 6-6" /></svg>
+      </div>
+      <span class="text-1">确认订单</span>
+      <div class="frame-3"></div>
+    </div>
+    <div class="frame-4">
+      <div class="frame-5">
+        <div class="frame-6">
+          <div class="frame-7">
+            <svg class="vector-2" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" fill-rule="nonzero" stroke="#faf5ef" stroke-width="3" ><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4M2 7h20M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7" /></svg>
+            <span class="text-2">自取</span>
+          </div>
+          <div class="frame-8">
+            <svg class="vector-3" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" fill-rule="nonzero" stroke="#7a6350" stroke-width="3" ><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14M15 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M5 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /></svg>
+            <span class="text-3">外送</span>
+          </div>
+        </div>
+        <div class="frame-9">
+          <svg class="vector-4" width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" fill-rule="nonzero" stroke="#b5654a" stroke-width="2.4" ><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0M9 10a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /></svg>
+          <div class="frame-10">
+            <span class="text-4">望京 SOHO 店</span>
+            <span class="text-5">预计 15:20 可取</span>
+          </div>
+        </div>
+      </div>
+      <div class="frame-11">
+        <span class="text-6">订单商品</span>
+        <div class="frame-12">
+          <div class="image-1 ui-image-placeholder ui-image-ph-photo-84"></div>
+          <div class="frame-13">
+            <span class="text-7">燕麦拿铁</span>
+            <span class="text-8">大杯 · 热</span>
+            <span class="text-9">¥37.00</span>
+          </div>
+          <span class="text-10">×1</span>
+        </div>
+        <div class="frame-14">
+          <div class="image-2 ui-image-placeholder ui-image-ph-photo-118"></div>
+          <div class="frame-15">
+            <span class="text-11">海盐焦糖玛奇朵</span>
+            <span class="text-12">中杯 · 冰</span>
+            <span class="text-13">¥36.00</span>
+          </div>
+          <span class="text-14">×1</span>
+        </div>
+        <div class="frame-16">
+          <div class="image-3 ui-image-placeholder ui-image-ph-photo-305"></div>
+          <div class="frame-17">
+            <span class="text-15">巴斯克芝士蛋糕</span>
+            <span class="text-16">切片装</span>
+            <span class="text-17">¥26.00</span>
+          </div>
+          <span class="text-18">×1</span>
+        </div>
+      </div>
+      <div class="frame-18">
+        <div class="frame-19">
+          <span class="text-19">商品小计</span>
+          <span class="text-20">¥99.00</span>
+        </div>
+        <div class="frame-20">
+          <span class="text-21">优惠</span>
+          <span class="text-22">-¥5.00</span>
+        </div>
+        <div class="rectangle-1"></div>
+        <div class="frame-21">
+          <span class="text-23">实付</span>
+          <span class="text-24">¥94.00</span>
+        </div>
+      </div>
+      <div class="frame-22">
+        <div class="frame-23">
+          <div class="frame-24">
+            <svg class="vector-5" width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" fill-rule="nonzero" stroke="#8b9d77" stroke-width="3" ><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" /></svg>
+          </div>
+          <span class="text-25">微信支付</span>
+        </div>
+        <svg class="vector-6" width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" fill-rule="nonzero" stroke="#d4a373" stroke-width="2.4" ><path d="m9 18 6-6-6-6" /></svg>
+      </div>
+    </div>
+    <div class="frame-25">
+      <div class="frame-26">
+        <span class="text-26">实付金额</span>
+        <span class="text-27">¥94.00</span>
+      </div>
+      <button class="button-1" type="button">提交订单 ¥94.00</button>
+    </div>
+  </div>
+</body>
+</html>

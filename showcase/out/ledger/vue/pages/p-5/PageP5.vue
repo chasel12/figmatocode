@@ -1,0 +1,1062 @@
+<script setup>
+const go = (href) => {
+  window.location.href = href
+}
+</script>
+
+<template>
+  <main id="page-372" class="page-1">
+    <div class="frame-1">
+      <span class="text-1">{{ "统计" }}</span>
+      <div class="frame-2">
+        <span class="text-2">{{ "本周" }}</span>
+        <span class="text-3">{{ "本月" }}</span>
+        <span class="text-4">{{ "本年" }}</span>
+      </div>
+    </div>
+    <div class="frame-3">
+      <span class="text-5">{{ "分类占比" }}</span>
+      <div class="frame-4">
+        <div class="frame-5">
+          <div class="frame-6">
+            <span class="text-6">{{ "餐饮" }}</span>
+            <div class="frame-7">
+              <span class="text-7">{{ "¥1,286.50" }}</span>
+              <span class="text-8">{{ "30%" }}</span>
+            </div>
+          </div>
+          <div class="frame-8">
+            <div class="rectangle-1"></div>
+          </div>
+        </div>
+        <div class="frame-9">
+          <div class="frame-10">
+            <span class="text-9">{{ "购物" }}</span>
+            <div class="frame-11">
+              <span class="text-10">{{ "¥940.00" }}</span>
+              <span class="text-11">{{ "22%" }}</span>
+            </div>
+          </div>
+          <div class="frame-12">
+            <div class="rectangle-2"></div>
+          </div>
+        </div>
+        <div class="frame-13">
+          <div class="frame-14">
+            <span class="text-12">{{ "居家" }}</span>
+            <div class="frame-15">
+              <span class="text-13">{{ "¥468.00" }}</span>
+              <span class="text-14">{{ "11%" }}</span>
+            </div>
+          </div>
+          <div class="frame-16">
+            <div class="rectangle-3"></div>
+          </div>
+        </div>
+        <div class="frame-17">
+          <div class="frame-18">
+            <span class="text-15">{{ "娱乐" }}</span>
+            <div class="frame-19">
+              <span class="text-16">{{ "¥520.00" }}</span>
+              <span class="text-17">{{ "12%" }}</span>
+            </div>
+          </div>
+          <div class="frame-20">
+            <div class="rectangle-4"></div>
+          </div>
+        </div>
+        <div class="frame-21">
+          <div class="frame-22">
+            <span class="text-18">{{ "交通" }}</span>
+            <div class="frame-23">
+              <span class="text-19">{{ "¥386.00" }}</span>
+              <span class="text-20">{{ "9%" }}</span>
+            </div>
+          </div>
+          <div class="frame-24">
+            <div class="rectangle-5"></div>
+          </div>
+        </div>
+        <div class="frame-25">
+          <div class="frame-26">
+            <span class="text-21">{{ "学习" }}</span>
+            <div class="frame-27">
+              <span class="text-22">{{ "¥1,180.00" }}</span>
+              <span class="text-23">{{ "16%" }}</span>
+            </div>
+          </div>
+          <div class="frame-28">
+            <div class="rectangle-6"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="frame-29">
+      <span class="text-24">{{ "本月支出趋势" }}</span>
+      <div class="frame-30">
+        <div class="frame-31">
+          <span class="text-25">{{ "最高的一天 11-25" }}</span>
+          <span class="text-26">{{ "¥1,180.00" }}</span>
+        </div>
+        <div class="rectangle-7"></div>
+        <div class="frame-32">
+          <span class="text-27">{{ "日均" }}</span>
+          <span class="text-28">{{ "¥153.09" }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="frame-33" @click="go('../p-2/index.html')">
+      <span class="text-29">{{ "查看明细" }}</span>
+    </div>
+  </main>
+</template>
+
+<style>
+.page-1 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0px 0px 24px 0px;
+  width: 100%;
+  min-height: max(812px, 100vh);
+  background-color: #ffffff;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.frame-1 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border: 1px solid #e4e8e6;
+}
+
+.text-1 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 24px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.3px;
+  color: #1c2024;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-2 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+  padding: 4px;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #f8fafc;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.text-2 {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-3 {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #0f5132;
+  border-radius: 4px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  -webkit-font-smoothing: antialiased;
+  color: #ffffff;
+  text-align: center;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-4 {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-3 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 0px 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-5 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 1.4px;
+  color: #64748b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-transform: uppercase;
+}
+
+.frame-4 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.frame-5 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-6 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-6 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-7 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-7 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-8 {
+  box-sizing: border-box;
+  width: 36px;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-8 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+  height: 6px;
+  background-color: #f1f5f9;
+  border-radius: 999px;
+}
+
+.rectangle-1 {
+  box-sizing: border-box;
+  width: 200px;
+  height: 100%;
+  background-color: #0f5132;
+  border-radius: 999px;
+}
+
+.frame-9 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-10 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-9 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-11 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-10 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-11 {
+  box-sizing: border-box;
+  width: 36px;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-12 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+  height: 6px;
+  background-color: #f1f5f9;
+  border-radius: 999px;
+}
+
+.rectangle-2 {
+  box-sizing: border-box;
+  width: 200px;
+  height: 100%;
+  background-color: #0f5132;
+  border-radius: 999px;
+}
+
+.frame-13 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-14 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-12 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-15 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-13 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-14 {
+  box-sizing: border-box;
+  width: 36px;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-16 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+  height: 6px;
+  background-color: #f1f5f9;
+  border-radius: 999px;
+}
+
+.rectangle-3 {
+  box-sizing: border-box;
+  width: 200px;
+  height: 100%;
+  background-color: #0f5132;
+  border-radius: 999px;
+}
+
+.frame-17 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-18 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-15 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-19 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-16 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-17 {
+  box-sizing: border-box;
+  width: 36px;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-20 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+  height: 6px;
+  background-color: #f1f5f9;
+  border-radius: 999px;
+}
+
+.rectangle-4 {
+  box-sizing: border-box;
+  width: 200px;
+  height: 100%;
+  background-color: #0f5132;
+  border-radius: 999px;
+}
+
+.frame-21 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-22 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-18 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-23 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-19 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-20 {
+  box-sizing: border-box;
+  width: 36px;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-24 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+  height: 6px;
+  background-color: #f1f5f9;
+  border-radius: 999px;
+}
+
+.rectangle-5 {
+  box-sizing: border-box;
+  width: 200px;
+  height: 100%;
+  background-color: #0f5132;
+  border-radius: 999px;
+}
+
+.frame-25 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.frame-26 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-21 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-27 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-22 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-23 {
+  box-sizing: border-box;
+  width: 36px;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-28 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow: hidden;
+  width: 100%;
+  height: 6px;
+  background-color: #f1f5f9;
+  border-radius: 999px;
+}
+
+.rectangle-6 {
+  box-sizing: border-box;
+  width: 200px;
+  height: 100%;
+  background-color: #0f5132;
+  border-radius: 999px;
+}
+
+.frame-29 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 0px 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-24 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 1.4px;
+  color: #64748b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-transform: uppercase;
+}
+
+.frame-30 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+  background-color: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.frame-31 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-25 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-26 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rectangle-7 {
+  box-sizing: border-box;
+  width: 100%;
+  height: 1px;
+  background-color: #e2e8f0;
+}
+
+.frame-32 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-27 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #64748b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-28 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.frame-33 {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 16px 8px 16px;
+  width: 100%;
+  height: fit-content;
+  flex: 0 0 auto;
+}
+
+.text-29 {
+  box-sizing: border-box;
+  width: fit-content;
+  height: fit-content;
+  flex: 0 0 auto;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  color: #0f5132;
+  text-align: center;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>

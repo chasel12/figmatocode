@@ -1,0 +1,68 @@
+{
+  "target": "vue",
+  "generatedAt": "2026-11-02T02:31:59.145Z",
+  "pages": [
+    {
+      "path": "pages/p-1",
+      "title": "概览",
+      "html": "pages/p-1/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 87
+    },
+    {
+      "path": "pages/p-2",
+      "title": "明细",
+      "html": "pages/p-2/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 141
+    },
+    {
+      "path": "pages/p-3",
+      "title": "记一笔",
+      "html": "pages/p-3/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 63
+    },
+    {
+      "path": "pages/p-4",
+      "title": "预算",
+      "html": "pages/p-4/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 63
+    },
+    {
+      "path": "pages/p-5",
+      "title": "统计",
+      "html": "pages/p-5/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 70
+    },
+    {
+      "path": "pages/p-6",
+      "title": "我的",
+      "html": "pages/p-6/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 65
+    }
+  ],
+  "files": 26,
+  "bytes": 181749
+}

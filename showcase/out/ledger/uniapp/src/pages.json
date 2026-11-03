@@ -1,0 +1,47 @@
+{
+  "pages": [
+    {
+      "path": "pages/p-1/index",
+      "style": {
+        "navigationBarTitleText": "概览"
+      }
+    },
+    {
+      "path": "pages/p-2/index",
+      "style": {
+        "navigationBarTitleText": "明细"
+      }
+    },
+    {
+      "path": "pages/p-3/index",
+      "style": {
+        "navigationBarTitleText": "记一笔"
+      }
+    },
+    {
+      "path": "pages/p-4/index",
+      "style": {
+        "navigationBarTitleText": "预算"
+      }
+    },
+    {
+      "path": "pages/p-5/index",
+      "style": {
+        "navigationBarTitleText": "统计"
+      }
+    },
+    {
+      "path": "pages/p-6/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "青柠账本 · 记账-uniapp",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F7F7F7",
+    "navigationStyle": "custom"
+  }
+}

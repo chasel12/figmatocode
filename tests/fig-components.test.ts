@@ -115,12 +115,20 @@ describe('项目级：组件表 / 样式表 / 原型流程', () => {
     expect(back.flows).toBeUndefined();
   });
 
-  it('什么都不给时，meta 里不出现 project 键（旧文件二进制保持一致）', async () => {
+  it('什么都不给时，project 里只剩格式标记（不塞空组件表/样式表/流程表）', async () => {
+    /**
+     * 2026-11-02 改：`format: 'frames'` 是**恒写**的格式标记，不是可选内容。
+     * 它告诉导入侧「CANVAS 下的顶层 FRAME 才是页面」—— 缺了它就只能按旧语义
+     * （CANVAS 本身就是页面）读，六页会被压成一页。
+     *
+     * 代价是「纯页面导出的二进制与旧版一致」这条性质没了 —— 那是格式升级的必然结果，
+     * 不是回归。这里改成断言「只多了 format，没多别的空表」。
+     */
     const { page } = fixture();
     const exported = await exportFig([page], codec.encode, { exportedAt: AT });
     const back = importFig(exported.bytes, codec.decode);
     const extras = (back.meta as { ui_compiler_extras?: { project?: unknown } } | undefined)?.ui_compiler_extras;
-    expect(extras?.project).toBeUndefined();
+    expect(extras?.project).toEqual({ format: 'frames' });
     expect(back.components).toBeUndefined();
   });
 });

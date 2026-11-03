@@ -95,7 +95,36 @@ async function main(): Promise<void> {
   }
 
   /* ---------- 2. 往返关（结构） ---------- */
-  const pages = allDemoPages();
+  /**
+   * 往返集 = 19 页 demo + 1 页矢量探针。
+   *
+   * 为什么要额外造一页：`allDemoPages()` 里**一个 VECTOR 都没有**，于是
+   * `fig-normalize` 里的 `vectorShape` 断言（「图标几何往返后不能变成空路径」）
+   * 永远不会被执行 —— 这正是「写了防线 ≠ 防线在跑」。这一页只干一件事：
+   * 带两条真实图标路径（含弧命令）走一遍往返，让那条断言有东西可比。
+   */
+  const vectorProbe = createPage('矢量探针页', 375, 812);
+  vectorProbe.id = 'demo-vector';
+  vectorProbe.root.id = vectorProbe.id;
+  {
+    const icon = createNode('VECTOR') as UINode;
+    icon.name = '图标·弧';
+    Object.assign(icon.layout, { x: 16, y: 16, width: 16, height: 16, mode: 'ABSOLUTE' as const });
+    (icon as { vector?: { d: string; width?: number; height?: number } }).vector = {
+      d: 'M9 18V5l12-2v13M3 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0',
+      width: 24,
+      height: 24,
+    };
+    const rect = createNode('VECTOR') as UINode;
+    rect.name = '图标·闭合';
+    Object.assign(rect.layout, { x: 60, y: 16, width: 20, height: 20, mode: 'ABSOLUTE' as const });
+    (rect as { vector?: { d: string; fillRule?: 'evenodd' } }).vector = {
+      d: 'M2 2H18V18H2Z',
+      fillRule: 'evenodd',
+    };
+    vectorProbe.root.children = [icon, rect];
+  }
+  const pages = [...allDemoPages(), vectorProbe];
   const roundTripRows: Record<string, unknown>[] = [];
   let structureOk = true;
   for (const page of pages) {
@@ -123,9 +152,18 @@ async function main(): Promise<void> {
       pageBefore.viewport !== pageAfter.viewport || pageBefore.root !== pageAfter.root || pageBefore.mode !== pageAfter.mode
         ? `页面: ${JSON.stringify(pageBefore)} ≠ ${JSON.stringify(pageAfter)}`
         : null;
-    // 子节点树逐字段比
-    const before = page.root.children.map((n) => roundDeep(normalize(n), 4));
-    const after = back.root.children.map((n) => roundDeep(normalize(n), 4));
+    /**
+     * 子节点树逐字段比。**必须把根布局模式传进去** ——
+     * `normalize` 在 `parentMode` 缺省时会去比 x/y（那是"父容器未知、当 ABSOLUTE"的兜底），
+     * 于是「流内子项的 y」变成必比项：源 AST 里是 undefined→0，导入侧是真实的绝对坐标。
+     *
+     * 这一条早先一直绿，是因为导出的根级子项**全都写在 (0,0)**（真 bug，见
+     * `tests/fig.test.ts` 的「根级流式子项」用例）—— 0 对 0 碰巧相等。
+     * 坐标修好之后，门禁反而先红了：**绿灯不代表口径对，可能只是两边都错得一样。**
+     * 流内子项的位置正确性由那条绕开 normalize 的用例单独锁，这里按语义只比非位置字段。
+     */
+    const before = page.root.children.map((n) => roundDeep(normalize(n, page.root.layout.mode), 4));
+    const after = back.root.children.map((n) => roundDeep(normalize(n, back.root.layout.mode), 4));
     const diff = pageDiff ?? deepEqual(before, after, 'children');
     const ok = diff === null;
     const known = KNOWN_LOSS.get(page.name);

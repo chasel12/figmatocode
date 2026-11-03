@@ -1212,7 +1212,27 @@ function expandNode(
      */
     const perItem = repeat.styles?.[i];
     if (perItem) {
-      finalNode.style = { ...(finalNode.style ?? {}), ...perItem };
+      /**
+       * `width` / `height` 是**布局**字段，不能跟着其余项一起摊进 `style`：
+       * `style.width` 不在 `AiStyleSpec` 里，会被转换层静默丢掉 ——
+       * 又是一个「字段在、效果不在」。所以先摘出来，单独写进 `layout`。
+       *
+       * 必须强制 `widthMode: 'FIXED'`：只给数值不给模式时，`HUG`（模板里常见）
+       * 会让数值只当参考值，进度条长度照样全一样。
+       */
+      const { width: itemW, height: itemH, ...styleOnly } = perItem;
+      finalNode.style = { ...(finalNode.style ?? {}), ...styleOnly };
+      if (itemW !== undefined || itemH !== undefined) {
+        finalNode.layout = { ...(finalNode.layout ?? {}) };
+        if (itemW !== undefined) {
+          finalNode.layout.width = itemW;
+          finalNode.layout.widthMode = 'FIXED';
+        }
+        if (itemH !== undefined) {
+          finalNode.layout.height = itemH;
+          finalNode.layout.heightMode = 'FIXED';
+        }
+      }
     }
 
     // 同名节点在编辑器里无法区分（图层面板会显示 42 个「日期格」），补序号。

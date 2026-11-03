@@ -120,9 +120,36 @@ describe('映射不了的一律进 unknown（不静默丢弃）', () => {
      * 2026-10-29 更新：`leading-tight` 已从「越界」变成受支持（补 StyleKit 素材时加的，
      * 见 `tests/ai-class-dialect.test.ts`），所以换成 `shadow-red-500` 保持这条测试的强度
      * ——它代表「能识别前缀但取值不在受控子集」这一类，必须继续进 unknown。
+     *
+     * 2026-11-01 更新：变体前缀（`md:` / `hover:`）已从「进 unknown」改成**静默丢弃**，
+     * 理由见 `tailwind.ts` 里那段注释——风格 skill 是写给通用 Tailwind 工程的，
+     * 这类写法密度极高，报违例会让每一页带着十几条 token 违例出门、触发自修轮。
      */
-    const { unknown } = parseClassNames('grid md:flex hover:bg-card gap-x-4 rounded-t-lg justify-around shadow-red-500');
-    expect(unknown).toEqual(['grid', 'md:flex', 'hover:bg-card', 'gap-x-4', 'rounded-t-lg', 'justify-around', 'shadow-red-500']);
+    const { unknown } = parseClassNames('grid gap-x-4 rounded-t-lg justify-around shadow-red-500');
+    expect(unknown).toEqual(['grid', 'gap-x-4', 'rounded-t-lg', 'justify-around', 'shadow-red-500']);
+  });
+
+  it('变体前缀与 ring 静默丢弃，调色板色仍然要拒', () => {
+    // 丢弃：交互态走 `style.states`，描边走 `border`，静态渲染没有等价物
+    expect(parseClassNames('md:flex hover:bg-card active:scale-95 dark:text-white').unknown).toEqual([]);
+    expect(parseClassNames('ring-1 ring-[#3b82f6]').unknown).toEqual([]);
+    // 边界：调色板色不能丢——丢了产物就彻底没颜色，这正是它必须继续进 unknown 的原因
+    expect(parseClassNames('bg-gray-50').unknown).toEqual(['bg-gray-50']);
+  });
+
+  it('彩色阴影（shadow-[#hex]/n）只染色，几何沿用档位', () => {
+    const a = parseClassNames('shadow-md shadow-[#b5654a]/10');
+    expect(a.unknown).toEqual([]);
+    expect(a.style.effects?.[0]).toMatchObject({ kind: 'DROP_SHADOW', color: '#b5654a' });
+
+    // class 顺序反过来也要成立（染色写在档位之前，不能被后到的档位覆盖掉）
+    const b = parseClassNames('shadow-[#b5654a]/10 shadow-md');
+    expect(b.style.effects?.[0]).toMatchObject({ kind: 'DROP_SHADOW', color: '#b5654a' });
+
+    // 只给染色、不给档位：按 md 兜底，别让染色白丢
+    const c = parseClassNames('shadow-[#b5654a]/10');
+    expect(c.unknown).toEqual([]);
+    expect(c.style.effects?.[0]).toMatchObject({ kind: 'DROP_SHADOW', color: '#b5654a' });
   });
 
   it('Tailwind 默认色板没有对应令牌，不能硬映射成包外色值', () => {

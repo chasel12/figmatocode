@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createBlankPage, findById } from '../schema/factory';
-import { createCanvasMeasure, resolveLayout } from '../compiler';
+import { createCanvasMeasure, resolveLayout, type GeometryMap } from '../compiler';
 import { EditorContext, editorReducer, initialState, type Tool } from './store';
 import { parseProject, serializeProject, stateFromProject } from './project';
-import type { UIProject } from '../schema/types';
-import { CanvasGeometryContext } from './canvasContext';
+import type { UIProject, UIPage } from '../schema/types';
+import { CanvasGeometryContext, CanvasPagesContext, stackPages, type PageFrame } from './canvasContext';
 import { canvasBus } from './canvasBus';
 import { Toolbar } from './Toolbar';
 import { Canvas } from './Canvas';
@@ -108,7 +108,28 @@ export function Editor() {
 
   // FR-28/FR-29：几何在 Editor 层解析并向下提供 —— 画布、右栏（对齐/预设）、左栏（图层拖拽）共享同一份。
   const measure = useMemo(() => createCanvasMeasure(), []);
-  const geometry = useMemo(() => resolveLayout(state.page, measure), [state.page, measure]);
+
+  /**
+   * 并排布局：所有页按 `(页宽 + 页间距)` 横排，每页单独解析几何。
+   *
+   * 为什么几何**按页分开存**而不是合并成一张大表：AI 生成的多页里节点 id 是各页独立
+   * 编号的（每页都有 `frame-1`），合并会互相覆盖，非当前页的节点会画到当前页的坐标上。
+   *
+   * 为什么偏移放在 `PageFrame.offsetX` 而不是直接加进每个 box：渲染时外层套一个
+   * `Group x={offsetX}` 就够了，NodeView / 命中 / 吸附 / 插入提示这些既有逻辑
+   * 一行都不用改 —— 它们拿到的仍然是页面内坐标。
+   */
+  const layoutCache = useRef(new WeakMap<UIPage, GeometryMap>());
+  const pagesLayout = useMemo<PageFrame[]>(
+    () => stackPages(state.pages, (p) => resolveLayout(p, measure), layoutCache.current),
+    [state.pages, measure],
+  );
+
+  /** 当前页的几何（右栏对齐、图层拖拽、e2e 快照都按它索引） */
+  const geometry = useMemo(
+    () => pagesLayout.find((f) => f.page.id === state.page.id)?.geometry ?? resolveLayout(state.page, measure),
+    [pagesLayout, state.page, measure],
+  );
 
   // FR-51② e2e 通道：只暴露既有公开 API（几何快照 + canvasBus.requestCapture），
   // 不新增任何编辑行为；未开启 VITE_E2E_HOOK=1 时不挂载（与生产行为零差异）。
@@ -397,6 +418,7 @@ export function Editor() {
   return (
     <EditorContext.Provider value={{ state, dispatch }}>
       <CanvasGeometryContext.Provider value={geometry}>
+      <CanvasPagesContext.Provider value={pagesLayout}>
         <div className="editor">
           <Toolbar />
           {/* FR-60 第 4 道防线：上次非正常关闭的提示（内容已自动恢复，这里只告知 + 给退路） */}
@@ -517,6 +539,7 @@ export function Editor() {
             </aside>
           </div>
         </div>
+      </CanvasPagesContext.Provider>
       </CanvasGeometryContext.Provider>
       {/* FR-60：未保存守卫三按钮弹窗（应用内破坏性操作；标签页关闭走浏览器原生两按钮） */}
       {pendingIntent && (

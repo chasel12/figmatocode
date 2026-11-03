@@ -13,7 +13,7 @@ import { parsePathD, pointsToPathD, draftBounds, rebuildFromPoints, toLocalPoint
 import { arrowHeadPoints, connectorPathD, makeNavigateInteraction, nearestFrameAncestor, pickAnchors, type ConnAnchor, type ConnGeom } from './tools/connections';
 import { collectSameNameSiblings, useEditor, type Tool } from './store';
 import { computeSnap, type GuideLine, type Rect as SnapRect } from './snapping';
-import { useCanvasGeometry } from './canvasContext';
+import { useCanvasGeometry, useCanvasPages, type PageFrame } from './canvasContext';
 import { canvasBus } from './canvasBus';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 
@@ -80,6 +80,14 @@ interface Ctx {
   geometry: GeometryMap;
   measure: ReturnType<typeof createCanvasMeasure>;
   scale: number;
+  /**
+   * 本页在画布上的横向偏移（多页并排）。
+   *
+   * `pagePoint()` 返回的是**画布绝对坐标**（含偏移），而 `geometry` 里是**页面内坐标**。
+   * 单页时偏移恒 0，两者相等，所以改造前不需要区分；多页后 NodeView 里任何
+   * 「指针坐标 → 页面坐标」的换算都必须减掉它，否则第 2 页起的双击定位、拖拽落点全偏一页。
+   */
+  offsetX: number;
   tool: Tool;
   panActive: boolean;
   snapOn: boolean;
@@ -499,7 +507,8 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
       const pointer = stage?.getPointerPosition();
       const grp = dragRef.current;
       if (stage && pointer && grp) {
-        ctx.startNodeDrag(node.id, grp, pagePoint(stage, pointer));
+        const p = pagePoint(stage, pointer);
+        ctx.startNodeDrag(node.id, grp, { x: p.x - ctx.offsetX, y: p.y });
       }
     }
   };
@@ -513,7 +522,8 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
     const stage = e.target.getStage();
     const pointer = stage?.getPointerPosition();
     if (!stage || !pointer) return;
-    ctx.onNodeDblClick(node, pagePoint(stage, pointer));
+    const p = pagePoint(stage, pointer);
+    ctx.onNodeDblClick(node, { x: p.x - ctx.offsetX, y: p.y });
   };
 
   const common = {
@@ -1001,42 +1011,72 @@ const NodeView = memo(function NodeView({ node, ctx, interact }: NodeViewProps) 
     </Group>
   );
 });
-const ContentLayer = memo(function ContentLayer({
-  root,
-  rootGeom,
-  rootFill,
-  ctx,
-  tool,
-  spaceDown,
-}: {
-  root: ContainerNode;
-  rootGeom: GeometryMap[string] | undefined;
-  rootFill: string;
-  ctx: Ctx;
-  tool: Tool;
-  spaceDown: boolean;
-}) {
-  return (
-    <Layer>
-      {rootGeom && (
-        <Rect
-          name="page-bg"
-          x={rootGeom.x}
-          y={rootGeom.y}
-          width={rootGeom.width}
-          height={rootGeom.height}
-          fill={rootFill}
-          shadowColor="rgba(0,0,0,0.15)"
-          shadowBlur={24}
-          shadowOffset={{ x: 0, y: 8 }}
-        />
-      )}
-      {root.children.map((child) => (
-        <NodeView key={child.id} node={child} ctx={ctx} interact={`${tool}:${spaceDown ? 1 : 0}`} />
-      ))}
-    </Layer>
-  );
-});
+/**
+ * 一页的内容（页面底板 + 节点树）。**不含 `<Layer>`**：多页并排时所有页共用一个 Layer，
+ * 每页外面套一个 `Group x={offsetX}`，里面全用页面内坐标。
+ */
+const PageContent = memo(
+  function PageContent({
+    frame,
+    ctx,
+    active,
+    tool,
+    spaceDown,
+    scale,
+  }: {
+    frame: PageFrame;
+    ctx: Ctx;
+    /** 是不是当前编辑页。非当前页整组 `listening={false}`，点击穿透到 Stage 由它切页 */
+    active: boolean;
+    tool: Tool;
+    spaceDown: boolean;
+    scale: number;
+  }) {
+    const root = frame.page.root;
+    const rootGeom = frame.rootGeom;
+    /**
+     * 非当前页要按**自己那页**的几何定位，不能借用当前页的 `ctx.geometry`
+     * （多页的节点 id 是各页独立编号的，`frame-1` 每页都有，会定位到别人身上）。
+     * 只在非当前页做这次浅拷贝，当前页仍用稳定引用的 `ctx`，memo 才有效。
+     */
+    const pageCtx: Ctx = active ? ctx : { ...ctx, geometry: frame.geometry, offsetX: frame.offsetX, scale };
+    return (
+      <Group x={frame.offsetX} listening={active}>
+        {rootGeom && (
+          <Rect
+            name={active ? 'page-bg' : `page-bg-${frame.page.id}`}
+            x={rootGeom.x}
+            y={rootGeom.y}
+            width={rootGeom.width}
+            height={rootGeom.height}
+            fill={root.style?.background ?? PAGE_BG}
+            shadowColor="rgba(0,0,0,0.15)"
+            shadowBlur={24}
+            shadowOffset={{ x: 0, y: 8 }}
+          />
+        )}
+        {root.children.map((child) => (
+          <NodeView key={child.id} node={child} ctx={pageCtx} interact={`${tool}:${spaceDown ? 1 : 0}`} />
+        ))}
+      </Group>
+    );
+  },
+  /**
+   * 自定义比较：**拖动当前页时不要重渲染其它页**。
+   *
+   * `pagesLayout` 每次 `state.pages` 变化都整体重算，非当前页的 `geometry` 因此拿到
+   * 新对象（值相同）。默认浅比较会判定「变了」→ 19 页 demo 每帧重绘 1900 个节点。
+   * 这里只比**内容引用**（`frame.page`，非当前页没改时引用稳定）与视口参数，
+   * 几何变化对非当前页恒等于「值没变」，忽略它是安全的。
+   */
+  (a, b) =>
+    a.frame.page === b.frame.page &&
+    a.frame.offsetX === b.frame.offsetX &&
+    a.active === b.active &&
+    a.tool === b.tool &&
+    a.spaceDown === b.spaceDown &&
+    a.scale === b.scale,
+);
 
 export function Canvas() {
   const { state, dispatch } = useEditor();
@@ -1138,11 +1178,87 @@ export function Canvas() {
   const rootGeom = geometry[state.page.root.id];
   const selectedCount = state.selectedIds.length;
 
+  /**
+   * 并排渲染的页清单。正常由 `Editor` 通过 `CanvasPagesContext` 提供；
+   * 单独用 Canvas（测试 / 故事页）时退化成「只有当前页」，行为与改造前一致。
+   */
+  const pagesFromCtx = useCanvasPages();
+  const frames: PageFrame[] = useMemo(
+    () =>
+      pagesFromCtx && pagesFromCtx.length
+        ? pagesFromCtx
+        : [{ page: state.page, geometry, rootGeom, offsetX: 0 }],
+    [pagesFromCtx, state.page, geometry, rootGeom],
+  );
+
+  /**
+   * 当前页在画布上的横向偏移。
+   *
+   * 页面内容由 `PageContent` 自己套 `Group x={offsetX}`，但**覆盖层不归它管**：
+   * hover 框、选中框、尺寸标签、吸附线、缩放手柄、矢量锚点、连线幽灵、内联文本编辑框
+   * 全都直接按页面内坐标画。单页时 offsetX 恒为 0，所以改造前不需要这一层；
+   * 多页后当前页一旦不是第 1 页，这些覆盖物就会全部画到最左边那一帧上。
+   * 统一在这里取一次，各覆盖层包一层 `Group x={activeOffsetX}` 即可。
+   */
+  const activeOffsetX = frames.find((f) => f.page.id === state.page.id)?.offsetX ?? 0;
+
+  /**
+   * 指针 → **当前页内**坐标。组件内所有几何比对（框选、吸附、resize、连线幽灵）
+   * 都建立在页面内坐标上，直接用 `pagePoint` 会带上 `activeOffsetX`，
+   * 表现是「第 2 页起 resize 一次跳一页宽」「幽灵线偏一页」。
+   * 需要画布绝对坐标的地方（只有跨页点击判定）仍用 `pagePoint`。
+   */
+  const toPage = (stage: Konva.Stage, pos: { x: number; y: number }) => {
+    const p = pagePoint(stage, pos);
+    return { x: p.x - activeOffsetX, y: p.y };
+  };
+
+  /**
+   * 页面集合发生变化时，自动缩放到全部可见。
+   *
+   * 场景就是「AI 采纳整站」。不 fit 的话画布上只看到第一页，用户会以为
+   * 「还是只生成了一页」——这正是改造前的老问题。
+   *
+   * **判据用「页面 id 集合的对称差 ≥ 2」，不能用「页数变多」**：
+   * `projectWithSite` 是按**页面名**合并的，同名页是**替换**而不是追加。所以
+   * 反复采纳同一个提示词时页数 6→6 不变、只是 6 个页都换了新 id ——
+   * 按页数判断就漏掉了，用户第二次生成后视图还停在原位，看起来又「只显示一页」。
+   * 对称差能同时覆盖「新增」与「替换」两种采纳形态。
+   *
+   * **差 1 不动视图**：那是「新建页面」/「删一页」。19 页 demo 里加一页也 fit 的话
+   * 视图会从 100% 直接缩到 20%，用户只是想加一页、不是想看全部。
+   *
+   * 首次挂载不动（demo 工程 19 页，首屏维持原来的 100% 视图，否则一进来就被缩到 15%，
+   * 266 页像素基准和首屏观感都会变）。
+   *
+   * 缩放算法**复用 `fit()`**（经 `actionsRef` 取最新闭包），不在这里另写一份 ——
+   * 两处算法一旦分叉，就会出现「按 Shift+1 框得住、自动 fit 框不住」这种只有多页才暴露的偏差。
+   */
+  const framesRef = useRef(frames);
+  framesRef.current = frames;
+  const pageIdsRef = useRef<string[] | null>(null);
+  useEffect(() => {
+    const ids = framesRef.current.map((f) => f.page.id);
+    const prev = pageIdsRef.current;
+    pageIdsRef.current = ids;
+    if (!prev || !wrapSize.w || !wrapSize.h) return;
+    const prevSet = new Set(prev);
+    const nextSet = new Set(ids);
+    let diff = 0;
+    for (const id of ids) if (!prevSet.has(id)) diff += 1;
+    for (const id of prev) if (!nextSet.has(id)) diff += 1;
+    if (diff < 2) return;
+    actionsRef.current.fit();
+    // 依赖 `frames`（数组引用）而不是 `frames.length`：替换同名页时长度不变，
+    // 只靠 length 的话这次渲染根本不会触发 effect。
+  }, [frames, wrapSize.w, wrapSize.h]);
+
   const ctxRef = useRef<Ctx | null>(null);
   const ctx: Ctx = (ctxRef.current ??= {
     geometry,
     measure,
     scale,
+    offsetX: activeOffsetX,
     tool: state.tool,
     panActive: isPan,
     snapOn,
@@ -1164,6 +1280,7 @@ export function Canvas() {
   ctx.geometry = geometry;
   ctx.measure = measure;
   ctx.scale = scale;
+  ctx.offsetX = activeOffsetX;
   ctx.tool = state.tool;
   ctx.panActive = isPan;
   ctx.snapOn = snapOn;
@@ -1546,7 +1663,7 @@ export function Canvas() {
         const finalRect: SnapRect = { x: g.x + delta.x, y: g.y + delta.y, width: g.width, height: g.height };
         const stage = stageRef.current;
         const pointer = stage?.getPointerPosition();
-        const pagePos = stage && pointer ? pagePoint(stage, pointer) : { x: finalRect.x, y: finalRect.y };
+        const pagePos = stage && pointer ? toPage(stage, pointer) : { x: finalRect.x, y: finalRect.y };
         ctx.onNodeDragEnd(drag.id, finalRect, pagePos);
       }
       return;
@@ -1574,7 +1691,7 @@ export function Canvas() {
       penDragRef.current = null;
       const stage = stageRef.current;
       const pointer = stage?.getPointerPosition();
-      const at = stage && pointer ? pagePoint(stage, pointer) : start;
+      const at = stage && pointer ? toPage(stage, pointer) : start;
       const hx = Math.round((at.x - start.x) * 100) / 100;
       const hy = Math.round((at.y - start.y) * 100) / 100;
       const next: PenDraftPoint = Math.abs(hx) < 1 && Math.abs(hy) < 1 ? { x: start.x, y: start.y } : { x: start.x, y: start.y, hx, hy };
@@ -1604,7 +1721,7 @@ export function Canvas() {
           // 直线：起止点求长度与斜角（atan2），起点=拖画原点
           const stage = stageRef.current;
           const p = stage ? stage.getPointerPosition() : null;
-          const end = stage && p ? pagePoint(stage, p) : { x: box.x + box.w, y: box.y + box.h };
+          const end = stage && p ? toPage(stage, p) : { x: box.x + box.w, y: box.y + box.h };
           const dx = end.x - o.x;
           const dy = end.y - o.y;
           const len = Math.round(Math.hypot(dx, dy)) || 100;
@@ -1636,16 +1753,37 @@ export function Canvas() {
     setStagePos({ x: cx - pagePt.x * ns, y: cy - pagePt.y * ns });
   };
 
+  /**
+   * 缩放到「全部可见」。
+   *
+   * 多页并排后**不能只按当前页算**：6 页工程按第 1 页 fit 的结果是「第 1 页占满整屏、
+   * 其余 5 页全在视野外」，等于没 fit。所以取所有页 root 的并集包围盒。
+   * 单页工程包围盒恒等于该页 root，结果与改造前逐像素一致（含 x/y 居中项）。
+   */
   const fit = () => {
-    const g = geometry[state.page.root.id];
-    if (!g || !wrapSize.w || !wrapSize.h) return;
+    if (!wrapSize.w || !wrapSize.h) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const f of frames) {
+      const g = f.rootGeom;
+      if (!g) continue;
+      minX = Math.min(minX, f.offsetX + g.x);
+      minY = Math.min(minY, g.y);
+      maxX = Math.max(maxX, f.offsetX + g.x + g.width);
+      maxY = Math.max(maxY, g.y + g.height);
+    }
+    const bw = maxX - minX;
+    const bh = maxY - minY;
+    if (!Number.isFinite(bw) || !Number.isFinite(bh) || bw <= 0 || bh <= 0) return;
     const margin = 48;
-    const s = Math.min((wrapSize.w - margin * 2) / g.width, (wrapSize.h - margin * 2) / g.height, 4);
+    const s = Math.min((wrapSize.w - margin * 2) / bw, (wrapSize.h - margin * 2) / bh, 4);
     const ns = Math.max(0.2, s);
     setScale(ns);
     setStagePos({
-      x: (wrapSize.w - g.width * ns) / 2 - g.x * ns,
-      y: (wrapSize.h - g.height * ns) / 2 - g.y * ns,
+      x: (wrapSize.w - bw * ns) / 2 - minX * ns,
+      y: (wrapSize.h - bh * ns) / 2 - minY * ns,
     });
   };
 
@@ -1968,6 +2106,31 @@ export function Canvas() {
     const target = e.target as Konva.Node;
     const isStage = target === (e.target as Konva.Node).getStage();
     const isBg = isStage || target.name() === 'page-bg';
+    /**
+     * 多页并排：点到**别的页** = 切到那一页。
+     *
+     * 非当前页整组 `listening={false}`，事件一路冒泡到 Stage，所以这里只需要按坐标
+     * 判断落在哪个 frame 里。一次点击只切页、不进入编辑（否则会在旧页上画出选区，
+     * 切页后选区坐标对不上）。
+     */
+    if (!isPan) {
+      const st = stageRef.current;
+      const ptr = st?.getPointerPosition();
+      if (st && ptr) {
+        const p = pagePoint(st, ptr);
+        const hit = frames.find((f) => {
+          const g = f.rootGeom;
+          if (!g) return false;
+          const left = f.offsetX + g.x;
+          return p.x >= left && p.x <= left + g.width && p.y >= g.y && p.y <= g.y + g.height;
+        });
+        if (hit && hit.page.id !== state.page.id) {
+          dispatch({ type: 'SELECT_PAGE', id: hit.page.id });
+          suppressClickRef.current = true;
+          return;
+        }
+      }
+    }
     if (isPan) {
       // 空格/抓手：任意位置起手平移（P0-02）
       modeRef.current = 'pan';
@@ -1981,7 +2144,7 @@ export function Canvas() {
       const pointer = stage?.getPointerPosition();
       if (!stage || !pointer) return;
       modeRef.current = 'draw';
-      marqueeOrigin.current = pagePoint(stage, pointer);
+      marqueeOrigin.current = toPage(stage, pointer);
       marqueeRef.current = null;
       suppressClickRef.current = true;
       return;
@@ -1991,7 +2154,7 @@ export function Canvas() {
       const stage = stageRef.current;
       const pointer = stage?.getPointerPosition();
       if (stage && pointer) {
-        const at = pagePoint(stage, pointer);
+        const at = toPage(stage, pointer);
         penDragRef.current = { x: at.x, y: at.y };
       }
       suppressClickRef.current = false;
@@ -2008,7 +2171,7 @@ export function Canvas() {
       const pointer = stage?.getPointerPosition();
       if (!stage || !pointer) return;
       modeRef.current = 'maybe-marquee';
-      marqueeOrigin.current = pagePoint(stage, pointer);
+      marqueeOrigin.current = toPage(stage, pointer);
       suppressClickRef.current = false;
     }
   };
@@ -2019,7 +2182,7 @@ export function Canvas() {
       const st = stageRef.current;
       const pt = st?.getPointerPosition();
       if (!st || !pt) return;
-      const at = pagePoint(st, pt);
+      const at = toPage(st, pt);
       const drag = anchorDrag.current;
       const dx = at.x - drag.startX;
       const dy = at.y - drag.startY;
@@ -2050,7 +2213,7 @@ export function Canvas() {
       const stage = stageRef.current;
       const pointer = stage?.getPointerPosition();
       if (!stage || !pointer) return;
-      const p = pagePoint(stage, pointer);
+      const p = toPage(stage, pointer);
       const dx = p.x - drag.start.x;
       const dy = p.y - drag.start.y;
       if (!drag.moved && Math.hypot(dx * scale, dy * scale) < 3) return; // <3px 视为点击
@@ -2078,7 +2241,7 @@ export function Canvas() {
       const stage = stageRef.current;
       const pointer = stage?.getPointerPosition();
       if (stage && pointer) {
-        const at = pagePoint(stage, pointer);
+        const at = toPage(stage, pointer);
         setConnDraft((prev) => (prev && prev.x === at.x && prev.y === at.y ? prev : { x: at.x, y: at.y }));
       }
       return;
@@ -2089,7 +2252,7 @@ export function Canvas() {
       if (!stage) return;
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
-      const p = pagePoint(stage, pointer);
+      const p = toPage(stage, pointer);
       const { id, handle } = resizing.current;
       const g = geometry[id];
       if (!g) return;
@@ -2120,7 +2283,7 @@ export function Canvas() {
         const st = stageRef.current;
         const pt = st?.getPointerPosition();
         if (st && pt) {
-          const at = pagePoint(st, pt);
+          const at = toPage(st, pt);
           setPenCursor((prev) => (prev && prev.x === at.x && prev.y === at.y ? prev : { x: at.x, y: at.y }));
         }
       }
@@ -2129,7 +2292,7 @@ export function Canvas() {
     const stage = stageRef.current;
     const pointer = stage?.getPointerPosition();
     if (!stage || !pointer || !marqueeOrigin.current) return;
-    const p = pagePoint(stage, pointer);
+    const p = toPage(stage, pointer);
     const o = marqueeOrigin.current;
     if (modeRef.current === 'maybe-marquee') {
       const dist = Math.hypot((p.x - o.x) * scale, (p.y - o.y) * scale);
@@ -2168,7 +2331,7 @@ export function Canvas() {
       const stage = stageRef.current;
       const pointer = stage?.getPointerPosition();
       if (!stage || !pointer) return;
-      const at = pagePoint(stage, pointer);
+      const at = toPage(stage, pointer);
       const hit = deepestAtPoint(geometry, state.page.root, at);
       if (hit && hasText(hit)) {
         setEditText(hit.text ?? '');
@@ -2307,17 +2470,49 @@ export function Canvas() {
           onClick={stageClick}
           onContextMenu={stageContextMenu}
         >
-          <ContentLayer
-            root={state.page.root}
-            rootGeom={rootGeom}
-            rootFill={state.page.root.style?.background ?? PAGE_BG}
-            ctx={ctx}
-            tool={state.tool}
-            spaceDown={spaceDown}
-          />
+          {/*
+            多页并排：所有页共用一个 Layer，每页一个 `Group x={offsetX}`。
+            非当前页 `listening={false}`（点击穿透到 Stage，由 `stageMouseDown` 切页），
+            所以它们的节点不会抢 hover / 拖拽 / 选中 —— 编辑永远只作用在当前页。
+          */}
+          <Layer>
+            {frames.map((frame) => (
+              <PageContent
+                key={frame.page.id}
+                frame={frame}
+                ctx={ctx}
+                active={frame.page.id === state.page.id}
+                tool={state.tool}
+                spaceDown={spaceDown}
+                scale={scale}
+              />
+            ))}
+            {frames.map((frame) => {
+              const g = frame.rootGeom;
+              if (!g) return null;
+              const active = frame.page.id === state.page.id;
+              return (
+                <KText
+                  key={`label-${frame.page.id}`}
+                  text={frame.page.name}
+                  x={frame.offsetX + g.x}
+                  y={g.y - 22}
+                  wrap="none"
+                  ellipsis
+                  width={Math.max(g.width, 60)}
+                  fontFamily={FONT_STACK}
+                  fontSize={12}
+                  fill={active ? SEL_COLOR : '#8A8A8A'}
+                  listening={false}
+                />
+              );
+            })}
+          </Layer>
           {/* FR-60 拖拽轻量层：拖拽中被「提出」的节点临时挂到这里，使每帧只重绘本层 */}
-          <Layer ref={dragLayerRef} listening={false} />
+          <Layer ref={dragLayerRef} listening={false} x={activeOffsetX} />
           <Layer listening={false}>
+            {/* 覆盖层整体跟随当前页：内部一律用页面内坐标，不做任何偏移（见 activeOffsetX） */}
+            <Group x={activeOffsetX}>
             {guides.map((g, i) =>
               g.axis === 'x' ? (
                 <Group key={`guide-x-${i}`}>
@@ -2550,11 +2745,13 @@ export function Canvas() {
                   </>
                 );
               })()}
+            </Group>
           </Layer>
           {/* P1-04：已提交 VECTOR 的锚点（可拖二次编辑）。必须独立可交互 Layer——
               原挂在 listening={false} 覆盖层内，鼠标事件永不触发（m5 复判时揪出，探针只看渲染漏测了拖拽） */}
           {vecAnchors && (
             <Layer>
+              <Group x={activeOffsetX}>
               {vecAnchors.anchors.map((a) => (
                 <Circle
                   key={`vec-anchor-${a.index}`}
@@ -2577,7 +2774,7 @@ export function Canvas() {
                     const stage = stageRef.current;
                     const pointer = stage?.getPointerPosition();
                     if (!stage || !pointer) return;
-                    const at = pagePoint(stage, pointer);
+                    const at = toPage(stage, pointer);
                     anchorDrag.current = {
                       id: vecAnchors.id,
                       index: a.index,
@@ -2591,9 +2788,11 @@ export function Canvas() {
                   }}
                 />
               ))}
+              </Group>
             </Layer>
           )}
           <Layer>
+            <Group x={activeOffsetX}>
             {handles.map((h) => (
               <Rect
                 key={h.key}
@@ -2647,10 +2846,12 @@ export function Canvas() {
                 }}
               />
             ))}
+            </Group>
           </Layer>
           {/* FR-44 连接线层：连接点（拖出创建 Navigate）+ 既有交互的目标箭头线 + hover/落点高亮 */}
           {conn && (
             <Layer>
+              <Group x={activeOffsetX}>
               {connHoverGeom && (
                 <Rect
                   x={connHoverGeom.x}
@@ -2708,7 +2909,7 @@ export function Canvas() {
                   suppressClickRef.current = true; // 拖线收尾合成的 click 不得反选（Figma 拖线保持选中）
                   const stage = stageRef.current;
                   const pointer = stage?.getPointerPosition();
-                  const at = stage && pointer ? pagePoint(stage, pointer) : { x: conn.knob.x, y: conn.knob.y };
+                  const at = stage && pointer ? toPage(stage, pointer) : { x: conn.knob.x, y: conn.knob.y };
                   setConnDraft(at);
                 }}
                 onMouseEnter={() => {
@@ -2720,6 +2921,7 @@ export function Canvas() {
                   if (stage) stage.container().style.cursor = 'default';
                 }}
               />
+              </Group>
             </Layer>
           )}
         </Stage>
@@ -2742,7 +2944,7 @@ export function Canvas() {
             }}
             onBlur={commitText}
             style={{
-              left: editingGeom.x * scale + stagePos.x,
+              left: (activeOffsetX + editingGeom.x) * scale + stagePos.x,
               top: editingGeom.y * scale + stagePos.y,
               width: Math.max(24, editingGeom.width * scale),
               height: Math.max(20, editingGeom.height * scale),

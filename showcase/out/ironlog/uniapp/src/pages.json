@@ -1,0 +1,47 @@
+{
+  "pages": [
+    {
+      "path": "pages/p-1/index",
+      "style": {
+        "navigationBarTitleText": "今日"
+      }
+    },
+    {
+      "path": "pages/p-2/index",
+      "style": {
+        "navigationBarTitleText": "训练"
+      }
+    },
+    {
+      "path": "pages/p-3/index",
+      "style": {
+        "navigationBarTitleText": "动作库"
+      }
+    },
+    {
+      "path": "pages/p-4/index",
+      "style": {
+        "navigationBarTitleText": "记录"
+      }
+    },
+    {
+      "path": "pages/p-5/index",
+      "style": {
+        "navigationBarTitleText": "进度"
+      }
+    },
+    {
+      "path": "pages/p-6/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "铁志 · 力量训练日志-uniapp",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F7F7F7",
+    "navigationStyle": "custom"
+  }
+}

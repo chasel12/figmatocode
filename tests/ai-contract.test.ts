@@ -178,13 +178,18 @@ describe('M7 W1 JSON 抠取（容忍围栏与寒暄）', () => {
 });
 
 describe('M7 W1 风格包注册表', () => {
-  it('四套包齐备且许可证在白名单内（红线③）', () => {
+  it('五套包齐备且许可证在白名单内（红线③）', () => {
     /**
      * `blackgreen` 是**手写**包（三个抽取包的主色是紫/蓝/蓝，没有绿色，
      * 而提示词硬规则禁止包外色值 —— 不补包就做不出「黑绿色」这类显式要求）。
      * 它用 CC0-1.0：自己写的，放弃版权，比 MIT 更宽松，故白名单同步加 `CC0`。
+     *
+     * `forest`（2026-11-02 补）同源：记账小程序的需求稿写「主色是墨绿」，
+     * 而 `shadcn` 的 `primary` 是蓝 —— 提示词说绿、令牌给蓝，模型两边都听，
+     * 结果同一页里大部分元素是墨绿、**一个按钮变蓝**。
+     * 约束要放在令牌层，不能靠提示词加强语气。
      */
-    expect(PACKS.map((p) => p.id)).toEqual(['shadcn', 'openprops', 'daisy-dark', 'blackgreen']);
+    expect(PACKS.map((p) => p.id)).toEqual(['shadcn', 'openprops', 'daisy-dark', 'blackgreen', 'forest']);
     const allowed = ['MIT', 'Apache-2.0', 'ISC', 'OFL', 'CC0'];
     for (const p of PACKS) {
       expect(allowed.some((a) => p.license.includes(a)), `${p.id} license=${p.license}`).toBe(true);

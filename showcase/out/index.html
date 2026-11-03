@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UI Compiler · 展示工程</title>
+<style>
+  :root {
+    --bg: #f6f6f7;
+    --panel: #ffffff;
+    --ink: #14161a;
+    --ink-2: #5b6169;
+    --line: #e4e5e9;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1360px; margin: 0 auto; padding: 56px 32px 96px; }
+  .hero h1 { font-size: 34px; line-height: 1.2; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .hero p { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.7; max-width: 760px; }
+  .stats { display: flex; gap: 28px; margin: 28px 0 8px; flex-wrap: wrap; }
+  .stat b { display: block; font-size: 26px; letter-spacing: -0.02em; }
+  .stat span { font-size: 12px; color: var(--ink-2); letter-spacing: 0.04em; }
+  .project { margin-top: 56px; }
+  .project-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .project-head h2 { margin: 0 0 6px; font-size: 21px; letter-spacing: -0.01em; }
+  .project-head h2::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: var(--accent); margin-right: 10px; vertical-align: 2px; }
+  .meta { margin: 0; font-size: 12.5px; color: var(--ink-2); }
+  .meta code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #eceef1; border-radius: 5px; padding: 1px 5px; font-size: 11.5px; }
+  .count { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .rail { display: flex; gap: 22px; overflow-x: auto; padding: 22px 2px 10px; scroll-snap-type: x proximity; }
+  .phone { margin: 0; flex: 0 0 auto; scroll-snap-align: start; }
+  .screen {
+    width: 375px; height: 812px;
+    border-radius: 26px;
+    background: #fff;
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 2px rgba(16,20,28,.04), 0 12px 28px -12px rgba(16,20,28,.18);
+    overflow: hidden;
+  }
+  .screen iframe { width: 375px; height: 812px; border: 0; display: block; }
+  figcaption { margin-top: 10px; font-size: 12.5px; color: var(--ink-2); text-align: center; }
+  .artifacts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .chip {
+    display: inline-flex; align-items: baseline; gap: 7px;
+    font-size: 12px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--panel); color: var(--ink); text-decoration: none; transition: border-color .15s, color .15s;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip b { font-weight: 600; }
+  .chip span { color: var(--ink-2); font-size: 11.5px; }
+  .duo { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 20px; }
+  .pane { background: #15171c; border: 1px solid #24262d; border-radius: 14px; overflow: hidden; }
+  .pane header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 12px; font-size: 11.5px; color: #9aa1ab; border-bottom: 1px solid #24262d;
+  }
+  .pane header b { color: #e8eaee; font-weight: 600; }
+  .pane pre {
+    margin: 0; padding: 12px; font-size: 11px; line-height: 1.7; color: #c9d0da;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .hl { color: #7ee787; }
+  .note { margin: 16px 0 0; font-size: 12.5px; line-height: 1.85; color: var(--ink-2); max-width: 860px; }
+  .note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #eceef1; border-radius: 5px; padding: 1px 5px; font-size: 11.5px; }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); line-height: 1.8; }
+  footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>UI Compiler · 设计 → 代码，四端</h1>
+    <p>三个完整的小程序产品，由「设计 → AST → 代码」编译器产出：模型只输出结构化的节点树，出码链路 0% AI。同一份 AST 可以存成 <code>.fig</code> 回到编辑器继续改，也可以出 React / Vue / Taro / uni-app 四端工程。</p>
+    <div class="stats">
+      <div class="stat"><b>4</b><span>个产品</span></div>
+      <div class="stat"><b>24</b><span>个页面</span></div>
+      <div class="stat"><b>4</b><span>端出码</span></div>
+      <div class="stat"><b>0</b><span>行手写 UI 代码</span></div>
+    </div>
+  </div>
+
+  <section class="project" style="--accent:#c1663f">
+    <header class="project-head">
+      <div>
+        <h2>拾豆咖啡 · 点单</h2>
+        <p class="meta">主题包 <code>openprops</code> · 风格规格 <code>terracotta.md</code> · 6 页 · 同一份 AST 出四端</p>
+      </div>
+      <span class="count">6 页</span>
+    </header>
+    <div class="artifacts"><a class="chip" href="coffee/project.fig" download><b>.fig</b><span>48 KB · 6 页</span></a><a class="chip" href="coffee.zip" download><b>四端工程包</b><span>react / vue / taro / uniapp</span></a><a class="chip" href="preview/coffee/" target="_blank"><b>单页 HTML</b><span>6 个</span></a></div>
+    <div class="rail">
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/coffee/01-%E7%82%B9%E5%8D%95.html" title="拾豆咖啡 · 点单 · 点单" loading="lazy"></iframe></div>
+        <figcaption>点单</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/coffee/02-%E5%95%86%E5%93%81%E8%AF%A6%E6%83%85.html" title="拾豆咖啡 · 点单 · 商品详情" loading="lazy"></iframe></div>
+        <figcaption>商品详情</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/coffee/03-%E8%B4%AD%E7%89%A9%E8%BD%A6.html" title="拾豆咖啡 · 点单 · 购物车" loading="lazy"></iframe></div>
+        <figcaption>购物车</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/coffee/04-%E7%A1%AE%E8%AE%A4%E8%AE%A2%E5%8D%95.html" title="拾豆咖啡 · 点单 · 确认订单" loading="lazy"></iframe></div>
+        <figcaption>确认订单</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/coffee/05-%E8%AE%A2%E5%8D%95.html" title="拾豆咖啡 · 点单 · 订单" loading="lazy"></iframe></div>
+        <figcaption>订单</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/coffee/06-%E6%88%91%E7%9A%84.html" title="拾豆咖啡 · 点单 · 我的" loading="lazy"></iframe></div>
+        <figcaption>我的</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="project" style="--accent:#111">
+    <header class="project-head">
+      <div>
+        <h2>铁志 · 力量训练日志</h2>
+        <p class="meta">主题包 <code>shadcn</code> · 风格规格 <code>swiss-editorial.md</code> · 6 页 · 同一份 AST 出四端</p>
+      </div>
+      <span class="count">6 页</span>
+    </header>
+    <div class="artifacts"><a class="chip" href="ironlog/project.fig" download><b>.fig</b><span>39 KB · 6 页</span></a><a class="chip" href="ironlog.zip" download><b>四端工程包</b><span>react / vue / taro / uniapp</span></a><a class="chip" href="preview/ironlog/" target="_blank"><b>单页 HTML</b><span>6 个</span></a></div>
+    <div class="rail">
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ironlog/01-%E4%BB%8A%E6%97%A5.html" title="铁志 · 力量训练日志 · 今日" loading="lazy"></iframe></div>
+        <figcaption>今日</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ironlog/02-%E8%AE%AD%E7%BB%83.html" title="铁志 · 力量训练日志 · 训练" loading="lazy"></iframe></div>
+        <figcaption>训练</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ironlog/03-%E5%8A%A8%E4%BD%9C%E5%BA%93.html" title="铁志 · 力量训练日志 · 动作库" loading="lazy"></iframe></div>
+        <figcaption>动作库</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ironlog/04-%E8%AE%B0%E5%BD%95.html" title="铁志 · 力量训练日志 · 记录" loading="lazy"></iframe></div>
+        <figcaption>记录</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ironlog/05-%E8%BF%9B%E5%BA%A6.html" title="铁志 · 力量训练日志 · 进度" loading="lazy"></iframe></div>
+        <figcaption>进度</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ironlog/06-%E6%88%91%E7%9A%84.html" title="铁志 · 力量训练日志 · 我的" loading="lazy"></iframe></div>
+        <figcaption>我的</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="project" style="--accent:#0f5132">
+    <header class="project-head">
+      <div>
+        <h2>青柠账本 · 记账</h2>
+        <p class="meta">主题包 <code>forest</code> · 风格规格 <code>data-dense.md</code> · 6 页 · 同一份 AST 出四端</p>
+      </div>
+      <span class="count">6 页</span>
+    </header>
+    <div class="artifacts"><a class="chip" href="ledger/project.fig" download><b>.fig</b><span>47 KB · 6 页</span></a><a class="chip" href="ledger.zip" download><b>四端工程包</b><span>react / vue / taro / uniapp</span></a><a class="chip" href="preview/ledger/" target="_blank"><b>单页 HTML</b><span>6 个</span></a></div>
+    <div class="rail">
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ledger/01-%E6%A6%82%E8%A7%88.html" title="青柠账本 · 记账 · 概览" loading="lazy"></iframe></div>
+        <figcaption>概览</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ledger/02-%E6%98%8E%E7%BB%86.html" title="青柠账本 · 记账 · 明细" loading="lazy"></iframe></div>
+        <figcaption>明细</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ledger/03-%E8%AE%B0%E4%B8%80%E7%AC%94.html" title="青柠账本 · 记账 · 记一笔" loading="lazy"></iframe></div>
+        <figcaption>记一笔</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ledger/04-%E9%A2%84%E7%AE%97.html" title="青柠账本 · 记账 · 预算" loading="lazy"></iframe></div>
+        <figcaption>预算</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ledger/05-%E7%BB%9F%E8%AE%A1.html" title="青柠账本 · 记账 · 统计" loading="lazy"></iframe></div>
+        <figcaption>统计</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/ledger/06-%E6%88%91%E7%9A%84.html" title="青柠账本 · 记账 · 我的" loading="lazy"></iframe></div>
+        <figcaption>我的</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="project" style="--accent:#605dff">
+    <header class="project-head">
+      <div>
+        <h2>回声 · 音乐播放</h2>
+        <p class="meta">主题包 <code>daisy-dark</code> · 风格规格 <code>linear-style.md</code> · 6 页 · 同一份 AST 出四端</p>
+      </div>
+      <span class="count">6 页</span>
+    </header>
+    <div class="artifacts"><a class="chip" href="music/project.fig" download><b>.fig</b><span>48 KB · 6 页</span></a><a class="chip" href="music.zip" download><b>四端工程包</b><span>react / vue / taro / uniapp</span></a><a class="chip" href="preview/music/" target="_blank"><b>单页 HTML</b><span>6 个</span></a></div>
+    <div class="rail">
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/music/01-%E5%8F%91%E7%8E%B0.html" title="回声 · 音乐播放 · 发现" loading="lazy"></iframe></div>
+        <figcaption>发现</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/music/02-%E6%92%AD%E6%94%BE.html" title="回声 · 音乐播放 · 播放" loading="lazy"></iframe></div>
+        <figcaption>播放</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/music/03-%E6%AD%8C%E5%8D%95%E8%AF%A6%E6%83%85.html" title="回声 · 音乐播放 · 歌单详情" loading="lazy"></iframe></div>
+        <figcaption>歌单详情</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/music/04-%E6%90%9C%E7%B4%A2.html" title="回声 · 音乐播放 · 搜索" loading="lazy"></iframe></div>
+        <figcaption>搜索</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/music/05-%E6%88%91%E7%9A%84%E9%9F%B3%E4%B9%90.html" title="回声 · 音乐播放 · 我的音乐" loading="lazy"></iframe></div>
+        <figcaption>我的音乐</figcaption>
+      </figure>
+      <figure class="phone">
+        <div class="screen"><iframe src="preview/music/06-%E6%AD%8C%E8%AF%8D.html" title="回声 · 音乐播放 · 歌词" loading="lazy"></iframe></div>
+        <figcaption>歌词</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="project">
+    <header class="project-head">
+      <div>
+        <h2>同源证明</h2>
+        <p class="meta">回声 · 音乐播放「发现」页的一个节点：<code>frame-8</code>（播放按钮，带 <code>NAVIGATE → p-2</code> 交互）</p>
+      </div>
+      <span class="count">1 个 AST 节点 → 4 种路由语义</span>
+    </header>
+    <div class="duo"><div class="pane"><header><b>React (H5)</b><span>4 行</span></header><pre>&lt;div className=&quot;frame-8&quot; onClick={() =&gt; { <span class="hl">window.location.href</span> = &quot;../p-2/index.html&quot; }}&gt;
+&lt;svg className=&quot;vector-2&quot; width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; fillRule=&quot;nonzero&quot; stroke=&quot;#edf1fe …
+&lt;span className=&quot;text-7&quot;&gt;{&quot;播放&quot;}&lt;/span&gt;
+&lt;/div&gt;</pre></div><div class="pane"><header><b>Vue 3 (H5)</b><span>4 行</span></header><pre>&lt;div class=&quot;frame-8&quot; @click=&quot;<span class="hl">go(</span>'../p-2/index.html')&quot;&gt;
+&lt;svg class=&quot;vector-2&quot; width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; fill-rule=&quot;nonzero&quot; stroke=&quot;#edf1fe&quot; s …
+&lt;span class=&quot;text-7&quot;&gt;{{ &quot;播放&quot; }}&lt;/span&gt;
+&lt;/div&gt;</pre></div><div class="pane"><header><b>Taro (小程序)</b><span>4 行</span></header><pre>&lt;View className=&quot;frame-8&quot; onClick={() =&gt; { <span class="hl">Taro.navigateTo</span>({ url: &quot;/pages/p-2/index&quot; }) }}&gt;
+&lt;svg className=&quot;vector-2&quot; width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; fillRule=&quot;nonzero&quot; stroke=&quot;#edf1fe …
+&lt;Text className=&quot;text-7&quot;&gt;{&quot;播放&quot;}&lt;/Text&gt;
+&lt;/View&gt;</pre></div><div class="pane"><header><b>uni-app (小程序)</b><span>4 行</span></header><pre>&lt;view class=&quot;frame-8&quot; @tap=&quot;<span class="hl">go(</span>'/pages/p-2/index')&quot;&gt;
+&lt;view class=&quot;vector-2&quot; style=&quot;background-image:url('data:image/svg+xml;base64,PHN2ZyBjbGFzcz0idmVjdG9yLTIiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0i …
+&lt;text class=&quot;text-7&quot;&gt;播放&lt;/text&gt;
+&lt;/view&gt;</pre></div></div>
+    <p class="note">四段代码不是手写的，是构建时从四份产物里抓的同一处。AST 里只有「点这个节点 → 跳到 p-2」一条声明；浏览器跳转、Vue 的 <code>go()</code>、Taro 的 <code>navigateTo</code>、小程序的 <code>@tap</code> 全由出码器按端补齐 —— <b>设计一次，四端一致</b>。</p>
+  </section>
+
+  <footer>
+    预览用 iframe 按 375×812 真实视口渲染 —— 底栏是 <code>position: fixed</code>，滚动时内容从它下方穿过，与真机一致。<br />
+    <code>.fig</code> 是标准 Figma 交换格式：<b>一个画布上并排 6 个 frame</b>（每页一个 375×812），在 Figma 里打开就是这个样子；本项目编辑器内部仍按「页面」组织，一次编辑一页。四端工程在 <code>&lt;id&gt;/</code> 下，每份都带 <code>npm run dev:h5</code> / <code>build:weapp</code>。
+  </footer>
+</div>
+</body>
+</html>

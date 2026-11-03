@@ -1,0 +1,33 @@
+{
+  "id": "ironlog",
+  "title": "铁志 · 力量训练日志",
+  "pack": "shadcn",
+  "skill": "showcase/style-skills/swiss-editorial.md",
+  "viewport": "375x812",
+  "promptFile": "showcase/prompts/ironlog.md",
+  "pages": ["今日", "训练", "动作库", "记录", "进度", "我的"],
+  "tabPages": ["今日", "动作库", "我的"],
+  "tabBar": {
+    "background": "#F7F6F3",
+    "border": "#E2E0DB",
+    "activeColor": "#111111",
+    "idleColor": "#9A9A9A",
+    "fontSize": 12,
+    "height": 64
+  },
+  "navAliases": {
+    "开始训练": "训练",
+    "训练记录": "记录",
+    "进度曲线": "进度",
+    "今日": "今日",
+    "动作库": "动作库",
+    "我的": "我的"
+  },
+  "expectedLinks": [
+    ["今日", "开始训练", "训练"],
+    ["今日", "动作库", "动作库"],
+    ["动作库", "今日", "今日"],
+    ["我的", "训练记录", "记录"],
+    ["我的", "进度曲线", "进度"]
+  ]
+}

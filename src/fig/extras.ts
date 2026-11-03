@@ -24,6 +24,27 @@ export interface ExtraNode {
    */
   mode?: LayoutSchema['mode'];
   /**
+   * **原始尺寸模式**（2026-11-03 加）。
+   *
+   * 为什么必须旁挂：导出侧为了让 Figma 的布局结果与编辑器逐像素一致，会把一些
+   * HUG / FILL 改写成 `FIXED`（Figma 的 Hug 不认 min/max 约束；FILL 写
+   * `RESIZE_TO_FIT_WITH_IMPLICIT_SIZE` 会被按内容收缩；脱流子项的尺寸已由
+   * transform 定死）。这些改写**只服务 Figma 渲染**，AST 的真值仍在这里。
+   *
+   * 不存的话，往返一次 HUG 就变成 FIXED + 写死宽高，再导出时逐轮冻结
+   * （与 `AUTO_SIZING` 那段注释描述的是同一类事故）。
+   *
+   * 外部 Figma 文件没有这一项，导入侧仍走原来的启发式（`stackPrimarySizing` 映射）。
+   */
+  sizing?: {
+    w?: LayoutSchema['widthMode'];
+    h?: LayoutSchema['heightMode'];
+    /** 原 AST 的 `layout.width`（**有值才写** —— 没写就是原本没有，不能凭空补） */
+    wv?: number;
+    /** 原 AST 的 `layout.height`（同上） */
+    hv?: number;
+  };
+  /**
    * 自身定位方式，直接复用 AST 的枚举（含 `ABSOLUTE`：脱流但内部仍走 flex）。
    * 旁挂而非原生：Figma 没有「相对父容器绝对定位但内部保留 auto layout」这个原语。
    */
@@ -119,13 +140,58 @@ export interface ExtraNode {
  * 早先这些**整个不写进 `.fig`**：`exportFig(pages, ...)` 的签名里就没有它们，
  * 于是存盘再打开，组件、命名样式、原型流程全部消失。
  */
+/**
+ * 页面**根节点**的旁挂（`ui_compiler_extras.project.pages[localID]`）。
+ *
+ * 为什么根节点需要单独一张表：`.fig` 里没有「页面根容器」这个实体 —— 它被压成了
+ * `CANVAS`，而 CANVAS 在 Figma 里是**页面本身**，没有 fills、没有 auto layout、
+ * 没有 padding。导出侧早先只把 `stackMode` 和 `size` 借 CANVAS 带过去，于是
+ * 根的 `style.background` 与 `layout.padding/gap/align/justify` **从来没被导出过**：
+ *
+ *   - 深色主题的页存成 `.fig` 再打开 → 根背景回落成白色 → 白字白底，整页"看不见内容"；
+ *   - `padding: [0,0,80,0]`（给固定底栏留的滚动内边距）丢失 → 内容重新被底栏压住。
+ *
+ * 这两条都不会被任何门禁抓到：往返两边都是"没这个字段"，断言自然一致。
+ * 用户看到的是「打开只有一页乱七八糟的东西」——与 2026-11-01 根级子项坐标那次
+ * 是同一类（**结构对、视觉错**），只是这次丢的是根自己。
+ */
+export interface ExtraPage {
+  /** 根节点样式（背景、圆角、溢出裁剪…）。整份存，不挑字段：挑字段就会漏下一个。 */
+  style?: StyleSchema;
+  /**
+   * 根布局里 CANVAS 装不下的部分（`padding` / `gap` / `align` / `justify` / `position` …）。
+   * `mode` / `width` / `height` 仍走 CANVAS 原生字段（那是既有约定，不重复存）。
+   */
+  layout?: Partial<LayoutSchema>;
+}
+
 export interface ExtraProject {
+  /**
+   * **页面组织格式标记**（2026-11-02 加）。
+   *
+   * - `'frames'`：一个 CANVAS 上并排 N 个 FRAME，每个 FRAME 是一个页面（新导出）；
+   * - 缺省：CANVAS 本身就是页面、它的子项是页面内容（旧版导出 / 外部 Figma 文件）。
+   *
+   * 必须显式标记而不是「猜结构」：外部 Figma 文件里一个 CANVAS 上也可能只有一个
+   * FRAME（`circle-text.fig` 就是这样），按结构猜会把「单 frame 的页面」误判成
+   * 「一页一 frame 的新格式」，从而把页面内容整体降一级。
+   */
+  format?: 'frames';
   /** FR-25 主组件表 */
   components?: Record<string, ComponentDef>;
   /** FR-27 命名样式表 */
   tokens?: StyleToken[];
   /** FR-39 原型流程 */
   flows?: FlowDef[];
+  /**
+   * 页面根节点旁挂，键是 CANVAS 的 `guid.localID`。
+   *
+   * **只服务旧格式**（`format` 缺省）。新格式下页面根是一个真实 FRAME，`style` 与
+   * `layout` 全部原生承载，不再需要这张表 —— 这也是「深色页变白字白底」那类问题
+   * 从根上消失的原因：旁挂表里的东西一旦漏写就是静默丢字段，而原生字段漏写会被
+   * 往返测试当场抓住。
+   */
+  pages?: Record<string, ExtraPage>;
 }
 
 /** 从 `meta.json` 里取出项目级旁挂；版本不符或结构不对返回空对象 */

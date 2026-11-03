@@ -383,16 +383,33 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
   const border: Partial<BorderSchema> = {};
   let hasBorder = false;
   let flex1 = false;
+  /**
+   * 阴影的「染色」意图（`shadow-md shadow-[#b5654a]/10` 的后半截）。
+   *
+   * 单独存一个变量而不是就地改 `style.effects`：class 顺序不保证，
+   * 染色可能写在档位之前（`shadow-[#hex]/10 shadow-md`），就地改会被后面的档位覆盖掉。
+   */
+  let shadowTint: string | null = null;
 
   for (const raw of input.split(/\s+/)) {
     const cls = raw.trim();
     if (!cls) continue;
 
-    // 变体前缀（md: / hover: / dark:）不在受控子集内：项目没有断点，交互态走 style.states
-    if (cls.includes(':')) {
-      unknown.push(cls);
-      continue;
-    }
+    // 变体前缀（md: / hover: / active: / focus: / dark:）不在受控子集内：项目没有断点，
+    // 交互态走 `style.states`。**静默丢弃，不报违例。**
+    //
+    // 2026-11-01 改：原先 push 进 unknown。理由成立（确实不支持），但后果没算清 ——
+    // 风格 skill（StyleKit / taste-skill 一类）是写给**通用 Tailwind 工程**的，
+    // hover:/active:/md: 的密度极高：实测三份规格里变体前缀占全部不支持 token 的 28/62。
+    // 照抄一条就是一条 token 违例，一页十几条，直接触发自修轮（每轮都是钱和时间）。
+    // 而丢弃后的静态渲染与「按 hover 之前的样式渲染」逐像素一致，信息损失为零。
+    // 与 `font-system` 同类：没有静态等价物的写法，丢弃比报违例便宜。
+    //
+    // 边界：调色板色（`bg-gray-50`）**不在此列**，仍然要拒 —— 静默丢弃会让产物彻底没颜色。
+    if (cls.includes(':')) continue;
+
+    // `ring-*` 同理：本项目没有 ring，描边一律走 `border`。丢弃不改变盒子尺寸。
+    if (cls.startsWith('ring-')) continue;
 
     // ---- 布局方向 ----
     if (cls === 'flex' || cls === 'flex-row') {
@@ -613,7 +630,7 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
     // ---- 阴影（effects → box-shadow 链，编译层早已完整支持）----
     if (cls === 'shadow') {
       const s = SHADOW[''];
-      style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: s.color }];
+      style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: shadowTint ?? s.color }];
       continue;
     }
     if (cls === 'shadow-inner') {
@@ -622,21 +639,38 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
       continue;
     }
     if (cls.startsWith('shadow-')) {
-      const suffix = cls.slice('shadow-'.length);
+      /**
+       * 先剥掉 `/n` 不透明度后缀。
+       *
+       * Tailwind 里 `shadow-[#b5654a]/10` 是「给阴影上色」，几何仍由档位决定；
+       * 而 `^\[(.+)\]$` 匹配不到带 `/10` 的串，于是整条掉进 unknown。
+       * 实测 terracotta 那份规格通篇这么写，一条不修就全是违例。
+       */
+      const suffix = cls.slice('shadow-'.length).replace(/\/\d+(?:\.\d+)?$/, '');
       if (suffix === 'none') {
         style.effects = []; // 显式清空：box-shadow: none
+        shadowTint = null;
         continue;
       }
       const arb = /^\[(.+)\]$/.exec(suffix);
       if (arb) {
-        const e = shadowArbitrary(arb[1]);
+        const inner = arb[1].trim();
+        // 纯颜色（不是完整 shadow 描述）：只改颜色，几何沿用档位
+        if (/^(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))$/.test(inner)) {
+          shadowTint = inner;
+          if (style.effects?.length) {
+            style.effects = style.effects.map((e) => ({ ...e, color: inner }));
+          }
+          continue;
+        }
+        const e = shadowArbitrary(inner);
         if (e) style.effects = [e];
         else unknown.push(cls);
         continue;
       }
       const s = SHADOW[suffix];
       if (s) {
-        style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: s.color }];
+        style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: shadowTint ?? s.color }];
       } else {
         // shadow-red-500 之类的彩色阴影：颜色来自 Tailwind 调色板，项目只认语义令牌 → 不猜
         unknown.push(cls);
@@ -790,6 +824,12 @@ export function parseClassNames(input: string | undefined): ClassParseResult {
     } else if (!layout.widthMode) {
       layout.widthMode = 'FILL';
     }
+  }
+
+  // 只给了染色、没给档位（`shadow-[#b5654a]/10` 单独出现）：按 md 兜底，别让染色白丢
+  if (shadowTint && !style.effects?.length) {
+    const s = SHADOW.md;
+    style.effects = [{ kind: 'DROP_SHADOW', x: 0, y: s.y, blur: s.blur, spread: s.spread, color: shadowTint }];
   }
 
   return { layout, style, unknown };

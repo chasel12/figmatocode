@@ -1,0 +1,68 @@
+{
+  "target": "react",
+  "generatedAt": "2026-11-02T14:44:39.682Z",
+  "pages": [
+    {
+      "path": "pages/p-1",
+      "title": "今日",
+      "html": "pages/p-1/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 49
+    },
+    {
+      "path": "pages/p-2",
+      "title": "训练",
+      "html": "pages/p-2/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 48
+    },
+    {
+      "path": "pages/p-3",
+      "title": "动作库",
+      "html": "pages/p-3/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 82
+    },
+    {
+      "path": "pages/p-4",
+      "title": "记录",
+      "html": "pages/p-4/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 63
+    },
+    {
+      "path": "pages/p-5",
+      "title": "进度",
+      "html": "pages/p-5/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 66
+    },
+    {
+      "path": "pages/p-6",
+      "title": "我的",
+      "html": "pages/p-6/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 53
+    }
+  ],
+  "files": 31,
+  "bytes": 139938
+}

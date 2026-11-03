@@ -24,9 +24,9 @@
  * 不做包含匹配、不做同义词、不做编辑距离——猜错（点「训练」跳到「我的」）
  * 比连不上更糟，前者用户会判定产品坏了，后者只是这一版还没做跳转。
  */
-import type { ContainerNode, PrototypeInteraction, UINode, UIPage } from '../../schema/types';
+import type { ContainerNode, PrototypeInteraction, TextNode, UINode, UIPage } from '../../schema/types';
 import { isContainer } from '../../schema/types';
-import { findById } from '../../schema/factory';
+import { createNode, findById } from '../../schema/factory';
 import { makeNavigateInteraction } from '../tools/connections';
 import { checkSitePlan, entryPageIndex, validateAiOutput, extractJson, summarizeViolations } from './contract';
 import { buildPrompt, buildRepairPrompt } from './promptPack';
@@ -98,6 +98,15 @@ export interface WireOptions {
    * 只有目标页**确实存在**时才生效，否则按原名匹配失败处理（不报错）。
    */
   aliases?: Record<string, string>;
+  /**
+   * 底栏归属：给定页名返回它该有的 tab 项（**空数组 = 流程页，不装底栏**）。
+   *
+   * 缺省 `undefined` = 完全不接管底栏（模型画什么就是什么），保持既有调用方的行为。
+   * 整站管线会自动从 `navItemsFor` 派生，所以一般不需要手填这个。
+   */
+  tabItemsFor?: (pageName: string) => string[];
+  /** 底栏视觉（配色/字号/高度）。缺省 `DEFAULT_TAB_BAR_STYLE`；仅在给了 `tabItemsFor` 时生效 */
+  tabBarStyle?: Partial<TabBarStyle>;
 }
 
 function walkNodes(root: UINode, visit: (n: UINode) => void): void {
@@ -115,6 +124,205 @@ function countNodes(root: UINode): number {
 }
 
 /**
+ * 底栏的**确定性安装**（整站生成专用）。
+ *
+ * ## 为什么不让模型画底栏
+ *
+ * 底栏是**跨页共享组件**，而整站生成是「N 次独立调用」——每页一次，互不知道对方
+ * 画了什么。同一个底栏被独立复现 N 次，必然漂移。2026-11-02 实测铁志（力量训练日志）
+ * 连跑 8 轮，每轮都漂：
+ *
+ * - 图标：`house`/`dumbbell`/`user` 三页各画一套；有的页干脆不画图标；
+ * - 手写 `vectorD` 的坐标越界（`21.5 21.5` 落在 24 网格外），渲染成碎图形；
+ * - 流程页（训练/记录/进度）明明要求「不要底栏」，仍有一半轮次长出底栏；
+ * - 底栏在长页里被当成普通子项排在流中间，随内容滚走，不是吸底的。
+ *
+ * 这四条**没有一条能靠提示词修**：提示词是「请求」，不是「保证」，而底栏是结构事实。
+ * 项目自己的第 7 条铁律就是「约束放令牌层，不放提示词」——底栏属于同一类。
+ * 所以改成：模型爱画什么画什么，管线在串联前**先删掉它画的，再装一份标准的**。
+ *
+ * ## 为什么是「删了重装」而不是「只补缺」
+ *
+ * 只补缺的话，模型画的那一版会留下来，漂移照旧。而删了重装是幂等的：
+ * 装过一次之后再跑一次，`isCanonicalTabBar` 判定「已经是我装的那一版」，直接返回，
+ * 节点 id 不变——`wireNavigation` 的幂等性（见下方注释）才不会被打破。
+ */
+
+/** 底栏配色/尺寸。缺省对齐 shadcn 浅色，`showcase` 通过 `tabBarStyle` 覆盖成纸白/墨黑 */
+export interface TabBarStyle {
+  background: string;
+  border: string;
+  activeColor: string;
+  idleColor: string;
+  fontSize: number;
+  height: number;
+}
+
+export const DEFAULT_TAB_BAR_STYLE: TabBarStyle = {
+  /**
+   * 缺省透明：底栏直接坐在页面底色上，深浅主题都不用另配一次色。
+   * 要跟风格 skill 的令牌表对齐（纸白底 / 米白底）时由调用方覆盖。
+   */
+  background: 'transparent',
+  border: '#E4E4E7',
+  activeColor: '#111111',
+  idleColor: '#9A9A9A',
+  fontSize: 12,
+  height: 64,
+};
+
+const TAB_BAR_NAME = '底部导航';
+
+/** 一个 tab 单元格里能对上的文案（取第一个 TEXT 子项） */
+function cellLabel(cell: UINode): string {
+  if (!isContainer(cell)) return '';
+  const text = (cell as ContainerNode).children.find((k) => k.type === 'TEXT');
+  return text && text.type === 'TEXT' ? text.text.trim() : '';
+}
+
+/**
+ * 找模型画的底栏：一个容器，**直接子项里 ≥2 个能对上 `items` 文案**。
+ *
+ * 为什么要求 ≥2 且过半：单条文案撞名的概率不低（「我的」页的入口列表里也可能出现
+ * 「训练」），两条同时撞在同一个横排容器里才是底栏特征；再加「过半」是为了排除
+ * 「内容列表里碰巧有两行等于页面名」这种误判。取命中最多的那一个。
+ *
+ * 两种形态都认：`FRAME 单元格 > TEXT`（我们装的那一版）和 `BUTTON 平铺`
+ * （模型常见写法，见 `tests/ai-site.test.ts` 的 `pageDraftFor`）。只认前者的话，
+ * 模型画的平铺底栏删不掉，会和我们装的那一份**并存**，页面出现两条底栏。
+ */
+function findTabBar(root: ContainerNode, items: Set<string>): { node: ContainerNode; parent: ContainerNode } | null {
+  let bestNode: ContainerNode | null = null;
+  let bestParent: ContainerNode | null = null;
+  let bestScore = 0;
+  const labelOfCell = (child: UINode): string => {
+    if (isContainer(child)) return cellLabel(child);
+    if (child.type === 'TEXT' || child.type === 'BUTTON') return child.text.trim();
+    return '';
+  };
+  const visit = (parent: ContainerNode): void => {
+    for (const child of parent.children) {
+      if (!isContainer(child)) continue;
+      const c = child as ContainerNode;
+      const labels = c.children.map(labelOfCell).filter(Boolean);
+      const hits = labels.filter((l) => items.has(l)).length;
+      if (labels.length >= 2 && hits >= 2 && hits * 2 >= labels.length && hits > bestScore) {
+        bestScore = hits;
+        bestNode = c;
+        bestParent = parent;
+      }
+      visit(c);
+    }
+  };
+  visit(root);
+  return bestNode && bestParent ? { node: bestNode, parent: bestParent } : null;
+}
+
+/** 是不是「我们已经装的那一版」（结构逐项对齐，含选中态有无下划线） */
+function isCanonicalTabBar(node: ContainerNode, items: string[], current: string): boolean {
+  const cells = node.children.filter(isContainer) as ContainerNode[];
+  if (cells.length !== items.length) return false;
+  return cells.every((cell, i) => {
+    if (cellLabel(cell) !== items[i]) return false;
+    const text = cell.children.find((k) => k.type === 'TEXT');
+    if (!text) return false;
+    const extra = cell.children.filter((k) => k !== text);
+    if (extra.length > 1) return false;
+    if (extra.length === 1 && extra[0].type !== 'RECTANGLE') return false;
+    // 选中项必须有下划线，未选中项必须没有 —— 缺一边就重装
+    return items[i] === current ? extra.length === 1 : extra.length === 0;
+  });
+}
+
+function buildTabBar(items: string[], current: string, st: TabBarStyle): ContainerNode {
+  const bar = createNode('FRAME', { name: TAB_BAR_NAME }) as ContainerNode;
+  bar.layout = {
+    ...bar.layout,
+    mode: 'HORIZONTAL',
+    widthMode: 'FILL',
+    heightMode: 'FIXED',
+    height: st.height,
+    padding: [0, 24, 0, 24],
+    gap: 0,
+    align: 'CENTER',
+    justify: 'SPACE_BETWEEN',
+    // 吸底：长页滚动时底栏不能跟着走
+    position: 'FIXED',
+    stickyBottom: 0,
+  };
+  bar.style = {
+    ...bar.style,
+    background: st.background,
+    border: { width: 1, color: st.border, style: 'solid' },
+  };
+  bar.children = items.map((label) => {
+    const active = label === current;
+    const cell = createNode('FRAME', { name: `导航-${label}` }) as ContainerNode;
+    cell.layout = {
+      ...cell.layout,
+      mode: 'VERTICAL',
+      widthMode: 'HUG',
+      heightMode: 'HUG',
+      padding: [0, 0, 0, 0],
+      gap: 4,
+      align: 'CENTER',
+      justify: 'CENTER',
+    };
+    cell.style = { ...cell.style, background: 'transparent' };
+    const text = createNode('TEXT', { name: `导航文字-${label}` }) as TextNode;
+    text.text = label;
+    text.layout = { ...text.layout, widthMode: 'HUG', heightMode: 'HUG' };
+    text.style = {
+      ...text.style,
+      color: active ? st.activeColor : st.idleColor,
+      fontSize: st.fontSize,
+      fontWeight: active ? 600 : 400,
+    };
+    cell.children = [text];
+    if (active) {
+      const underline = createNode('RECTANGLE', { name: '选中下划线' });
+      underline.layout = { ...underline.layout, widthMode: 'FIXED', heightMode: 'FIXED', width: 20, height: 2 };
+      underline.style = { ...underline.style, background: st.activeColor };
+      cell.children.push(underline);
+    }
+    return cell;
+  });
+  return bar;
+}
+
+/**
+ * 给一页装上标准底栏（`items` 为空 = 流程页，只删不装）。返回是否改动了页面树。
+ *
+ * 幂等：第二趟跑同样的参数返回 `false` 且不动任何节点。
+ */
+export function installTabBar(
+  page: UIPage,
+  items: string[],
+  style: Partial<TabBarStyle> = {},
+  /**
+   * 全站页面名。**只有流程页（items 为空）需要它**：这时没有「该有哪些项」可比，
+   * 只能拿全站页名当词典去认模型画的那条底栏。不传就等于「流程页不删底栏」。
+   */
+  knownPageNames: string[] = [],
+): boolean {
+  const root = page.root as ContainerNode;
+  if (!isContainer(root)) return false;
+  const wanted = items.map((s) => s.trim()).filter(Boolean);
+  const current = (page.name ?? '').trim();
+  const found = findTabBar(root, new Set(wanted.length ? wanted : knownPageNames));
+
+  if (wanted.length < 2) {
+    if (!found) return false;
+    found.parent.children = found.parent.children.filter((c) => c !== found.node);
+    return true;
+  }
+  if (found && isCanonicalTabBar(found.node, wanted, current)) return false;
+  if (found) found.parent.children = found.parent.children.filter((c) => c !== found.node);
+  root.children.push(buildTabBar(wanted, current, { ...DEFAULT_TAB_BAR_STYLE, ...style }));
+  return true;
+}
+
+/**
  * 按页面名把导航串起来（**就地修改**传入的页面树，调用方负责先克隆）。
  *
  * 只给 TEXT/BUTTON 挂跳转：给 FRAME 挂会让「点卡片任何位置都跳页」，
@@ -124,6 +332,18 @@ export function wireNavigation(pages: UIPage[], opts: WireOptions = {}): SiteWir
   const links: NavLink[] = [];
   const missing: SiteWiringResult['missing'] = [];
   const aliases = opts.aliases ?? {};
+
+  /**
+   * 底栏先装、再连线。顺序不能反：装出来的 TEXT 才是要连线的那些节点。
+   * 装之前会把模型画的那一版删掉（见 `installTabBar` 的注释：为什么不能让模型自己画）。
+   */
+  if (opts.tabItemsFor) {
+    const allNames = pages.map((p) => (p.name ?? '').trim()).filter(Boolean);
+    for (const page of pages) {
+      const items = opts.tabItemsFor(page.name ?? '');
+      if (items) installTabBar(page, items, opts.tabBarStyle, allNames);
+    }
+  }
 
   /** 页面名 → 页面（同名已在闸门拦掉，这里取第一个即可） */
   const byName = new Map<string, UIPage>();
@@ -172,7 +392,20 @@ export function wireNavigation(pages: UIPage[], opts: WireOptions = {}): SiteWir
        * （底部导航 + 卡片入口），重复加会让面板里出现两条一样的连线。
        */
       const existing = node.interactions ?? [];
-      if (existing.some((it) => it.action === 'NAVIGATE' && it.targetId === target.id)) return;
+      if (existing.some((it) => it.action === 'NAVIGATE' && it.targetId === target.id)) {
+        /**
+         * 这条边**已经存在** —— 不重复写 interaction，但**仍然要记进 `links`**。
+         *
+         * 早先这里直接 `return`，于是 `wireNavigation` 不幂等：管线里它被调两次
+         * （首次串联 → 死页重画 → 再串联），第二次只报出「这一趟新加的」那几条，
+         * 第一次连好的链接凭空消失，调用方看到的是「导航断了 / 全是死页」。
+         *
+         * 实测（2026-11-01，音乐播放器 6 页）：页面里实际有 3 条出边，报告 0 条。
+         * 修完把「撤掉修复会变红」验在 `tests/ai-site.test.ts` 的幂等用例上。
+         */
+        links.push({ fromPageId: page.id, fromNodeId: node.id, label, toPageId: target.id, toPageName: target.name });
+        return;
+      }
       const made = makeNavigateInteraction(existing, target.id);
       node.interactions = made.list as PrototypeInteraction[];
       links.push({ fromPageId: page.id, fromNodeId: node.id, label, toPageId: target.id, toPageName: target.name });
@@ -225,6 +458,25 @@ export interface SiteGenerationOptions extends WireOptions {
    * 规划轮输出只有几百 token，重试很便宜——这是唯一值得反复试错的阶段。
    */
   requirePageNames?: string[];
+  /**
+   * 逐页的导航项。缺省 = 全部页面名（每页都能跳到任何一页）。
+   *
+   * 为什么要能定制：真实 App 里**只有 tab 页有底部导航**，播放页、详情页、歌词页
+   * 这类流程页靠返回键和页面内按钮进出。缺省行为把 6 个页面名塞给每一页，
+   * 模型就照画 6 项底栏 —— 结构上没错（导航更全），但视觉上是错的：
+   * 实测音乐播放器 6 页全部长出了一模一样的 6 项底栏。
+   *
+   * 这是**领域知识**，属于调用方（`showcase/configs/*.json` 的 `tabPages`），
+   * 管线保持与行业无关。
+   */
+  navItemsFor?: (pageName: string) => string[];
+  /**
+   * 底栏视觉（配色/字号/高度）。缺省 `DEFAULT_TAB_BAR_STYLE`。
+   *
+   * 底栏是确定性安装的（见 `installTabBar`），所以配色也只能从代码给 ——
+   * 想跟风格 skill 的令牌表对齐（纸白底 + 墨黑选中），就在这里传。
+   */
+  tabBarStyle?: Partial<TabBarStyle>;
   /**
    * 单页节点数下限，低于它**自动重画一次**（缺省 30）。
    *
@@ -367,6 +619,19 @@ export async function runSiteGeneration(
   const entryAt = entryPageIndex(site);
   const ordered = site.pages.map((p, i) => ({ p, i })).sort((a, b) => (a.i === entryAt ? -1 : b.i === entryAt ? 1 : a.i - b.i)).map((x) => x.p);
   const names = ordered.map((p) => p.name);
+  /** 逐页导航项：给了 navItemsFor 就按页面定制（流程页给空数组 = 不画底栏） */
+  const navFor = (pageName: string): string[] => (siteOpts.navItemsFor ? siteOpts.navItemsFor(pageName) : names);
+
+  /**
+   * 串联阶段的选项：底栏由 `installTabBar` 确定性安装，**规则跟 `navItemsFor` 同源**
+   * （流程页返回空数组 → 只删不装），这样「提示词说要什么」和「管线真装什么」不会打架。
+   * 缺省 `navItemsFor` 时每页都是全站 tab —— 与改造前 `navFor` 的行为一致。
+   */
+  const wireOpts: WireOptions = {
+    aliases: siteOpts.aliases,
+    tabItemsFor: (pageName) => navFor(pageName),
+    tabBarStyle: siteOpts.tabBarStyle,
+  };
 
   opts.onProgress?.({
     stage: 'validate',
@@ -386,7 +651,7 @@ export async function runSiteGeneration(
      * 只要有一页的导航栏少写一项，那一项在那一页就点不动（`missing` 会如实报出来）。
      */
     const basePrompt = pagePromptOf(site.name, spec);
-    let pageRes = await runPageGeneration({ ...opts, userPrompt: basePrompt, navItems: names });
+    let pageRes = await runPageGeneration({ ...opts, userPrompt: basePrompt, navItems: navFor(spec.name) });
 
     /**
      * 内容塌陷自动重画一次（见 `minNodesPerPage`）。
@@ -409,7 +674,7 @@ export async function runSiteGeneration(
       const retry = await runPageGeneration({
         ...opts,
         userPrompt: `${basePrompt}\n\n上一版只画了 ${got} 个节点，内容太单薄、像半成品。请把这一页该有的元素**全部**画出来，不要省略列表项、不要用一句话代替一整块内容。`,
-        navItems: names,
+        navItems: navFor(spec.name),
       });
       pageUsage = addUsage(pageUsage, retry.usage);
       // 取更丰富的那一版（重画也可能更差）
@@ -438,7 +703,13 @@ export async function runSiteGeneration(
     });
   }
 
-  let wired = wireNavigation(pages, siteOpts);
+  /**
+   * 第一趟**只连线、不装底栏**。
+   *
+   * 死页检测看的是「模型自己画出来的出边」——先装底栏会让每一页都凭空多出出边，
+   * 检测当场失效（每页都「不是死页」）。所以底栏要等到检测与重画都结束之后再装。
+   */
+  let wired = wireNavigation(pages, { aliases: siteOpts.aliases });
 
   /**
    * 死页自动重画一次：某页一条出边都没有 = 用户进去出不来。
@@ -453,7 +724,16 @@ export async function runSiteGeneration(
    */
   const deadEnd = (): UIPage[] => {
     const hasOut = new Set(wired.links.map((l) => l.fromPageId));
-    return wired.pages.filter((p) => !hasOut.has(p.id));
+    return wired.pages.filter((p) => {
+      if (hasOut.has(p.id)) return false;
+      /**
+       * tab 页**天然有出边**：底栏由 `installTabBar` 确定性安装，装完必定连到其它 tab。
+       * 不排除它的话，模型只要没自己画底栏（现在我们本来就让它别画），每页都会被判死页、
+       * 白重画一次 —— 6 页站点直接多烧 3 次调用。
+       */
+      const items = wireOpts.tabItemsFor?.(p.name ?? '');
+      return !(items && items.filter((n) => n !== p.name).length);
+    });
   };
   const dead = deadEnd();
   if (dead.length) {
@@ -465,10 +745,25 @@ export async function runSiteGeneration(
     for (const page of dead) {
       const spec = ordered.find((s) => s.name === page.name);
       if (!spec) continue;
+      /**
+       * **重画提示词必须走 `navFor`，不能写 `names`。**
+       *
+       * 早先这里无条件写「请补上底部导航栏，文案用「全部页面名」里的词」——
+       * 而 `navItems` 已经按 `navItemsFor` 给流程页发了空数组。两条指令打架，
+       * 模型听提示词的：实测记账小程序的「记一笔」「预算」两页各长出**6 项**底栏
+       * （概览/明细/记一笔/预算/统计/我的），而它们的 `navItems` 是 `[]`。
+       * 与 `wireNavigation` 幂等那次同源：**新增的旁路没跟上主路的规则**。
+       *
+       * 流程页真正缺的不是底栏，是「回得去 + 走得下去」的两个按钮。
+       */
+      const retryNav = navFor(spec.name);
+      const navHint = retryNav.length
+        ? `请补上底部导航栏，**只放这几项**：${retryNav.join(' / ')}（不要出现其它页面名）。`
+        : '这一页**不要画底部导航栏**（它是流程页）。请补一个明确的返回按钮和一个通往下一步的入口按钮。';
       const retry = await runPageGeneration({
         ...opts,
-        userPrompt: `${pagePromptOf(site.name, spec)}\n\n上一版这一页**一条导航都没有**，用户进来就出不去了。请补上底部导航栏（或明确的返回/跳转按钮），文案用「${names.join('」「')}」里的词。`,
-        navItems: names,
+        userPrompt: `${pagePromptOf(site.name, spec)}\n\n上一版这一页**一条导航都没有**，用户进来就出不去了。${navHint}`,
+        navItems: retryNav,
       });
       retry.data.name = spec.name;
       const at = pages.findIndex((p) => p.id === page.id);
@@ -480,8 +775,15 @@ export async function runSiteGeneration(
         rec.costCny += retry.costCny;
       }
     }
-    wired = wireNavigation(pages, siteOpts);
   }
+
+  /**
+   * 最后一趟：连线 + **确定性安装标准底栏**。
+   *
+   * 放最后有两个理由：① 要覆盖模型画的那一版，而重画过的页也会在这里被覆盖；
+   * ② 底栏装出来的 TEXT 才是最终要连线的节点，先连线后装等于白连。
+   */
+  wired = wireNavigation(pages, wireOpts);
 
   opts.onProgress?.({
     stage: 'convert',

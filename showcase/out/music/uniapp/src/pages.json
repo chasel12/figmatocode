@@ -1,0 +1,47 @@
+{
+  "pages": [
+    {
+      "path": "pages/p-1/index",
+      "style": {
+        "navigationBarTitleText": "发现"
+      }
+    },
+    {
+      "path": "pages/p-2/index",
+      "style": {
+        "navigationBarTitleText": "播放"
+      }
+    },
+    {
+      "path": "pages/p-3/index",
+      "style": {
+        "navigationBarTitleText": "歌单详情"
+      }
+    },
+    {
+      "path": "pages/p-4/index",
+      "style": {
+        "navigationBarTitleText": "搜索"
+      }
+    },
+    {
+      "path": "pages/p-5/index",
+      "style": {
+        "navigationBarTitleText": "我的音乐"
+      }
+    },
+    {
+      "path": "pages/p-6/index",
+      "style": {
+        "navigationBarTitleText": "歌词"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "回声 · 音乐播放-uniapp",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F7F7F7",
+    "navigationStyle": "custom"
+  }
+}

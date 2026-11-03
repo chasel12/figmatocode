@@ -88,16 +88,71 @@ function parseV1(data: unknown): UIPage | null {
 /**
  * 差异 #20 健壮性护栏（2026-10-19 四渠道审计发现）：外部/手改 v2 文件叶子节点缺 `children` 数组时，
  * 画布 NodeView 按容器迭代 children 会抛错白屏。应用自产 JSON 恒带该字段，故历轮未暴露。
- * 统一在解析出口补齐为 `[]`（不改变语义：是否容器按 type 判定，与本补丁前一致）。
+ * 统一在解析出口补齐为 `[]`。
+ *
+ * **2026-11-03 修正：只给真正的容器补，叶子上的 `children` 一律删掉。**
+ *
+ * 旧版给**每个**节点都补 `children: []`（连 TEXT 也补），注释当时写的是「是否容器按 type 判定，
+ * 与本补丁前一致」—— 但那个前提立刻被推翻了：`src/fig/export.ts` 用 `'children' in node`
+ * 判容器，于是浏览器路径下（必然经过本函数）每个 TEXT 都被当成容器，`textFieldsOf`
+ * 整块跳过，导出的 `.fig` 里 174 个 TEXT 一个字符都没写，也没有 fontSize / fontName /
+ * lineHeight / letterSpacing。打开后 6 个 frame 都在、节点数 386/386 一个不少，但整页
+ * 只剩细线和色块 —— 用户原话「残次的组件，没有一个完整的页面frame」。
+ *
+ * 教训：**`'children' in node` 不是容器判据，`isContainer()` 才是**。这里的补丁既然会
+ * 篡改「有没有 children 键」这个事实，就必须让它与 `isContainer()` 的判定一致，
+ * 否则全仓 17 处 `'children' in n` 的读法全被悄悄污染。
  */
 function ensureChildren(project: UIProject): UIProject {
+  const CONTAINERS = new Set(['PAGE', 'FRAME', 'RECTANGLE', 'SECTION']);
   const fix = (node: unknown): void => {
-    const n = node as { children?: unknown };
+    const n = node as { type?: string; children?: unknown };
     if (!n || typeof n !== 'object') return;
-    if (!Array.isArray(n.children)) n.children = [];
-    (n.children as unknown[]).forEach(fix);
+    if (CONTAINERS.has(n.type ?? '')) {
+      if (!Array.isArray(n.children)) n.children = [];
+      (n.children as unknown[]).forEach(fix);
+      return;
+    }
+    // 叶子：children 是旧版护栏留下的脏数据（TEXT 上挂 `children: []` 会被导出侧误判成容器）
+    if (Array.isArray(n.children)) {
+      (n.children as unknown[]).forEach(fix);
+      delete n.children;
+    }
   };
   project.pages.forEach((p) => fix(p.root));
+  return ensureUniquePageIds(project);
+}
+
+/**
+ * 页面 id 去重兜底（2026-11-02）。
+ *
+ * `.fig` 导入器早先直接用 `createPage()` 的固定 id `'page'`，六页全同 →
+ * 编辑器 `SELECT_PAGE` 判 `p.id === state.currentPageId` 时六页全中，点任意页都走
+ * 「已经是当前页」的早退分支，**永远切不了页**（用户看到的：「打开 fig 只有一页」）。
+ * 导入侧已修，但**修复前存下来的 `project.json` 里就是重复 id**，读侧必须再兜一层，
+ * 否则用户打开旧工程仍然是一页。
+ *
+ * 只改页面 id，**不动根节点 id**：`createPage` 的既有语义是 `page.id === root.id`
+ * （几何 map / 选中态按根 id 索引），拆开会让 `geo[page.id]` 取不到。两者相等时同步改。
+ */
+function ensureUniquePageIds(project: UIProject): UIProject {
+  const used = new Set<string>();
+  let seq = 0;
+  for (const p of project.pages) {
+    if (p.id && !used.has(p.id)) {
+      used.add(p.id);
+      continue;
+    }
+    const prev = p.id;
+    let next = '';
+    do {
+      seq += 1;
+      next = `page-fix-${seq}`;
+    } while (used.has(next));
+    p.id = next;
+    if (p.root.id === prev) p.root.id = next;
+    used.add(next);
+  }
   return project;
 }
 

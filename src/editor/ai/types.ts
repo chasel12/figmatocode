@@ -345,11 +345,34 @@ export interface AiRepeatSpec {
    *
    * ## 用法约束
    *
-   * - 只放**配色/圆角/透明度**这类逐项差异，别放布局（布局逐项不同请拆成独立节点）；
+   * - 放**配色/圆角/透明度**这类逐项差异，别放结构（`mode`/`padding`/`gap`/`position`
+   *   逐项不同请拆成独立节点）；
    * - 长度可以短于 `count`，缺的位置用模板原值（不报违例）；
    * - 展开后就是普通节点，AST 不存 `styles`，编译 / 画布 / `.fig` 往返零改动。
    */
-  styles?: Array<Partial<AiStyleSpec>>;
+  styles?: AiRepeatItemStyle[];
+}
+
+/**
+ * `repeat.styles[i]` 的单项形状：视觉样式 + **逐项长度**。
+ *
+ * ## 为什么必须有 `width`（2026-11-02 补）
+ *
+ * 进度条 / 条形图 / 技能条是「一份模板 N 份、长度各不同」的典型形态，
+ * 而长度只能落在 `layout.width` 上。`styles` 早先只有 `AiStyleSpec` 那批视觉字段，
+ * 于是这类列表在 repeat 下**结构性不可表达**：模型要么用 repeat 换来 6 条等长条
+ * （记账「预算」页实测：240/160/160/160/160/160，肉眼一看就是假数据），
+ * 要么逐条手写把输出预算吃光（该页已 63 节点）。
+ *
+ * 与 `background` 同级、扁平写：`{ width: 240 }`。转换层会把它写进 `layout.width`
+ * 并强制 `widthMode: 'FIXED'`——不强制的话 `HUG`/`FILL` 会让数值失效，
+ * 又是一个「字段在、效果不在」的假绿。
+ */
+export interface AiRepeatItemStyle extends Partial<AiStyleSpec> {
+  /** 逐项宽度（px）。进度条/条形图用它；会强制 `widthMode: FIXED` */
+  width?: number;
+  /** 逐项高度（px）。会强制 `heightMode: FIXED` */
+  height?: number;
 }
 
 export interface AiNodeSpec {

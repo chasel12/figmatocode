@@ -388,3 +388,85 @@ describe('图标占位符（闸门与转换层分层）', () => {
     expect(violations.every((v) => v.autoFixed)).toBe(true);
   });
 });
+
+/**
+ * `repeat.styles[i].width`（2026-11-02 补）
+ *
+ * 触发场景：记账「预算」页六条分类进度条。模型用了 repeat（该页 63 节点，逐条手写会吃光
+ * 输出预算），而 `styles` 当时只有视觉字段 → 六条填充宽度全是 160，只有第一条 240、
+ * 最后一条超支 300。**结构上表达不了「长度各不相同」**，不是采样噪声。
+ */
+describe('repeat 逐项长度（styles[i].width）', () => {
+  const bar = (widths: number[]): AiNodeSpec => ({
+    kind: 'FRAME',
+    name: '进度填充',
+    layout: { widthMode: 'HUG', height: 8 },
+    style: { background: '#0f5132' },
+    repeat: {
+      count: widths.length,
+      styles: widths.map((w) => ({ width: w })),
+    },
+  });
+
+  it('逐项写进 layout.width，并强制 widthMode=FIXED', () => {
+    const { nodes } = exp([bar([240, 160, 90])]);
+    expect(nodes.map((n) => n.layout?.width)).toEqual([240, 160, 90]);
+    // 模板写的是 HUG：只给数值不强制模式，HUG 会把数值当参考值 → 长度照样全一样
+    expect(nodes.map((n) => n.layout?.widthMode)).toEqual(['FIXED', 'FIXED', 'FIXED']);
+  });
+
+  it('width 不会漏进 style（那里没有这个键，会被静默丢掉）', () => {
+    const { nodes } = exp([bar([240, 160])]);
+    for (const n of nodes) {
+      expect(n.style as Record<string, unknown>).not.toHaveProperty('width');
+      // 视觉字段照旧生效
+      expect(n.style?.background).toBe('#0f5132');
+    }
+  });
+
+  it('宽度与颜色可同时逐项给，且每份克隆互不影响', () => {
+    const { nodes } = exp([
+      {
+        kind: 'FRAME',
+        name: '色条',
+        style: { background: '#000000' },
+        repeat: {
+          count: 3,
+          styles: [
+            { width: 10, background: '#111111' },
+            { width: 20, background: '#222222' },
+            { width: 30, background: '#333333' },
+          ],
+        },
+      },
+    ]);
+    expect(nodes.map((n) => n.layout?.width)).toEqual([10, 20, 30]);
+    expect(nodes.map((n) => n.style?.background)).toEqual(['#111111', '#222222', '#333333']);
+  });
+
+  it('styles 比 count 短时，缺的位置沿用模板原值（不报违例）', () => {
+    const spec = bar([240]);
+    spec.repeat = { count: 2, styles: [{ width: 240 }] };
+    const { nodes, violations } = exp([spec]);
+    expect(violations).toHaveLength(0);
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0].layout?.width).toBe(240);
+    expect(nodes[1].layout?.width).toBeUndefined();
+  });
+
+  it('契约闸门放行 styles[i].width（否则模型写了也是违例）', () => {
+    const draft: AiPageDraft = {
+      kind: 'page',
+      name: '预算',
+      width: 375,
+      height: 812,
+      root: {
+        kind: 'FRAME',
+        layout: { mode: 'VERTICAL', widthMode: 'FILL', heightMode: 'FILL' },
+        children: [bar([240, 160, 90])],
+      },
+    };
+    const res = validateAiOutput(draft, { expect: 'page', pack });
+    expect(res.ok, JSON.stringify(res.violations ?? [])).toBe(true);
+  });
+});

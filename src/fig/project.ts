@@ -10,6 +10,7 @@
  * 不能顺手往 AST 上加字段。
  */
 import type { ComponentDef, FlowDef, StyleToken, UIPage, UIProject } from '../schema/types';
+import type { TextMeasureFn } from '../compiler/measure';
 import { importFig, type FigImportStats } from './import';
 import { exportFig } from './export';
 import { loadFigCodec } from './codec';
@@ -75,7 +76,11 @@ export interface FigSaveResult {
 }
 
 /** 把当前工程写成 `.fig`（浏览器侧入口，多页一并写出） */
-export async function exportFigBlob(project: UIProject, fileName?: string): Promise<FigSaveResult> {
+export async function exportFigBlob(
+  project: UIProject,
+  fileName?: string,
+  measure?: TextMeasureFn,
+): Promise<FigSaveResult> {
   const codec = await loadFigCodec();
   const { bytes, stats } = await exportFig(project.pages, codec.encode, {
     fileName: fileName || project.name || 'project',
@@ -83,6 +88,8 @@ export async function exportFigBlob(project: UIProject, fileName?: string): Prom
     components: project.components,
     tokens: project.tokens,
     flows: project.flows,
+    // 浏览器侧的真实文本度量：不传的话 TEXT 宽度会退化成近似估算，Figma 里换行点不同
+    measure,
   });
   // 复制成独立 ArrayBuffer：Uint8Array 可能是大 buffer 的视图，直接传会让 Blob 带上整块内存
   const copy = new Uint8Array(bytes.byteLength);

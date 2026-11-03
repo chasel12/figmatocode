@@ -258,6 +258,17 @@ export function createMaskGroup(
   return { group, maskIndex: maskIndexInGroup(children) };
 }
 
+/**
+ * 新建页面。
+ *
+ * `id` 固定为 `'page'` 是**故意的**：单页场景下「同样的输入构造出逐字节相同的页面」
+ * 是脏标记（`unsaved-guard` 逐字节比对）与几何/ CSS 断言（`geo['page']`）的基础。
+ *
+ * **多页场景必须由调用方显式分配唯一 id**（见 `src/fig/import.ts`）：
+ * 早先导入器直接用这个默认值，六页全是 `'page'`，编辑器判
+ * `p.id === state.currentPageId` 时六页全中 → 点任意页都走「已经是当前页」的早退分支，
+ * **永远切不了页**，用户看到的是「`.fig` 打开只有一页」。
+ */
 export function createPage(name = '未命名页面', width = 375, height = 812): UIPage {
   const root = createNode('PAGE', { id: 'page', name }) as ContainerNode;
   root.layout.width = width;

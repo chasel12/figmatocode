@@ -99,6 +99,17 @@ export function normalize(node: UINode, parentMode?: string): unknown {
      */
     ...(node.componentId ? { componentId: node.componentId } : {}),
     ...(node.instanceOverrides?.length ? { instanceOverrides: node.instanceOverrides } : {}),
+    /**
+     * **矢量几何**。曾经完全不比 —— 而导出侧当时也确实不写 `fillGeometry`，
+     * 两边「都没有」，断言自然一致，于是「Figma 里图标是空框」在门禁里一直是绿的。
+     *
+     * 现在几何走原生 `fillGeometry`，往返后 `d` 会被烘焙成节点本地坐标（24 网格 → 16 盒子），
+     * 字符串必然不同，所以这里只比**有没有真实形状**：
+     * 只有 `M`（如占位 `M 0 0`）= 没有形状，必须和「有 L/C/A 命令」区分开。
+     */
+    ...(node.type === 'VECTOR'
+      ? { vectorShape: /[LlCcQqAaHhVvSsTt]/.test(node.vector?.d ?? '') ? 'path' : 'none' }
+      : {}),
   };
   if (isContainer) {
     const kids = (node as { children: UINode[] }).children.map((k) => normalize(k, node.layout.mode));

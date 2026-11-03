@@ -134,6 +134,63 @@ describe('FR-36 Ignore auto layout（子 mode=ABSOLUTE）', () => {
   });
 });
 
+describe('FR-36 贴底固定栏（position: FIXED）几何', () => {
+  /**
+   * 用户实测报的第二个「一页乱七八糟」：底部导航被当成普通流子项，排到 y=1008，
+   * **跑到 812 高的画框外面**。画布上看到的是「页面里 4 个块 + 下面飘着一条导航」。
+   *
+   * 出码侧一直是对的（`compile.ts` 出 `position: fixed`），所以 HTML 截图正常、
+   * 只有画布与 `.fig` 错 —— 又一条「门禁全绿但产物不能用」。
+   */
+  function buildFixedPage(): UIPage {
+    resetIdSeq(0);
+    const page = createPage('fixed', 375, 812);
+    page.root.layout = { mode: 'VERTICAL', widthMode: 'FIXED', heightMode: 'FIXED', padding: [0, 0, 80, 0], gap: 0 };
+    const a = createNode('RECTANGLE');
+    a.id = 'a';
+    a.layout = { mode: 'VERTICAL', widthMode: 'FIXED', width: 375, heightMode: 'FIXED', height: 200 };
+    const nav = createNode('FRAME') as ContainerNode;
+    nav.id = 'nav';
+    nav.layout = {
+      mode: 'HORIZONTAL',
+      widthMode: 'FILL',
+      heightMode: 'FIXED',
+      height: 64,
+      position: 'FIXED',
+      stickyBottom: 0,
+    };
+    const b = createNode('RECTANGLE');
+    b.id = 'b';
+    b.layout = { mode: 'VERTICAL', widthMode: 'FIXED', width: 375, heightMode: 'FIXED', height: 100 };
+    page.root.children.push(a, nav, b);
+    return page;
+  }
+
+  it('贴底：y = 视口高 − 自身高 − stickyBottom', () => {
+    const g = resolveLayout(buildFixedPage(), createApproxMeasure());
+    expect(g['nav'].y).toBe(812 - 64);
+    expect(g['nav'].height).toBe(64);
+    // 整条必须完整落在视口内
+    expect(g['nav'].y + g['nav'].height).toBeLessThanOrEqual(812);
+  });
+
+  it('固定栏不推进流游标：后面的流内子项紧跟上一个流内子项', () => {
+    const g = resolveLayout(buildFixedPage(), createApproxMeasure());
+    expect(g['a'].y).toBe(0);
+    // b 紧跟 a（200），而不是被固定栏再推 64
+    expect(g['b'].y).toBe(200);
+  });
+
+  it('stickyTop 优先于贴底', () => {
+    const page = buildFixedPage();
+    const nav = page.root.children[1];
+    nav.layout.stickyTop = 12;
+    nav.layout.stickyBottom = 0;
+    const g = resolveLayout(page, createApproxMeasure());
+    expect(g['nav'].y).toBe(12);
+  });
+});
+
 describe('FR-36 出码（compile）', () => {
   it('wrap→flex-wrap + gap 行列两值（横向：row=gapCross, col=gap）', () => {
     const page = buildWrapPage();

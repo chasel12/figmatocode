@@ -1,0 +1,68 @@
+{
+  "target": "vue",
+  "generatedAt": "2026-11-01T17:40:06.983Z",
+  "pages": [
+    {
+      "path": "pages/p-1",
+      "title": "点单",
+      "html": "pages/p-1/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 75
+    },
+    {
+      "path": "pages/p-2",
+      "title": "商品详情",
+      "html": "pages/p-2/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 74
+    },
+    {
+      "path": "pages/p-3",
+      "title": "购物车",
+      "html": "pages/p-3/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 75
+    },
+    {
+      "path": "pages/p-4",
+      "title": "确认订单",
+      "html": "pages/p-4/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 65
+    },
+    {
+      "path": "pages/p-5",
+      "title": "订单",
+      "html": "pages/p-5/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 81
+    },
+    {
+      "path": "pages/p-6",
+      "title": "我的",
+      "html": "pages/p-6/index.html",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 83
+    }
+  ],
+  "files": 26,
+  "bytes": 178014
+}

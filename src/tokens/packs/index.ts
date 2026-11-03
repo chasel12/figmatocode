@@ -10,6 +10,7 @@ import shadcnJson from './shadcn.tokens.json';
 import openpropsJson from './openprops.tokens.json';
 import daisyDarkJson from './daisy-dark.tokens.json';
 import blackgreenJson from './blackgreen.tokens.json';
+import forestJson from './forest.tokens.json';
 
 export type { StylePack } from './types';
 
@@ -20,8 +21,14 @@ export type { StylePack } from './types';
  * 主色分别是紫 / 蓝 / 蓝，没有任何绿色，而提示词硬规则明确「不要出现包外色值」——
  * 意味着「做一个黑绿色的 app」这类显式配色要求，不改代码就实现不了。
  * 补一个包是最小修复；更彻底的方案是让用户能在 UI 里自定义包（当前只能改源码）。
+ *
+ * `forest` 同理，2026-11-02 补：记账小程序的需求稿写「主色是墨绿」，但 `shadcn` 的
+ * `primary` 是 `#0090ff`（蓝）。提示词说绿、包说蓝 —— 模型两边都听，于是同一个页面里
+ * 大部分元素用了显式墨绿、**一个按钮用了 `@color.primary` 变蓝**。
+ * 这类「说一套、令牌给另一套」的冲突不该靠提示词加强语气解决（约束要放在令牌层），
+ * 补一个墨绿包即可。
  */
-export const PACKS: StylePack[] = [shadcnJson, openpropsJson, daisyDarkJson, blackgreenJson] as unknown as StylePack[];
+export const PACKS: StylePack[] = [shadcnJson, openpropsJson, daisyDarkJson, blackgreenJson, forestJson] as unknown as StylePack[];
 
 export const DEFAULT_PACK_ID = 'shadcn';
 

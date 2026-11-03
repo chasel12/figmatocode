@@ -120,6 +120,15 @@ export function AiDock() {
   const [sitePreview, setSitePreview] = useState(0);
   const [prompt, setPrompt] = useState('');
   const [packId, setPackId] = useState(PACKS[0].id);
+  /**
+   * 整站模式下「哪些页有底部 tab 栏」（逗号分隔，留空 = 全部页面）。
+   *
+   * 为什么需要用户填：`navItemsFor` 是**领域知识**（真实 App 里只有 tab 页有底栏，
+   * 详情页/播放页靠返回进出），管线猜不出来。不给的话缺省是「每页都有、项数 = 页数」——
+   * 6 页站点就长出 6 项底栏，实测很难看。而底栏现在由 `installTabBar` 确定性安装，
+   * 这里填的名单就是它唯一的输入。
+   */
+  const [tabPagesText, setTabPagesText] = useState('');
   const [provider, setProviderState] = useState<ProviderId>(getProvider());
   const [model, setModelState] = useState(() => getModel());
   const [keyDraft, setKeyDraft] = useState('');
@@ -268,7 +277,14 @@ export function AiDock() {
       if (designRef) pushLog(`已注入 ${activeRefCount} 段设计参考（${designRef.length} 字）`);
 
       if (mode === 'site') {
-        const res = await runSiteGeneration(base);
+        const tabPages = tabPagesText
+          .split(/[,，、\s]+/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+        const res = await runSiteGeneration(
+          base,
+          tabPages.length ? { navItemsFor: (name) => (tabPages.includes(name) ? tabPages : []) } : undefined,
+        );
         setResult({
           kind: 'site',
           pages: res.pages,
@@ -563,6 +579,17 @@ export function AiDock() {
           </option>
         ))}
       </select>
+
+      {mode === 'site' && (
+        <input
+          className="ai-key-input"
+          placeholder="底部 tab 页：今日, 动作库, 我的（留空=每页都有）"
+          value={tabPagesText}
+          onChange={(e) => setTabPagesText(e.target.value)}
+          disabled={running}
+          title="只有这些页会装底部导航栏；其余页是流程页（靠返回和页面内按钮进出）。底栏结构由编译器统一安装，不靠模型三次都画一样。"
+        />
+      )}
 
       {prov.modelEditable ? (
         <input

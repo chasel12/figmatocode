@@ -1,0 +1,97 @@
+{
+  "id": "forest",
+  "name": "Forest / 墨绿账本",
+  "source": "shadcn 语义骨架 + 墨绿强调色（记账 / 理财类）",
+  "license": "MIT",
+  "mode": "light",
+  "description": "中性灰阶 + 单一墨绿强调色：白底、细边框、8px 圆角。为「记账 / 理财 / 报销」这类需要克制与信任感的场景准备。",
+  "colors": {
+    "background": "#ffffff",
+    "foreground": "#1c2024",
+    "card": "#ffffff",
+    "card-foreground": "#1c2024",
+    "popover": "#ffffff",
+    "popover-foreground": "#1c2024",
+    "primary": "#0f5132",
+    "primary-foreground": "#ffffff",
+    "secondary": "#f4f6f5",
+    "secondary-foreground": "#60646c",
+    "muted": "#f4f6f5",
+    "muted-foreground": "#6b7a72",
+    "accent": "#eef2f0",
+    "accent-foreground": "#1c2024",
+    "destructive": "#e5484d",
+    "destructive-foreground": "#ffffff",
+    "border": "#e4e8e6",
+    "input": "#e4e8e6",
+    "ring": "#2f7d5b",
+    "success": "#2f7d5b",
+    "warning": "#ffc53d"
+  },
+  "fontSizes": [
+    12,
+    13,
+    14,
+    16,
+    18,
+    20,
+    24,
+    30,
+    36
+  ],
+  "spacings": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64
+  ],
+  "radii": [
+    0,
+    4,
+    6,
+    8,
+    12,
+    16,
+    24,
+    999
+  ],
+  "shadows": [
+    "0 1px 2px -1px hsl(220 3% 15%/10%)",
+    "0 3px 5px -2px hsl(220 3% 15%/4%),0 7px 14px -5px hsl(220 3% 15%/6%)",
+    "0 -1px 3px 0 hsl(220 3% 15%/3%),0 1px 2px -5px hsl(220 3% 15%/3%),0 2px 5px -5px hsl(220 3% 15%/5%),0 4px 12px -5px hsl(220 3% 15%/6%),0 12px 15px -5px hsl(220 3% 15%/8%)",
+    "0 -2px 5px 0 hsl(220 3% 15%/3%),0 1px 1px -2px hsl(220 3% 15%/4%),0 2px 2px -2px hsl(220 3% 15%/4%),0 5px 5px -2px hsl(220 3% 15%/5%),0 9px 9px -2px hsl(220 3% 15%/6%),0 16px 16px -2px hsl(220 3% 15%/7%)"
+  ],
+  "fonts": [
+    {
+      "family": "Inter",
+      "stack": "Inter, \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/inter",
+      "license": "OFL-1.1"
+    },
+    {
+      "family": "Space Grotesk",
+      "stack": "\"Space Grotesk\", Inter, \"PingFang SC\", system-ui, sans-serif",
+      "weights": [
+        400,
+        500,
+        600,
+        700
+      ],
+      "source": "@fontsource-variable/space-grotesk",
+      "license": "OFL-1.1"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "projectName": "铁志 · 力量训练日志",
+  "generatedAt": "2026-11-02T14:44:42.381Z",
+  "targets": [
+    {
+      "id": "react",
+      "files": 31,
+      "bytes": 139938
+    },
+    {
+      "id": "vue",
+      "files": 26,
+      "bytes": 136416
+    },
+    {
+      "id": "taro",
+      "files": 30,
+      "bytes": 139778
+    },
+    {
+      "id": "uniapp",
+      "files": 15,
+      "bytes": 134028
+    }
+  ],
+  "pages": [
+    {
+      "name": "今日",
+      "path": "pages/p-1",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 49
+    },
+    {
+      "name": "训练",
+      "path": "pages/p-2",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 48
+    },
+    {
+      "name": "动作库",
+      "path": "pages/p-3",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 82
+    },
+    {
+      "name": "记录",
+      "path": "pages/p-4",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 63
+    },
+    {
+      "name": "进度",
+      "path": "pages/p-5",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 66
+    },
+    {
+      "name": "我的",
+      "path": "pages/p-6",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "nodes": 53
+    }
+  ],
+  "notes": [
+    "每个 target 目录都是一份独立工程：cd <target> && npm i && npm run build",
+    "react: MPA，产物 dist/<page>/index.html",
+    "vue: 仅 H5（vite + @vitejs/plugin-vue），产物 dist/<page>/index.html",
+    "taro: npm run build:h5 / build:weapp",
+    "uniapp: npm run build:h5 / build:mp-weixin",
+    "要用 vue3 语法出小程序，请用 uniapp 端（同为 .vue SFC，已验 mp-weixin）",
+    "每端的 codegen-manifest.json 记录该端页面清单与产物路径（与本包生成时一致）"
+  ]
+}

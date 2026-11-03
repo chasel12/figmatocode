@@ -28,9 +28,19 @@ export function saveProjectJson(state: EditorState): void {
 export async function saveProjectFig(
   state: EditorState,
 ): Promise<{ pages: number; nodes: number; images: number }> {
-  const { exportFigBlob } = await import('../fig/project');
+  const [{ exportFigBlob }, { createCanvasMeasure }] = await Promise.all([
+    import('../fig/project'),
+    import('../compiler/measure'),
+  ]);
   const project = projectFromEditorState(state);
-  const { blob, stats } = await exportFigBlob(project, state.projectName || 'project');
+  /**
+   * **必须传真实文本测量**（canvas measureText）。
+   *
+   * `.fig` 里 TEXT 的宽度会落进 `size.x`，而 `textAutoResize: HEIGHT` 让 Figma
+   * 按这个宽度换行。宽度一旦偏小（早先按 0.62em 粗估，中文被低估 40%），Figma 就多换
+   * 一行 → 高度变大 → 垂直流里后面所有元素整体下移 = 「Figma 排版和 uicompiler 不一样」。
+   */
+  const { blob, stats } = await exportFigBlob(project, state.projectName || 'project', createCanvasMeasure());
   downloadBlob(blob, `${state.projectName || 'project'}.fig`);
   return stats;
 }

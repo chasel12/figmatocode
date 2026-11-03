@@ -18,7 +18,7 @@ import { createPage, resetIdSeq } from '../src/schema/factory';
 import type { ButtonNode, ContainerNode, TextNode, UIPage } from '../src/schema/types';
 import { getPack } from '../src/tokens/packs';
 import { checkSitePlan, SITE_MAX_PAGES, SITE_MIN_PAGES, validateAiOutput } from '../src/editor/ai/contract';
-import { runSiteGeneration, stripBadge, wireNavigation, pagePromptOf, hasNavLabel } from '../src/editor/ai/site';
+import { installTabBar, runSiteGeneration, stripBadge, wireNavigation, pagePromptOf, hasNavLabel } from '../src/editor/ai/site';
 import { projectWithSite } from '../src/editor/ai/aiActions';
 import { generatePrototypeProject } from '../src/generator/prototype';
 import type { LlmClient, LlmRequest, LlmResult } from '../src/editor/ai/client';
@@ -154,6 +154,25 @@ describe('导航串联（确定性）', () => {
     const res = wireNavigation(pages);
     const pageIds = new Set(pages.map((p) => p.id));
     for (const l of res.links) expect(pageIds.has(l.toPageId)).toBe(true);
+  });
+
+  it('幂等：跑第二遍要报出同样的链接，不能因为「边已存在」就一条都不报', () => {
+    /**
+     * 管线里 `wireNavigation` 被调两次（首次串联 → 死页重画 → 再串联）。
+     * 早先第二遍会把已有的边直接 `return` 掉、连 `links.push` 一起跳过，
+     * 于是调用方拿到的是「只有这一趟新加的」那一小撮，看起来像导航断了。
+     * 实测音乐播放器 6 页：实际 3 条出边，报告 0 条，被判成死页。
+     */
+    const pages = threePages();
+    const first = wireNavigation(pages);
+    const second = wireNavigation(pages);
+    expect(first.links).toHaveLength(6);
+    expect(second.links.map((l) => `${l.fromPageId}|${l.toPageName}`).sort()).toEqual(
+      first.links.map((l) => `${l.fromPageId}|${l.toPageName}`).sort(),
+    );
+    // 且不能把 interaction 写重
+    const btn = (pages[0].root.children[1] as ContainerNode).children[1] as ButtonNode;
+    expect(btn.interactions ?? []).toHaveLength(1);
   });
 
   it('只给 TEXT/BUTTON 挂：FRAME 包裹层不变成大按钮', () => {
@@ -339,6 +358,59 @@ describe('整站管线（规划 → 逐页 → 串联）', () => {
     expect(client.calls[0].user).toContain('规划');
   });
 
+  /**
+   * 死页重画：**只对流程页生效**，且提示词必须走 `navFor`，不能写「用全部页面名」。
+   *
+   * 实测 bug（2026-11-01，记账小程序）：重画提示词无条件写「请补上底部导航栏，文案用
+   * 全部 6 个页面名」——而 `navItems` 已经按 `navItemsFor` 给流程页发了空数组。两条指令
+   * 打架，模型听提示词的：「记一笔」「预算」两页各长出 6 项底栏。
+   *
+   * 2026-11-02 补一层：底栏改成管线确定性安装（`installTabBar`）之后，**tab 页天然有出边**，
+   * 不再可能被判死页。所以这里同时锁两件事——
+   *   ① 只有流程页会被重画（tab 页白重画 = 白烧钱）；
+   *   ② 流程页的重画提示词说「不要画底栏，补返回 + 下一步按钮」。
+   */
+  it('死页重画只发生在流程页，且明确要求不画底栏', async () => {
+    const plan: AiSiteDraft = {
+      kind: 'site',
+      name: '健身打卡',
+      pages: [
+        { name: '首页', brief: '今日训练', entry: true },
+        { name: '训练', brief: '动作清单' },
+        { name: '我的', brief: '设置项' },
+      ],
+    };
+    const client = new ScriptedClient((req) => {
+      if (req.kind === 'site') return JSON.stringify(plan);
+      const name = nav.find((n) => req.user.includes(`的「${n}」页`)) ?? '首页';
+      // 第一遍全部给空导航（制造死页），重画时才给内容
+      if (!req.user.includes('一条导航都没有')) return JSON.stringify(pageDraftFor(name, []));
+      return JSON.stringify(pageDraftFor(name, name === '首页' ? nav : ['返回']));
+    });
+
+    await runSiteGeneration(
+      {
+        userPrompt: '健身 App',
+        pack,
+        viewport: { width: 375, height: 812 },
+        client,
+      },
+      // 内容过薄重画关掉（mock 页节点少），否则每页多一次调用会打乱调用数断言
+      { minNodesPerPage: 0, navItemsFor: (n: string) => (n === '首页' ? nav : []) },
+    );
+
+    const retries = client.calls.filter((c) => c.kind === 'page' && c.user.includes('一条导航都没有'));
+    // 首页是 tab 页 —— 底栏由管线装，天然有出边，不该被重画
+    expect(retries.map((c) => nav.find((n) => c.user.includes(`的「${n}」页`)))).toEqual(['训练', '我的']);
+
+    for (const flow of ['训练', '我的']) {
+      const call = retries.find((c) => c.user.includes(`的「${flow}」页`))!;
+      expect(call.user, `${flow} 是流程页`).toContain('不要画底部导航栏');
+      // 关键回归：不能再出现「文案用「全部页面名」」这种反向指令
+      expect(call.user).not.toContain('文案用「');
+    }
+  });
+
   it('入口页不在规划第一位时会被提到第一位（原型 runtime 只默认展示第一页）', async () => {
     // 规划故意把「我的」写在最前，entry 标在「首页」上
     const plan: AiSiteDraft = {
@@ -492,5 +564,83 @@ describe('整站模式不影响单页模式', () => {
     const page = navPage('首页', ['训练']);
     expect(hasNavLabel(page, '训练')).toBe(true);
     expect(hasNavLabel(page, '导航栏')).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 底栏确定性安装（installTabBar）                                      */
+/* ------------------------------------------------------------------ */
+
+describe('底栏确定性安装（installTabBar）', () => {
+  const items = ['首页', '训练', '我的'];
+
+  /**
+   * 为什么这组测试必须存在：底栏是「跨页共享组件 × N 次独立生成」，
+   * 2026-11-02 铁志实跑 8 轮，每轮漂移点都不同（图标三页三套 / 手写 vectorD 坐标越界 /
+   * 流程页照样长出底栏 / 长页里底栏跟着内容滚走）。提示词改不动它，只能靠代码装。
+   *
+   * 所以这里锁的不是「装出来的样子好看」，而是**结构性事实**：
+   * 装完必须「三页结构一致 + 流程页没有 + 幂等」。
+   */
+  it('装完的底栏三页结构一致（同 items，只差选中项）', () => {
+    const pages = items.map((n) => navPage(n, []));
+    for (const p of pages) installTabBar(p, items);
+
+    const shapes = pages.map((p) => {
+      const bar = (p.root as ContainerNode).children.find((c) => c.name === '底部导航') as ContainerNode;
+      expect(bar, `${p.name} 应有底栏`).toBeTruthy();
+      // 吸底：长页滚动时不能跟着走
+      expect(bar.layout.position).toBe('FIXED');
+      return bar.children.map((cell) => {
+        const kids = (cell as ContainerNode).children;
+        const text = kids.find((k) => k.type === 'TEXT') as TextNode;
+        // 有下划线 = 选中项；三页各自选中自己，其余两项无下划线
+        return `${text.text}${kids.some((k) => k.type === 'RECTANGLE') ? '*' : ''}`;
+      });
+    });
+    expect(shapes[0]).toEqual(['首页*', '训练', '我的']);
+    expect(shapes[1]).toEqual(['首页', '训练*', '我的']);
+    expect(shapes[2]).toEqual(['首页', '训练', '我的*']);
+  });
+
+  it('流程页（items 为空）会把模型画的底栏删掉', () => {
+    // 平铺 BUTTON 形态 —— 模型最常见的写法
+    const page = navPage('训练', items);
+    const before = (page.root as ContainerNode).children.length;
+    expect(installTabBar(page, [], {}, items)).toBe(true);
+    const after = (page.root as ContainerNode).children;
+    expect(after.length).toBe(before - 1);
+    expect(after.some((c) => c.name === '导航栏')).toBe(false);
+    expect(hasNavLabel(page, '我的')).toBe(false);
+  });
+
+  it('幂等：第二次调用不改动任何节点（否则 wireNavigation 的幂等性会被打破）', () => {
+    const page = navPage('首页', []);
+    expect(installTabBar(page, items)).toBe(true);
+    const bar = (page.root as ContainerNode).children.find((c) => c.name === '底部导航') as ContainerNode;
+    const ids = [bar.id, ...bar.children.map((c) => c.id)];
+    expect(installTabBar(page, items)).toBe(false);
+    const again = (page.root as ContainerNode).children.find((c) => c.name === '底部导航') as ContainerNode;
+    expect([again.id, ...again.children.map((c) => c.id)]).toEqual(ids);
+  });
+
+  it('模型画的底栏会被替换而不是并存（否则一页出现两条底栏）', () => {
+    const page = navPage('首页', items);
+    installTabBar(page, items);
+    const bars = (page.root as ContainerNode).children.filter((c) => c.name === '底部导航' || c.name === '导航栏');
+    expect(bars).toHaveLength(1);
+    // 只剩我们装的那一条，且它是最后一个子项（视觉上贴底）
+    const kids = (page.root as ContainerNode).children;
+    expect(kids[kids.length - 1].name).toBe('底部导航');
+  });
+
+  it('整站串联后每个 tab 页的出边数 = items.length - 1（不给自己挂）', () => {
+    const pages = items.map((n) => navPage(n, []));
+    const res = wireNavigation(pages, { tabItemsFor: (n) => (items.includes(n) ? items : []) });
+    for (const p of pages) {
+      const out = res.links.filter((l) => l.fromPageId === p.id);
+      expect(out, `${p.name} 的出边`).toHaveLength(items.length - 1);
+      expect(out.every((l) => l.toPageId !== p.id)).toBe(true);
+    }
   });
 });

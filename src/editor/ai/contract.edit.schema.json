@@ -647,6 +647,113 @@
       "type": "object",
       "additionalProperties": false
     },
+    "AiRepeatItemStyle": {
+      "description": "`repeat.styles[i]` 的单项形状：视觉样式 + **逐项长度**。\n\n## 为什么必须有 `width`（2026-11-02 补）\n\n进度条 / 条形图 / 技能条是「一份模板 N 份、长度各不同」的典型形态， 而长度只能落在 `layout.width` 上。`styles` 早先只有 `AiStyleSpec` 那批视觉字段， 于是这类列表在 repeat 下**结构性不可表达**：模型要么用 repeat 换来 6 条等长条 （记账「预算」页实测：240/160/160/160/160/160，肉眼一看就是假数据）， 要么逐条手写把输出预算吃光（该页已 63 节点）。\n\n与 `background` 同级、扁平写：`{ width: 240 }`。转换层会把它写进 `layout.width` 并强制 `widthMode: 'FIXED'`——不强制的话 `HUG`/`FILL` 会让数值失效， 又是一个「字段在、效果不在」的假绿。",
+      "properties": {
+        "background": {
+          "description": "填充色：hex 或",
+          "type": "string"
+        },
+        "border": {
+          "$ref": "#/definitions/AiBorderSpec"
+        },
+        "borderRadius": {
+          "type": "number"
+        },
+        "color": {
+          "description": "文本/图标色：hex 或",
+          "type": "string"
+        },
+        "decorations": {
+          "description": "B1 装饰层（只补 fills/effects 表达不了的视觉）",
+          "items": {
+            "$ref": "#/definitions/AiDecorationSpec"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/AiEffectSpec"
+          },
+          "type": "array"
+        },
+        "fills": {
+          "description": "FR-17 多层填充（数组序 = CSS 层序，首层在上）；渐变按钮/渐变卡片底用它",
+          "items": {
+            "$ref": "#/definitions/AiFillSpec"
+          },
+          "type": "array"
+        },
+        "fontFamily": {
+          "description": "字体族。**只接受受控名字，不接受任意 CSS 字符串。**\n\n取值两路：① 风格包提供的 family 名（如 `\"Inter\"` / `\"Space Grotesk\"`）； ② 固定别名 —— `sans` / `serif` / `kai` / `round` / `mono`（也收中文名 `黑体` / `宋体` / `楷体` / `圆体` / `等宽`）。\n\n为什么必须受控：产物是单文件 HTML，字体只能靠本机已装的系统字体或已内嵌的 woff2。模型若写 `\"Noto Serif SC\"` 而机器没装，浏览器静默退回默认字体—— 字段在、违例 0 条、像素基线正常，**只有肉眼能发现**「怎么还是黑体」。 这与 `writing-mode` 那类真缺字段不同，是「给了但会假成功」，所以卡在转换层。",
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "fontWeight": {
+          "type": "number"
+        },
+        "grid": {
+          "$ref": "#/definitions/AiGridSpec",
+          "description": "B3 CSS Grid"
+        },
+        "height": {
+          "description": "逐项高度（px）。会强制 `heightMode: FIXED`",
+          "type": "number"
+        },
+        "letterSpacing": {
+          "type": "number"
+        },
+        "lineHeight": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "states": {
+          "$ref": "#/definitions/AiStatesSpec",
+          "description": "B2 交互态：出码成伪类，画布不预览"
+        },
+        "textAlign": {
+          "enum": [
+            "left",
+            "center",
+            "right",
+            "justify"
+          ],
+          "type": "string"
+        },
+        "textCase": {
+          "description": "大小写变换（中文无效果，只对西文标签/眉标有意义）",
+          "enum": [
+            "UPPER",
+            "LOWER",
+            "TITLE",
+            "SMALL_CAPS"
+          ],
+          "type": "string"
+        },
+        "textDecoration": {
+          "description": "文字装饰线（下划线强调、删除价）",
+          "enum": [
+            "UNDERLINE",
+            "STRIKETHROUGH"
+          ],
+          "type": "string"
+        },
+        "transform": {
+          "$ref": "#/definitions/AiTransformSpec",
+          "description": "B3 元素级变换"
+        },
+        "width": {
+          "description": "逐项宽度（px）。进度条/条形图用它；会强制 `widthMode: FIXED`",
+          "type": "number"
+        }
+      },
+      "type": "object",
+      "additionalProperties": false
+    },
     "AiRepeatSpec": {
       "description": "重复（**结构级方言**，与 `className` 同策略：解析完即丢弃，AST 不存）\n\n## 为什么需要它\n\nAST 每个节点有固定骨架开销（`kind` + `name` + `className` 约 60~80 字符）， 而 HTML 一个 `<div class=\"cell\">14</div>` 只要 30 字符。实测（`docs/ai-ab-report.md` 附录 B）： 模型画日历只能一格一格写，42 个格子里真正有信息量的只有 `14`、`力量` 两个词， 其余全是重复描述「我是一个格子」。输出预算被格式占满，于是日历从 3 周缩到 2 周、 底部导航直接消失。\n\n`repeat` 让模型**写一遍模板 + 说重复几次**，展开由转换层确定性完成。 省下的预算用于画更多内容——这是 AST 相对「直接写代码」唯一能反超的地方， 因为静态 HTML 表达不了「重复」（`for` 循环是运行时行为，产物不可编辑）。\n\n## 为什么不进 AST\n\n展开后就是 N 个普通节点，编译 / 画布 / `.fig` 往返 / 比对口径全部零改动。 代价是「改模板不能影响实例」——那是完整版（AST 原生支持）才有的能力， 需要引入 Figma 的 component-instance 概念，属另一个量级的改动。",
       "properties": {
@@ -655,104 +762,9 @@
           "type": "number"
         },
         "styles": {
-          "description": "逐项样式：与 `values` 按同一个 index 对齐，第 i 份克隆额外覆盖 `styles[i]`。\n\n## 为什么需要它\n\n`values` 只能填**字符串占位符**，而模板是共享的——样式字段拿不到逐项值。 于是「24 个节气色条各一个颜色」在 repeat 下结构性不可表达：24 条只能共用一个色。 而 24 条恰恰是靠 repeat 才画得起的（逐条手写会把输出预算吃光）。 实测见 `docs/ai-ab-report.md` 附录 G.3。\n\n## 用法约束\n\n- 只放**配色/圆角/透明度**这类逐项差异，别放布局（布局逐项不同请拆成独立节点）；\n- 长度可以短于 `count`，缺的位置用模板原值（不报违例）；\n- 展开后就是普通节点，AST 不存 `styles`，编译 / 画布 / `.fig` 往返零改动。",
+          "description": "逐项样式：与 `values` 按同一个 index 对齐，第 i 份克隆额外覆盖 `styles[i]`。\n\n## 为什么需要它\n\n`values` 只能填**字符串占位符**，而模板是共享的——样式字段拿不到逐项值。 于是「24 个节气色条各一个颜色」在 repeat 下结构性不可表达：24 条只能共用一个色。 而 24 条恰恰是靠 repeat 才画得起的（逐条手写会把输出预算吃光）。 实测见 `docs/ai-ab-report.md` 附录 G.3。\n\n## 用法约束\n\n- 放**配色/圆角/透明度**这类逐项差异，别放结构（`mode`/`padding`/`gap`/`position`   逐项不同请拆成独立节点）；\n- 长度可以短于 `count`，缺的位置用模板原值（不报违例）；\n- 展开后就是普通节点，AST 不存 `styles`，编译 / 画布 / `.fig` 往返零改动。",
           "items": {
-            "properties": {
-              "background": {
-                "description": "填充色：hex 或",
-                "type": "string"
-              },
-              "border": {
-                "$ref": "#/definitions/AiBorderSpec"
-              },
-              "borderRadius": {
-                "type": "number"
-              },
-              "color": {
-                "description": "文本/图标色：hex 或",
-                "type": "string"
-              },
-              "decorations": {
-                "description": "B1 装饰层（只补 fills/effects 表达不了的视觉）",
-                "items": {
-                  "$ref": "#/definitions/AiDecorationSpec"
-                },
-                "type": "array"
-              },
-              "effects": {
-                "items": {
-                  "$ref": "#/definitions/AiEffectSpec"
-                },
-                "type": "array"
-              },
-              "fills": {
-                "description": "FR-17 多层填充（数组序 = CSS 层序，首层在上）；渐变按钮/渐变卡片底用它",
-                "items": {
-                  "$ref": "#/definitions/AiFillSpec"
-                },
-                "type": "array"
-              },
-              "fontFamily": {
-                "description": "字体族。**只接受受控名字，不接受任意 CSS 字符串。**\n\n取值两路：① 风格包提供的 family 名（如 `\"Inter\"` / `\"Space Grotesk\"`）； ② 固定别名 —— `sans` / `serif` / `kai` / `round` / `mono`（也收中文名 `黑体` / `宋体` / `楷体` / `圆体` / `等宽`）。\n\n为什么必须受控：产物是单文件 HTML，字体只能靠本机已装的系统字体或已内嵌的 woff2。模型若写 `\"Noto Serif SC\"` 而机器没装，浏览器静默退回默认字体—— 字段在、违例 0 条、像素基线正常，**只有肉眼能发现**「怎么还是黑体」。 这与 `writing-mode` 那类真缺字段不同，是「给了但会假成功」，所以卡在转换层。",
-                "type": "string"
-              },
-              "fontSize": {
-                "type": "number"
-              },
-              "fontWeight": {
-                "type": "number"
-              },
-              "grid": {
-                "$ref": "#/definitions/AiGridSpec",
-                "description": "B3 CSS Grid"
-              },
-              "letterSpacing": {
-                "type": "number"
-              },
-              "lineHeight": {
-                "type": "number"
-              },
-              "opacity": {
-                "type": "number"
-              },
-              "states": {
-                "$ref": "#/definitions/AiStatesSpec",
-                "description": "B2 交互态：出码成伪类，画布不预览"
-              },
-              "textAlign": {
-                "enum": [
-                  "left",
-                  "center",
-                  "right",
-                  "justify"
-                ],
-                "type": "string"
-              },
-              "textCase": {
-                "description": "大小写变换（中文无效果，只对西文标签/眉标有意义）",
-                "enum": [
-                  "UPPER",
-                  "LOWER",
-                  "TITLE",
-                  "SMALL_CAPS"
-                ],
-                "type": "string"
-              },
-              "textDecoration": {
-                "description": "文字装饰线（下划线强调、删除价）",
-                "enum": [
-                  "UNDERLINE",
-                  "STRIKETHROUGH"
-                ],
-                "type": "string"
-              },
-              "transform": {
-                "$ref": "#/definitions/AiTransformSpec",
-                "description": "B3 元素级变换"
-              }
-            },
-            "type": "object",
-            "additionalProperties": false
+            "$ref": "#/definitions/AiRepeatItemStyle"
           },
           "type": "array"
         },

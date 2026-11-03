@@ -65,6 +65,25 @@ describe('exportFigBlob', () => {
     expect(again.project.pages).toHaveLength(first.project.pages.length);
   });
 
+  /**
+   * 页面名必须走完往返不变。
+   *
+   * 早先导出用 `root.name` 当顶层 FRAME 的名字，而导入按 FRAME 名反推页面名 ——
+   * demo 页两者恰好相等（`createPage` 同名），所以一直没暴露；AI 生成的页面根常被
+   * 模型起成「铁志-训练」这种带品牌前缀的图层名，于是导出再导入页面名就变了。
+   * 页面名是导航主键（`wireNavigation` 精确匹配、tabBar 按它判归属），换名字等于导航全断。
+   */
+  it('页面名往返不变（不跟根节点的图层名）', async () => {
+    const page = createPage('训练');
+    page.id = 'pg-1';
+    page.root.id = 'pg-1';
+    // 模拟 AI 生成：页面根被起了个带品牌前缀的图层名
+    page.root.name = '铁志-训练';
+    const { blob } = await exportFigBlob(pagesToProject([page], 'ironlog'), 'ironlog');
+    const again = await importFigFile(new File([blob], 'ironlog.fig'));
+    expect(again.project.pages.map((p) => p.name)).toEqual(['训练']);
+  });
+
   it('空工程直接报错，而不是产出打不开的坏文件', async () => {
     await expect(exportFigBlob(pagesToProject([], 'empty'))).rejects.toThrow(/没有可导出的页面/);
   });
